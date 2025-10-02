@@ -47,6 +47,8 @@ import { FastMCP } from 'fastmcp';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
+import { editorTools } from './tools/editor_tools.js';
+import { patchTools } from './tools/patch_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
@@ -68,7 +70,7 @@ function main() {
                         version: '1.0.0',
                     });
                     // Register all tools
-                    __spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true).forEach(function (tool) {
                         server.addTool(tool);
                     });
                     // Register all resources
