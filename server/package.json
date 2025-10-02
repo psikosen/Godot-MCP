@@ -20,12 +20,14 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "diff": "^5.2.0",
     "fastmcp": "^1.20.4",
     "websocket": "^1.0.35",
     "ws": "^8.13.0",
     "zod": "^3.21.4"
   },
   "devDependencies": {
+    "@types/diff": "^5.2.3",
     "@types/node": "^20.3.1",
     "@types/ws": "^8.5.5",
     "nodemon": "^2.0.22",
