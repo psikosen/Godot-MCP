@@ -14,7 +14,7 @@
 
 ## P0 — Core reliability, safety, and ergonomics
 - [x] Hardened apply-changes & diff/patch pipeline (preview/apply/cancel, atomic apply, rollback, file locks).
-- [ ] Transactional scene edits with UndoRedo integration.
+- [x] Transactional scene edits with UndoRedo integration.
 - [ ] Capability scoping & permissions (allowlists, read-only vs read-write, escalation prompts).
 - [ ] Structural validation for scenes/scripts (lint, gdformat, scene integrity checks).
 - [ ] Robust error model & diagnostics (standard envelope, log capture).
