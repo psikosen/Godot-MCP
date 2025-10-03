@@ -60,6 +60,11 @@ The MCP server bridges Claude and Godot:
 - Formats responses for Claude's consumption
 - Provides help text and examples
 
+#### Project Context Indexer
+- Scans the project tree (excluding transient directories) and caches metadata
+- Exposes a glob-query API so assistants can enumerate scripts, scenes, and docs quickly
+- Shares the cached snapshot through MCP resources and tools for reproducible context
+
 ## Communication Protocol
 
 ### Command Flow

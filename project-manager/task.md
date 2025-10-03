@@ -20,7 +20,8 @@
   - [ ] Introduce escalation prompts & per-command roles for high-risk operations.
 - [ ] Structural validation for scenes/scripts (lint, gdformat, scene integrity checks).
 - [ ] Robust error model & diagnostics (standard envelope, log capture).
-- [ ] State/model context indexing (project map) with incremental updates.
+- [x] State/model context indexing (project map) with incremental updates.
+  - [x] Server-side cached project index with glob queries and MCP resource exposure.
 - [ ] Godot run/stop with headless test hook (run-project, run-tests).
 - [ ] Concurrency control (per-resource mutexes, global write queue, ETag handling).
 

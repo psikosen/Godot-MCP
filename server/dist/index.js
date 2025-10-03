@@ -49,11 +49,12 @@ import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
 import { editorTools } from './tools/editor_tools.js';
 import { patchTools } from './tools/patch_tools.js';
+import { projectTools } from './tools/project_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResource, scriptListResource, scriptMetadataResource } from './resources/script_resources.js';
-import { projectStructureResource, projectSettingsResource, projectResourcesResource } from './resources/project_resources.js';
+import { projectStructureResource, projectSettingsResource, projectResourcesResource, projectIndexResource, } from './resources/project_resources.js';
 import { editorStateResource, selectedNodeResource, currentScriptResource } from './resources/editor_resources.js';
 /**
  * Main entry point for the Godot MCP server
@@ -70,7 +71,7 @@ function main() {
                         version: '1.0.0',
                     });
                     // Register all tools
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true).forEach(function (tool) {
                         server.addTool(tool);
                     });
                     // Register all resources
@@ -80,6 +81,7 @@ function main() {
                     server.addResource(projectStructureResource);
                     server.addResource(projectSettingsResource);
                     server.addResource(projectResourcesResource);
+                    server.addResource(projectIndexResource);
                     server.addResource(editorStateResource);
                     server.addResource(selectedNodeResource);
                     server.addResource(currentScriptResource);

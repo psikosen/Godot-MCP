@@ -7,6 +7,7 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
 - **Full Godot Project Access**: AI assistants can access and modify scripts, scenes, nodes, and project resources
 - **Two-way Communication**: Send project data to AI and apply suggested changes directly in the editor
 - **Capability-Aware Editing**: Patch application is scoped to an allowlisted set of directories, file types, and critical assets for safer automation
+- **Project Indexing & Query**: Cached project map with glob-style queries for quick discovery of files and directories
 - **Command Categories**:
   - **Node Commands**: Create, modify, and manage nodes in your scenes
   - **Script Commands**: Edit, analyze, and create GDScript files
@@ -106,6 +107,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `godot://script/current` - The currently open script
 - `godot://scene/current` - The currently open scene
 - `godot://project/info` - Project metadata and settings
+- `godot://project/index` - Cached project file and directory index snapshot
 
 ### Command Categories:
 
@@ -132,6 +134,8 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 #### Project Commands
 - `get-project-settings` - Gets project settings
 - `list-project-resources` - Lists project resources
+- `refresh_project_index` - Rebuilds the cached project index snapshot
+- `query_project_index` - Queries the cached project index with glob patterns
 
 #### Editor Commands
 - `get-editor-state` - Gets current editor state

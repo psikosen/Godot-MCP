@@ -1,5 +1,6 @@
 import { Resource } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
+import { projectIndexer } from '../utils/project_indexer.js';
 
 /**
  * Resource that provides information about the Godot project structure
@@ -70,5 +71,20 @@ export const projectResourcesResource: Resource = {
       console.error('Error fetching project resources:', error);
       throw error;
     }
+  }
+};
+
+/**
+ * Resource that provides the cached project index snapshot built by the MCP server
+ */
+export const projectIndexResource: Resource = {
+  uri: 'godot/project/index',
+  name: 'Godot Project Index',
+  mimeType: 'application/json',
+  async load() {
+    const snapshot = await projectIndexer.getIndex();
+    return {
+      text: JSON.stringify(snapshot, null, 2),
+    };
   }
 };
