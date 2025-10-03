@@ -39,6 +39,10 @@ export const nodeTools: MCPTool[] = [
   {
     name: 'create_node',
     description: 'Create a new node in the Godot scene tree',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Adds a new node instance to the active scene tree.',
+    },
     parameters: z.object({
       parent_path: z.string()
         .describe('Path to the parent node where the new node will be created (e.g. "/root", "/root/MainScene")'),
@@ -71,6 +75,10 @@ export const nodeTools: MCPTool[] = [
   {
     name: 'delete_node',
     description: 'Delete a node from the Godot scene tree',
+    capability: {
+      role: 'admin',
+      escalationMessage: 'Removes an existing node and its children from the scene tree.',
+    },
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to delete (e.g. "/root/MainScene/Player")'),
@@ -93,6 +101,10 @@ export const nodeTools: MCPTool[] = [
   {
     name: 'update_node_property',
     description: 'Update a property of a node in the Godot scene tree',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Mutates serialized properties on nodes inside the scene tree.',
+    },
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to update (e.g. "/root/MainScene/Player")'),
@@ -125,6 +137,10 @@ export const nodeTools: MCPTool[] = [
   {
     name: 'get_node_properties',
     description: 'Get all properties of a node in the Godot scene tree',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Reads properties from a node without modifying project state.',
+    },
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to inspect (e.g. "/root/MainScene/Player")'),
@@ -150,6 +166,10 @@ export const nodeTools: MCPTool[] = [
   {
     name: 'list_nodes',
     description: 'List all child nodes under a parent node in the Godot scene tree',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Enumerates child nodes beneath a parent path.',
+    },
     parameters: z.object({
       parent_path: z.string()
         .describe('Path to the parent node (e.g. "/root", "/root/MainScene")'),

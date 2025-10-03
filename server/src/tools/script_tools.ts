@@ -37,6 +37,10 @@ export const scriptTools: MCPTool[] = [
   {
     name: 'create_script',
     description: 'Create a new GDScript file in the project',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Creates script assets on disk and optionally attaches them to nodes.',
+    },
     parameters: z.object({
       script_path: z.string()
         .describe('Path where the script will be saved (e.g. "res://scripts/player.gd")'),
@@ -69,6 +73,10 @@ export const scriptTools: MCPTool[] = [
   {
     name: 'edit_script',
     description: 'Edit an existing GDScript file',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Overwrites the contents of an existing script file.',
+    },
     parameters: z.object({
       script_path: z.string()
         .describe('Path to the script file to edit (e.g. "res://scripts/player.gd")'),
@@ -94,6 +102,10 @@ export const scriptTools: MCPTool[] = [
   {
     name: 'get_script',
     description: 'Get the content of a GDScript file',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Reads the source content for a script without mutating files.',
+    },
     parameters: z.object({
       script_path: z.string().optional()
         .describe('Path to the script file (e.g. "res://scripts/player.gd")'),
@@ -121,6 +133,10 @@ export const scriptTools: MCPTool[] = [
   {
     name: 'create_script_template',
     description: 'Generate a GDScript template with common boilerplate',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Generates boilerplate script content locally for authoring assistance.',
+    },
     parameters: z.object({
       class_name: z.string().optional()
         .describe('Optional class name for the script'),

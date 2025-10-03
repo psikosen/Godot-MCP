@@ -45,6 +45,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'create_scene',
     description: 'Create a new empty scene with optional root node type',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Creates new scene files on disk with a specified root node.',
+    },
     parameters: z.object({
       path: z.string()
         .describe('Path where the new scene will be saved (e.g. "res://scenes/new_scene.tscn")'),
@@ -66,6 +70,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'save_scene',
     description: 'Save the current scene to disk',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Persists the currently open scene to disk.',
+    },
     parameters: z.object({
       path: z.string().optional()
         .describe('Path where the scene will be saved (e.g. "res://scenes/main.tscn"). If not provided, uses current scene path.'),
@@ -85,6 +93,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'open_scene',
     description: 'Open a scene in the editor',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Loads an existing scene into the editor context.',
+    },
     parameters: z.object({
       path: z.string()
         .describe('Path to the scene file to open (e.g. "res://scenes/main.tscn")'),
@@ -104,6 +116,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'get_current_scene',
     description: 'Get information about the currently open scene',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Reads metadata about the active scene without persisting changes.',
+    },
     parameters: z.object({}),
     execute: async (): Promise<string> => {
       const godot = getGodotConnection();
@@ -121,6 +137,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'get_project_info',
     description: 'Get information about the current Godot project',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Reads static metadata describing the loaded project.',
+    },
     parameters: z.object({}),
     execute: async (): Promise<string> => {
       const godot = getGodotConnection();
@@ -151,6 +171,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'create_resource',
     description: 'Create a new resource in the project',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Creates serialized resource assets on disk.',
+    },
     parameters: z.object({
       resource_type: z.string()
         .describe('Type of resource to create (e.g. "ImageTexture", "AudioStreamMP3", "StyleBoxFlat")'),
@@ -179,6 +203,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'begin_scene_transaction',
     description: 'Begin a new scene transaction to batch multiple operations before committing',
+    capability: {
+      role: 'write',
+      escalationMessage: 'Starts a transactional batch for subsequent scene modifications.',
+    },
     parameters: z.object({
       action_name: z.string().optional()
         .describe('Optional action name used for the Godot Undo/Redo history entry'),
@@ -207,6 +235,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'commit_scene_transaction',
     description: 'Commit a previously started scene transaction',
+    capability: {
+      role: 'admin',
+      escalationMessage: 'Commits a queued transactional set of scene edits.',
+    },
     parameters: z.object({
       transaction_id: z.string()
         .describe('Identifier of the transaction to commit'),
@@ -229,6 +261,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'rollback_scene_transaction',
     description: 'Rollback a pending or committed scene transaction',
+    capability: {
+      role: 'admin',
+      escalationMessage: 'Rolls back scene changes recorded in a transaction.',
+    },
     parameters: z.object({
       transaction_id: z.string()
         .describe('Identifier of the transaction to rollback'),
@@ -251,6 +287,10 @@ export const sceneTools: MCPTool[] = [
   {
     name: 'list_scene_transactions',
     description: 'List currently registered scene transaction identifiers',
+    capability: {
+      role: 'read',
+      escalationMessage: 'Lists outstanding scene transaction identifiers for visibility.',
+    },
     parameters: z.object({}),
     execute: async (): Promise<string> => {
       const godot = getGodotConnection();

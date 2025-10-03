@@ -35,81 +35,45 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 import { z } from 'zod';
-import { patchManager } from '../utils/patch_manager.js';
-export var patchTools = [
+import { permissionManager } from '../utils/permission_manager.js';
+var roleEnum = z.enum(['read', 'write', 'admin']);
+export var securityTools = [
     {
-        name: 'preview_patch',
-        description: 'Preview a unified diff patch without applying it',
+        name: 'request_permission_escalation',
+        description: 'Record a justification for escalating the MCP agent permission role.',
         capability: {
-            role: 'write',
-            escalationMessage: 'Generates patch previews that stage file modifications for later application.',
+            role: 'read',
+            escalationMessage: 'Records escalation requests for manual review.',
         },
         parameters: z.object({
-            diff: z.string().describe('Unified diff to preview'),
-        }),
-        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var preview;
-            var diff = _b.diff;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
-                    case 0: return [4 /*yield*/, patchManager.preview(diff)];
-                    case 1:
-                        preview = _c.sent();
-                        return [2 /*return*/, JSON.stringify({
-                                patch_id: preview.patchId,
-                                diff: diff,
-                                files: preview.files,
-                            }, null, 2)];
-                }
-            });
-        }); },
-    },
-    {
-        name: 'apply_patch',
-        description: 'Apply a previously previewed patch atomically',
-        capability: {
-            role: 'admin',
-            escalationMessage: 'Commits file system changes across multiple files atomically.',
-        },
-        parameters: z.object({
-            patch_id: z.string().describe('Identifier returned from preview_patch'),
+            tool_name: z
+                .string()
+                .min(1)
+                .describe('Name of the tool that triggered the permission denial.'),
+            justification: z
+                .string()
+                .min(1)
+                .describe('Business or safety justification for granting higher privileges.'),
+            requested_role: roleEnum.optional().describe('Optional target role (read, write, or admin).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var result;
-            var patch_id = _b.patch_id;
+            var tool_name = _b.tool_name, justification = _b.justification, requested_role = _b.requested_role;
             return __generator(this, function (_c) {
                 switch (_c.label) {
-                    case 0: return [4 /*yield*/, patchManager.apply(patch_id)];
+                    case 0: return [4 /*yield*/, permissionManager.requestEscalation(tool_name, justification, requested_role)];
                     case 1:
                         result = _c.sent();
                         return [2 /*return*/, JSON.stringify({
-                                patch_id: result.patchId,
-                                applied_files: result.appliedFiles,
+                                status: result.status,
+                                request_id: result.requestId,
+                                required_role: result.requiredRole,
+                                current_role: result.currentRole,
+                                tool: tool_name,
                             }, null, 2)];
                 }
-            });
-        }); },
-    },
-    {
-        name: 'cancel_patch',
-        description: 'Cancel a previously previewed patch without applying it',
-        capability: {
-            role: 'write',
-            escalationMessage: 'Discards staged patch sessions and releases file locks.',
-        },
-        parameters: z.object({
-            patch_id: z.string().describe('Identifier returned from preview_patch'),
-        }),
-        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var patch_id = _b.patch_id;
-            return __generator(this, function (_c) {
-                patchManager.cancel(patch_id);
-                return [2 /*return*/, JSON.stringify({
-                        patch_id: patch_id,
-                        cancelled: true,
-                    }, null, 2)];
             });
         }); },
     },
 ];
-//# sourceMappingURL=patch_tools.js.map
+//# sourceMappingURL=security_tools.js.map

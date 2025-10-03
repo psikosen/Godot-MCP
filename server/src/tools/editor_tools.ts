@@ -10,6 +10,10 @@ export const editorTools: MCPTool[] = [
   {
     name: 'execute_editor_script',
     description: 'Executes arbitrary GDScript code in the Godot editor',
+    capability: {
+      role: 'admin',
+      escalationMessage: 'Executes arbitrary code within the editor context.',
+    },
     parameters: z.object({
       code: z.string()
         .describe('GDScript code to execute in the editor context'),

@@ -4,7 +4,9 @@ import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
 import { editorTools } from './tools/editor_tools.js';
 import { patchTools } from './tools/patch_tools.js';
+import { securityTools } from './tools/security_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
+import { permissionManager } from './utils/permission_manager.js';
 
 // Import resources
 import { 
@@ -40,8 +42,27 @@ async function main() {
   });
 
   // Register all tools
-  [...nodeTools, ...scriptTools, ...sceneTools, ...editorTools, ...patchTools].forEach(tool => {
-    server.addTool(tool);
+  const allTools = [
+    ...nodeTools,
+    ...scriptTools,
+    ...sceneTools,
+    ...editorTools,
+    ...patchTools,
+    ...securityTools,
+  ];
+
+  allTools.forEach(tool => {
+    server.addTool({
+      ...tool,
+      execute: async (args: any) => {
+        permissionManager.assertCommandAllowed(
+          tool.name,
+          tool.capability?.role,
+          tool.capability?.escalationMessage,
+        );
+        return tool.execute(args);
+      },
+    });
   });
 
   // Register all resources

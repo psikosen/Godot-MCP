@@ -1,3 +1,14 @@
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -49,7 +60,9 @@ import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
 import { editorTools } from './tools/editor_tools.js';
 import { patchTools } from './tools/patch_tools.js';
+import { securityTools } from './tools/security_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
+import { permissionManager } from './utils/permission_manager.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResource, scriptListResource, scriptMetadataResource } from './resources/script_resources.js';
@@ -60,7 +73,8 @@ import { editorStateResource, selectedNodeResource, currentScriptResource } from
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, godot, error_1, err, cleanup;
+        var server, allTools, godot, error_1, err, cleanup;
+        var _this = this;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -69,9 +83,15 @@ function main() {
                         name: 'GodotMCP',
                         version: '1.0.0',
                     });
-                    // Register all tools
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true).forEach(function (tool) {
-                        server.addTool(tool);
+                    allTools = __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), securityTools, true);
+                    allTools.forEach(function (tool) {
+                        server.addTool(__assign(__assign({}, tool), { execute: function (args) { return __awaiter(_this, void 0, void 0, function () {
+                                var _a, _b;
+                                return __generator(this, function (_c) {
+                                    permissionManager.assertCommandAllowed(tool.name, (_a = tool.capability) === null || _a === void 0 ? void 0 : _a.role, (_b = tool.capability) === null || _b === void 0 ? void 0 : _b.escalationMessage);
+                                    return [2 /*return*/, tool.execute(args)];
+                                });
+                            }); } }));
                     });
                     // Register all resources
                     // Static resources
