@@ -58,6 +58,7 @@ import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { parsePatch, applyPatch } from 'diff';
+import { permissionManager } from './permission_manager.js';
 /**
  * Manages preview, application, and cancellation of unified diff patches with
  * atomic file writes and rollback semantics.
@@ -297,6 +298,7 @@ var PatchManager = /** @class */ (function () {
                             throw new Error("Failed to apply diff for ".concat(relativePath, "."));
                         }
                         mode = this.determineMode(patch, exists);
+                        permissionManager.assertWriteAllowed(relativePath, mode);
                         return [2 /*return*/, {
                                 absolutePath: targetPath,
                                 relativePath: relativePath,
