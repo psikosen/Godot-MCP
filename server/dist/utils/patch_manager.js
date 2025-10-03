@@ -298,7 +298,9 @@ var PatchManager = /** @class */ (function () {
                             throw new Error("Failed to apply diff for ".concat(relativePath, "."));
                         }
                         mode = this.determineMode(patch, exists);
-                        permissionManager.assertWriteAllowed(relativePath, mode);
+                        return [4 /*yield*/, permissionManager.assertWriteAllowed(relativePath, mode)];
+                    case 3:
+                        _c.sent();
                         return [2 /*return*/, {
                                 absolutePath: targetPath,
                                 relativePath: relativePath,
