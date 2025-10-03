@@ -18,6 +18,20 @@ interface CreateSceneParams {
   root_node_type?: string;
 }
 
+interface BeginSceneTransactionParams {
+  action_name?: string;
+  transaction_id?: string;
+  metadata?: Record<string, any>;
+}
+
+interface CommitSceneTransactionParams {
+  transaction_id: string;
+}
+
+interface RollbackSceneTransactionParams {
+  transaction_id: string;
+}
+
 interface CreateResourceParams {
   resource_type: string;
   resource_path: string;
@@ -158,6 +172,100 @@ export const sceneTools: MCPTool[] = [
         return `Created ${resource_type} resource at ${result.resource_path}`;
       } catch (error) {
         throw new Error(`Failed to create resource: ${(error as Error).message}`);
+      }
+    },
+  },
+
+  {
+    name: 'begin_scene_transaction',
+    description: 'Begin a new scene transaction to batch multiple operations before committing',
+    parameters: z.object({
+      action_name: z.string().optional()
+        .describe('Optional action name used for the Godot Undo/Redo history entry'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier. A new one is generated if omitted.'),
+      metadata: z.record(z.any()).optional()
+        .describe('Optional metadata dictionary persisted with the transaction'),
+    }),
+    execute: async ({ action_name, transaction_id, metadata }: BeginSceneTransactionParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('begin_scene_transaction', {
+          action_name,
+          transaction_id,
+          metadata,
+        });
+
+        return `Began scene transaction ${result.transaction_id} (${result.action_name})`;
+      } catch (error) {
+        throw new Error(`Failed to begin scene transaction: ${(error as Error).message}`);
+      }
+    },
+  },
+
+  {
+    name: 'commit_scene_transaction',
+    description: 'Commit a previously started scene transaction',
+    parameters: z.object({
+      transaction_id: z.string()
+        .describe('Identifier of the transaction to commit'),
+    }),
+    execute: async ({ transaction_id }: CommitSceneTransactionParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('commit_scene_transaction', {
+          transaction_id,
+        });
+
+        return `Committed scene transaction ${result.transaction_id}`;
+      } catch (error) {
+        throw new Error(`Failed to commit scene transaction: ${(error as Error).message}`);
+      }
+    },
+  },
+
+  {
+    name: 'rollback_scene_transaction',
+    description: 'Rollback a pending or committed scene transaction',
+    parameters: z.object({
+      transaction_id: z.string()
+        .describe('Identifier of the transaction to rollback'),
+    }),
+    execute: async ({ transaction_id }: RollbackSceneTransactionParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('rollback_scene_transaction', {
+          transaction_id,
+        });
+
+        return `Rolled back scene transaction ${result.transaction_id} [${result.status}]`;
+      } catch (error) {
+        throw new Error(`Failed to rollback scene transaction: ${(error as Error).message}`);
+      }
+    },
+  },
+
+  {
+    name: 'list_scene_transactions',
+    description: 'List currently registered scene transaction identifiers',
+    parameters: z.object({}),
+    execute: async (): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('list_scene_transactions', {});
+
+        const transactions = (result.transactions as string[]) ?? [];
+        if (transactions.length === 0) {
+          return 'No active scene transactions';
+        }
+
+        return `Active scene transactions:\n${transactions.join('\n')}`;
+      } catch (error) {
+        throw new Error(`Failed to list scene transactions: ${(error as Error).message}`);
       }
     },
   },

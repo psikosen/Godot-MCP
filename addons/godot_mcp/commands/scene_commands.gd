@@ -2,6 +2,8 @@
 class_name MCPSceneCommands
 extends MCPBaseCommandProcessor
 
+const SceneTransactionManager := MCPSceneTransactionManager
+
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
 		"save_scene":
@@ -16,10 +18,22 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"get_scene_structure":
 			_get_scene_structure(client_id, params, command_id)
 			return true
-		"create_scene":
-			_create_scene(client_id, params, command_id)
-			return true
-	return false  # Command not handled
+                "create_scene":
+                        _create_scene(client_id, params, command_id)
+                        return true
+                "begin_scene_transaction":
+                        _begin_scene_transaction(client_id, params, command_id)
+                        return true
+                "commit_scene_transaction":
+                        _commit_scene_transaction(client_id, params, command_id)
+                        return true
+                "rollback_scene_transaction":
+                        _rollback_scene_transaction(client_id, params, command_id)
+                        return true
+                "list_scene_transactions":
+                        _list_scene_transactions(client_id, params, command_id)
+                        return true
+        return false  # Command not handled
 
 func _save_scene(client_id: int, params: Dictionary, command_id: String) -> void:
 	var path = params.get("path", "")
@@ -280,7 +294,63 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 		var editor_interface = plugin.get_editor_interface()
 		editor_interface.open_scene_from_path(path)
 	
-	_send_success(client_id, {
-		"scene_path": path,
-		"root_node_type": root_node_type
-	}, command_id)
+        _send_success(client_id, {
+                "scene_path": path,
+                "root_node_type": root_node_type
+        }, command_id)
+
+func _begin_scene_transaction(client_id: int, params: Dictionary, command_id: String) -> void:
+        var transaction_id = params.get("transaction_id", "")
+        var action_name = params.get("action_name", "Scene Transaction")
+        var metadata_param = params.get("metadata", {})
+
+        var metadata := {}
+        if typeof(metadata_param) == TYPE_DICTIONARY:
+                metadata = metadata_param.duplicate(true)
+
+        metadata["client_id"] = client_id
+        metadata["command_id"] = command_id
+        metadata["command"] = "begin_scene_transaction"
+
+        var transaction = SceneTransactionManager.begin_registered(transaction_id, action_name, metadata)
+        if not transaction:
+                return _send_error(client_id, "Unable to begin scene transaction", command_id)
+
+        _send_success(client_id, {
+                "transaction_id": transaction.transaction_id,
+                "action_name": action_name
+        }, command_id)
+
+func _commit_scene_transaction(client_id: int, params: Dictionary, command_id: String) -> void:
+        var transaction_id = params.get("transaction_id", "")
+        if transaction_id.is_empty():
+                return _send_error(client_id, "Transaction ID is required to commit", command_id)
+
+        var result = SceneTransactionManager.commit_registered(transaction_id)
+        if not result:
+                return _send_error(client_id, "Failed to commit scene transaction: %s" % transaction_id, command_id)
+
+        _send_success(client_id, {
+                "transaction_id": transaction_id,
+                "status": "committed"
+        }, command_id)
+
+func _rollback_scene_transaction(client_id: int, params: Dictionary, command_id: String) -> void:
+        var transaction_id = params.get("transaction_id", "")
+        if transaction_id.is_empty():
+                return _send_error(client_id, "Transaction ID is required to rollback", command_id)
+
+        var result = SceneTransactionManager.rollback_registered(transaction_id)
+        if not result:
+                return _send_error(client_id, "Failed to rollback scene transaction: %s" % transaction_id, command_id)
+
+        _send_success(client_id, {
+                "transaction_id": transaction_id,
+                "status": "rolled_back"
+        }, command_id)
+
+func _list_scene_transactions(client_id: int, _params: Dictionary, command_id: String) -> void:
+        var transactions = SceneTransactionManager.list_transactions()
+        _send_success(client_id, {
+                "transactions": transactions
+        }, command_id)

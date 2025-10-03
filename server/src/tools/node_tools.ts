@@ -9,16 +9,19 @@ interface CreateNodeParams {
   parent_path: string;
   node_type: string;
   node_name: string;
+  transaction_id?: string;
 }
 
 interface DeleteNodeParams {
   node_path: string;
+  transaction_id?: string;
 }
 
 interface UpdateNodePropertyParams {
   node_path: string;
   property: string;
   value: any;
+  transaction_id?: string;
 }
 
 interface GetNodePropertiesParams {
@@ -43,18 +46,22 @@ export const nodeTools: MCPTool[] = [
         .describe('Type of node to create (e.g. "Node2D", "Sprite2D", "Label")'),
       node_name: z.string()
         .describe('Name for the new node'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier to batch multiple scene operations before committing'),
     }),
-    execute: async ({ parent_path, node_type, node_name }: CreateNodeParams): Promise<string> => {
+    execute: async ({ parent_path, node_type, node_name, transaction_id }: CreateNodeParams): Promise<string> => {
       const godot = getGodotConnection();
-      
+
       try {
         const result = await godot.sendCommand<CommandResult>('create_node', {
           parent_path,
           node_type,
           node_name,
+          transaction_id,
         });
-        
-        return `Created ${node_type} node named "${node_name}" at ${result.node_path}`;
+
+        const status = (result.status as string) ?? 'committed';
+        return `Created ${node_type} node named "${node_name}" at ${result.node_path} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to create node: ${(error as Error).message}`);
       }
@@ -67,13 +74,16 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to delete (e.g. "/root/MainScene/Player")'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier to batch multiple scene operations before committing'),
     }),
-    execute: async ({ node_path }: DeleteNodeParams): Promise<string> => {
+    execute: async ({ node_path, transaction_id }: DeleteNodeParams): Promise<string> => {
       const godot = getGodotConnection();
-      
+
       try {
-        await godot.sendCommand('delete_node', { node_path });
-        return `Deleted node at ${node_path}`;
+        const result = await godot.sendCommand<CommandResult>('delete_node', { node_path, transaction_id });
+        const status = (result?.status as string) ?? 'committed';
+        return `Deleted node at ${node_path} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to delete node: ${(error as Error).message}`);
       }
@@ -90,18 +100,22 @@ export const nodeTools: MCPTool[] = [
         .describe('Name of the property to update (e.g. "position", "text", "modulate")'),
       value: z.any()
         .describe('New value for the property'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier to batch multiple scene operations before committing'),
     }),
-    execute: async ({ node_path, property, value }: UpdateNodePropertyParams): Promise<string> => {
+    execute: async ({ node_path, property, value, transaction_id }: UpdateNodePropertyParams): Promise<string> => {
       const godot = getGodotConnection();
-      
+
       try {
         const result = await godot.sendCommand<CommandResult>('update_node_property', {
           node_path,
           property,
           value,
+          transaction_id,
         });
-        
-        return `Updated property "${property}" of node at ${node_path} to ${JSON.stringify(value)}`;
+
+        const status = (result.status as string) ?? 'committed';
+        return `Updated property "${property}" of node at ${node_path} to ${JSON.stringify(value)} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to update node property: ${(error as Error).message}`);
       }
