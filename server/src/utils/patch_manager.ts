@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { parsePatch, applyPatch, ParsedDiff } from 'diff';
+import { permissionManager } from './permission_manager.js';
 
 interface PatchFilePlan {
   absolutePath: string;
@@ -207,6 +208,8 @@ export class PatchManager {
     }
 
     const mode: PatchFilePlan['mode'] = this.determineMode(patch, exists);
+
+    permissionManager.assertWriteAllowed(relativePath, mode);
 
     return {
       absolutePath: targetPath,

@@ -6,6 +6,7 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
 
 - **Full Godot Project Access**: AI assistants can access and modify scripts, scenes, nodes, and project resources
 - **Two-way Communication**: Send project data to AI and apply suggested changes directly in the editor
+- **Capability-Aware Editing**: Patch application is scoped to an allowlisted set of directories, file types, and critical assets for safer automation
 - **Command Categories**:
   - **Node Commands**: Create, modify, and manage nodes in your scenes
   - **Script Commands**: Edit, analyze, and create GDScript files
