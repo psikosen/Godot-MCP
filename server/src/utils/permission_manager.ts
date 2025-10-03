@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { CapabilityConfig, PathRule, defaultCapabilityConfig } from './permission_config.js';
+import { escalationManager } from './escalation_manager.js';
 
 interface PermissionLogContext {
   systemSection: string;
@@ -25,7 +26,7 @@ export class PermissionManager {
   /**
    * Throws when a file write would violate the allow/deny rules.
    */
-  assertWriteAllowed(relativePath: string, mode: string): void {
+  async assertWriteAllowed(relativePath: string, mode: string): Promise<void> {
     const normalized = this.normalizePath(relativePath);
 
     if (this.matchesRuleList(normalized, this.config.writeDeny)) {
@@ -45,12 +46,21 @@ export class PermissionManager {
       return;
     }
 
+    const escalation = await escalationManager.recordEscalation({
+      path: normalized,
+      mode,
+      reason: 'not_allowlisted',
+      requestedBy: 'permission_manager',
+    });
+
     this.log('Permission requires escalation', {
       systemSection: 'capability_check',
       error: true,
-      details: { relativePath: normalized, mode, ruleSet: 'allow' },
+      details: { relativePath: normalized, mode, ruleSet: 'allow', escalationId: escalation.id },
     });
-    throw new Error(`Write access to ${normalized} is not in the allowlist. Escalation required.`);
+    throw new Error(
+      `Write access to ${normalized} is not in the allowlist. Escalation required (id: ${escalation.id}).`,
+    );
   }
 
   private matchesRuleList(relativePath: string, rules: PathRule[]): boolean {

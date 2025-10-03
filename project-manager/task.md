@@ -25,6 +25,11 @@
 - [ ] Godot run/stop with headless test hook (run-project, run-tests).
 - [ ] Concurrency control (per-resource mutexes, global write queue, ETag handling).
 
+## Current Iteration — Safety Controls
+- [x] Implement persistent permission escalation queue for write operations that miss allowlist.
+- [x] Expose MCP tools to review and resolve pending escalation requests.
+- [x] Update capability guard to surface escalation identifiers to clients.
+
 ## P0 — Scripting
 - [ ] GDScript static analysis + formatter gate.
 - [ ] AST-level code actions (rename/extract/insert/change signature).

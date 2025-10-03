@@ -209,7 +209,7 @@ export class PatchManager {
 
     const mode: PatchFilePlan['mode'] = this.determineMode(patch, exists);
 
-    permissionManager.assertWriteAllowed(relativePath, mode);
+    await permissionManager.assertWriteAllowed(relativePath, mode);
 
     return {
       absolutePath: targetPath,

@@ -137,6 +137,10 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `refresh_project_index` - Rebuilds the cached project index snapshot
 - `query_project_index` - Queries the cached project index with glob patterns
 
+#### Permission Commands
+- `list_permission_escalations` - Lists pending and resolved permission escalation requests
+- `resolve_permission_escalation` - Approve or deny a recorded escalation request
+
 #### Editor Commands
 - `get-editor-state` - Gets current editor state
 - `run-project` - Runs the project
