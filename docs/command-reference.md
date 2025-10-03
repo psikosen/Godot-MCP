@@ -196,6 +196,31 @@ Create a new resource in the project.
 Create a StyleBoxFlat resource at "res://resources/button_style.tres" with a blue background color.
 ```
 
+## Project Tools
+
+### refresh_project_index
+Rebuild the cached project index snapshot maintained by the MCP server.
+
+**Parameters:** None
+
+**Example:**
+```
+Force a fresh index of the project so I can query the latest files.
+```
+
+### query_project_index
+Query the cached index using glob patterns to quickly list files or directories.
+
+**Parameters:**
+- `pattern` - Glob pattern or array of patterns (supports `*`, `**`, and `?`)
+- `include_directories` (optional) - Whether to include directories (default true)
+- `limit` (optional) - Maximum number of results (default 200, max 5000)
+
+**Example:**
+```
+Show me every GDScript under addons and docs/*.md files.
+```
+
 ## Using Commands with Claude
 
 When working with Claude, you don't need to specify the exact command name or format. Instead, describe what you want to do in natural language, and Claude will use the appropriate command. For example:

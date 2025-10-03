@@ -4,6 +4,7 @@ import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
 import { editorTools } from './tools/editor_tools.js';
 import { patchTools } from './tools/patch_tools.js';
+import { projectTools } from './tools/project_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 
 // Import resources
@@ -16,10 +17,11 @@ import {
   scriptListResource,
   scriptMetadataResource 
 } from './resources/script_resources.js';
-import { 
+import {
   projectStructureResource,
   projectSettingsResource,
-  projectResourcesResource 
+  projectResourcesResource,
+  projectIndexResource,
 } from './resources/project_resources.js';
 import { 
   editorStateResource,
@@ -40,7 +42,7 @@ async function main() {
   });
 
   // Register all tools
-  [...nodeTools, ...scriptTools, ...sceneTools, ...editorTools, ...patchTools].forEach(tool => {
+  [...nodeTools, ...scriptTools, ...sceneTools, ...editorTools, ...patchTools, ...projectTools].forEach(tool => {
     server.addTool(tool);
   });
 
@@ -51,6 +53,7 @@ async function main() {
   server.addResource(projectStructureResource);
   server.addResource(projectSettingsResource);
   server.addResource(projectResourcesResource);
+  server.addResource(projectIndexResource);
   server.addResource(editorStateResource);
   server.addResource(selectedNodeResource);
   server.addResource(currentScriptResource);
