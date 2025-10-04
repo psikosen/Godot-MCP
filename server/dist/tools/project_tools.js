@@ -36,7 +36,12 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 import { z } from 'zod';
 import { projectIndexer } from '../utils/project_indexer.js';
+import { getGodotConnection } from '../utils/godot_connection.js';
 var ENTRY_LIMIT = 5000;
+var inputEventSchema = z.object({
+    type: z.string()
+        .describe('Input event type such as InputEventKey, key, InputEventMouseButton, mouse_button, etc.'),
+}).passthrough();
 export var projectTools = [
     {
         name: 'refresh_project_index',
@@ -102,6 +107,216 @@ export var projectTools = [
         }); },
         metadata: {
             requiredRole: 'read',
+        },
+    },
+    {
+        name: 'list_input_actions',
+        description: 'List all configured input actions from the Godot project settings.',
+        parameters: z.object({}),
+        execute: function () { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, result, error_1;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('list_input_actions', {})];
+                    case 2:
+                        result = _a.sent();
+                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                    case 3:
+                        error_1 = _a.sent();
+                        throw new Error("Failed to list input actions: ".concat(error_1.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
+        name: 'add_input_action',
+        description: 'Create or overwrite a Godot input action with optional default events.',
+        parameters: z.object({
+            action_name: z.string()
+                .describe('Name of the input action to create or overwrite.'),
+            deadzone: z.number()
+                .min(0)
+                .max(1)
+                .optional()
+                .describe('Optional custom deadzone value (default 0.5).'),
+            overwrite: z.boolean()
+                .optional()
+                .describe('Whether to overwrite an existing action with the same name (default false).'),
+            persistent: z.boolean()
+                .optional()
+                .describe('Persist changes to project.godot immediately (default true).'),
+            events: z.array(inputEventSchema)
+                .optional()
+                .describe('Optional array of input events to register with the action.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_2;
+            var _c, _d;
+            var action_name = _b.action_name, deadzone = _b.deadzone, overwrite = _b.overwrite, persistent = _b.persistent, events = _b.events;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _e.label = 1;
+                    case 1:
+                        _e.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('add_input_action', {
+                                action_name: action_name,
+                                deadzone: deadzone,
+                                overwrite: overwrite,
+                                persistent: persistent,
+                                events: events,
+                            })];
+                    case 2:
+                        result = _e.sent();
+                        return [2 /*return*/, "Created/updated input action \"".concat(result.action_name, "\" with ").concat((_d = (_c = result.events) === null || _c === void 0 ? void 0 : _c.length) !== null && _d !== void 0 ? _d : 0, " event(s).")];
+                    case 3:
+                        error_2 = _e.sent();
+                        throw new Error("Failed to add input action: ".concat(error_2.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'remove_input_action',
+        description: 'Remove a Godot input action from the project settings.',
+        parameters: z.object({
+            action_name: z.string()
+                .describe('Name of the input action to remove.'),
+            persistent: z.boolean()
+                .optional()
+                .describe('Persist changes to project.godot immediately (default true).'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, error_3;
+            var action_name = _b.action_name, persistent = _b.persistent;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('remove_input_action', {
+                                action_name: action_name,
+                                persistent: persistent,
+                            })];
+                    case 2:
+                        _c.sent();
+                        return [2 /*return*/, "Removed input action \"".concat(action_name, "\".")];
+                    case 3:
+                        error_3 = _c.sent();
+                        throw new Error("Failed to remove input action: ".concat(error_3.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'add_input_event_to_action',
+        description: 'Register an additional event on an existing Godot input action.',
+        parameters: z.object({
+            action_name: z.string()
+                .describe('Name of the input action to modify.'),
+            event: inputEventSchema
+                .describe('Input event definition that should be added to the action.'),
+            persistent: z.boolean()
+                .optional()
+                .describe('Persist changes to project.godot immediately (default true).'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_4;
+            var action_name = _b.action_name, event = _b.event, persistent = _b.persistent;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('add_input_event_to_action', {
+                                action_name: action_name,
+                                event: event,
+                                persistent: persistent,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, "Added event to action \"".concat(result.action_name, "\".")];
+                    case 3:
+                        error_4 = _c.sent();
+                        throw new Error("Failed to add input event: ".concat(error_4.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'remove_input_event_from_action',
+        description: 'Remove an event from a Godot input action by index or matching fields.',
+        parameters: z.object({
+            action_name: z.string()
+                .describe('Name of the input action to modify.'),
+            event_index: z.number()
+                .int()
+                .nonnegative()
+                .optional()
+                .describe('Index of the event to remove (0-based).'),
+            event: inputEventSchema.optional()
+                .describe('Event description to match for removal when index is not provided.'),
+            persistent: z.boolean()
+                .optional()
+                .describe('Persist changes to project.godot immediately (default true).'),
+        }).refine(function (data) { return data.event_index !== undefined || data.event !== undefined; }, {
+            message: 'Either event_index or event must be provided to identify the input event to remove.',
+            path: ['event_index'],
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_5;
+            var action_name = _b.action_name, event_index = _b.event_index, event = _b.event, persistent = _b.persistent;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('remove_input_event_from_action', {
+                                action_name: action_name,
+                                event_index: event_index,
+                                event: event,
+                                persistent: persistent,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, "Removed event from action \"".concat(result.action_name, "\".")];
+                    case 3:
+                        error_5 = _c.sent();
+                        throw new Error("Failed to remove input event: ".concat(error_5.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
         },
     },
 ];

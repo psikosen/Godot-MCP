@@ -8,6 +8,8 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
 - **Two-way Communication**: Send project data to AI and apply suggested changes directly in the editor
 - **Capability-Aware Editing**: Patch application is scoped to an allowlisted set of directories, file types, and critical assets for safer automation
 - **Project Indexing & Query**: Cached project map with glob-style queries for quick discovery of files and directories
+- **Node Workflow Enhancements**: Rename nodes, manage group membership, and enumerate group contents with full undo/redo support
+- **Input Map Automation**: Inspect, add, and remove input actions or individual input events without leaving the editor
 - **Command Categories**:
   - **Node Commands**: Create, modify, and manage nodes in your scenes
   - **Script Commands**: Edit, analyze, and create GDScript files
@@ -112,34 +114,55 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 ### Command Categories:
 
 #### Node Commands
-- `get-scene-tree` - Returns the scene tree structure
-- `get-node-properties` - Gets properties of a specific node
-- `create-node` - Creates a new node
-- `delete-node` - Deletes a node
-- `modify-node` - Updates node properties
+- `create_node` - Create a new node under a specified parent path
+- `delete_node` - Delete a node from the edited scene
+- `update_node_property` - Change a node property with undo support
+- `get_node_properties` - Inspect every exposed property on a node
+- `list_nodes` - Enumerate the children of a node in the scene tree
+- `rename_node` - Rename a node while preserving undo history
+- `add_node_to_group` - Add a node to a named group (optionally persisting to the scene file)
+- `remove_node_from_group` - Remove a node from a group with undo/redo
+- `list_node_groups` - List all groups the node currently belongs to
+- `list_nodes_in_group` - Enumerate nodes that are members of a group in the edited scene
 
 #### Script Commands
-- `list-project-scripts` - Lists all scripts in the project
-- `read-script` - Reads a specific script
-- `modify-script` - Updates script content
-- `create-script` - Creates a new script
-- `analyze-script` - Provides analysis of a script
+- `create_script` - Create a new GDScript file and optionally attach it to a node
+- `edit_script` - Replace the contents of an existing script file
+- `get_script` - Fetch a script by file path or by attached node
+- `create_script_template` - Generate a GDScript skeleton with common callbacks
 
 #### Scene Commands
-- `list-project-scenes` - Lists all scenes in the project
-- `read-scene` - Reads scene structure
-- `create-scene` - Creates a new scene
-- `save-scene` - Saves current scene
+- `create_scene` - Create a new scene with an optional root node type
+- `save_scene` - Save the currently edited scene to disk
+- `open_scene` - Open a scene in the editor
+- `get_current_scene` - Report information about the open scene
+- `get_project_info` - Return the project name, version, and active scene details
+- `create_resource` - Create and serialize a new resource asset
+- `begin_scene_transaction` - Start a named transaction for batching scene edits
+- `commit_scene_transaction` - Commit a pending scene transaction
+- `rollback_scene_transaction` - Roll back a transaction (even after commit)
+- `list_scene_transactions` - List transaction identifiers that are currently tracked
 
 #### Project Commands
-- `get-project-settings` - Gets project settings
-- `list-project-resources` - Lists project resources
-- `refresh_project_index` - Rebuilds the cached project index snapshot
-- `query_project_index` - Queries the cached project index with glob patterns
+- `refresh_project_index` - Rebuild the cached project index snapshot
+- `query_project_index` - Query the cached project index with glob patterns
+- `list_input_actions` - List every input action and associated events
+- `add_input_action` - Create or overwrite an input action definition
+- `remove_input_action` - Delete an input action from the project settings
+- `add_input_event_to_action` - Register an additional event on an existing input action
+- `remove_input_event_from_action` - Remove an input event by index or matching fields
+
+#### Patch Commands
+- `preview_patch` - Preview a diff before it is applied
+- `apply_patch` - Apply a previously previewed diff (requires admin approval)
+- `cancel_patch` - Discard a pending diff preview
 
 #### Permission Commands
-- `list_permission_escalations` - Lists pending and resolved permission escalation requests
-- `resolve_permission_escalation` - Approve or deny a recorded escalation request
+- `list_permission_escalations` - List pending and resolved permission escalation requests
+- `resolve_permission_escalation` - Approve or deny a recorded escalation request (requires admin approval)
+
+#### Editor Commands
+- `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
 
 ### Command Roles & Escalations
 
@@ -156,11 +179,6 @@ Commands that currently require `admin` approval include:
 - `apply_patch`
 - `execute_editor_script`
 - `resolve_permission_escalation`
-
-#### Editor Commands
-- `get-editor-state` - Gets current editor state
-- `run-project` - Runs the project
-- `stop-project` - Stops the running project
 
 ## Troubleshooting
 

@@ -32,6 +32,31 @@ interface ListNodesParams {
   parent_path: string;
 }
 
+interface RenameNodeParams {
+  node_path: string;
+  new_name: string;
+  transaction_id?: string;
+}
+
+interface NodeGroupParams {
+  node_path: string;
+  group_name: string;
+  persistent?: boolean;
+  transaction_id?: string;
+}
+
+interface RemoveNodeGroupParams extends NodeGroupParams {
+  persistent?: boolean;
+}
+
+interface ListNodeGroupsParams {
+  node_path: string;
+}
+
+interface ListNodesInGroupParams {
+  group_name: string;
+}
+
 /**
  * Definition for node tools - operations that manipulate nodes in the scene tree
  */
@@ -184,6 +209,178 @@ export const nodeTools: MCPTool[] = [
         return `Children of node at ${parent_path}:\n\n${formattedChildren}`;
       } catch (error) {
         throw new Error(`Failed to list nodes: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+  {
+    name: 'rename_node',
+    description: 'Rename an existing node while preserving undo history',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the node that should be renamed (e.g. "/root/MainScene/Player")'),
+      new_name: z.string()
+        .min(1)
+        .describe('New name for the node'),
+      transaction_id: z.string().optional()
+        .describe('Optional scene transaction identifier used to batch operations'),
+    }),
+    execute: async ({ node_path, new_name, transaction_id }: RenameNodeParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('rename_node', {
+          node_path,
+          new_name,
+          transaction_id,
+        });
+
+        const status = (result.status as string) ?? 'committed';
+        if (status === 'no_change') {
+          return `Node at ${node_path} already has the name "${new_name}".`;
+        }
+
+        const previousName = (result.previous_name as string) ?? node_path.split('/').pop() ?? node_path;
+        return `Renamed node ${previousName} to ${result.new_name} [${status}]`;
+      } catch (error) {
+        throw new Error(`Failed to rename node: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'add_node_to_group',
+    description: 'Add a node to a Godot group with optional persistence for scene saving',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the node that should join the group (e.g. "/root/MainScene/Enemy")'),
+      group_name: z.string()
+        .min(1)
+        .describe('Group name to assign (case-sensitive)'),
+      persistent: z.boolean().optional()
+        .describe('Whether the membership should be stored in the scene file (default true)'),
+      transaction_id: z.string().optional()
+        .describe('Optional scene transaction identifier used to batch operations'),
+    }),
+    execute: async ({ node_path, group_name, persistent, transaction_id }: NodeGroupParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('add_node_to_group', {
+          node_path,
+          group_name,
+          persistent,
+          transaction_id,
+        });
+
+        const status = (result.status as string) ?? 'committed';
+        if (status === 'already_member') {
+          return `Node at ${node_path} is already in group "${group_name}".`;
+        }
+
+        return `Added node ${node_path} to group "${group_name}" [${status}]`;
+      } catch (error) {
+        throw new Error(`Failed to add node to group: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'remove_node_from_group',
+    description: 'Remove a node from a Godot group with undo support',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the node whose group membership should be removed'),
+      group_name: z.string()
+        .min(1)
+        .describe('Group name to remove from the node'),
+      persistent: z.boolean().optional()
+        .describe('Whether undo should restore the membership as persistent (default true)'),
+      transaction_id: z.string().optional()
+        .describe('Optional scene transaction identifier used to batch operations'),
+    }),
+    execute: async ({ node_path, group_name, persistent, transaction_id }: RemoveNodeGroupParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('remove_node_from_group', {
+          node_path,
+          group_name,
+          persistent,
+          transaction_id,
+        });
+
+        const status = (result.status as string) ?? 'committed';
+        if (status === 'not_member') {
+          return `Node at ${node_path} is not part of group "${group_name}".`;
+        }
+
+        return `Removed node ${node_path} from group "${group_name}" [${status}]`;
+      } catch (error) {
+        throw new Error(`Failed to remove node from group: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'list_node_groups',
+    description: 'List all groups assigned to a specific node',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the node whose groups should be listed'),
+    }),
+    execute: async ({ node_path }: ListNodeGroupsParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('list_node_groups', { node_path });
+        const groups = (result.groups as string[]) ?? [];
+        if (groups.length === 0) {
+          return `Node at ${node_path} is not assigned to any groups.`;
+        }
+
+        return `Groups for node ${node_path}:\n${groups.join('\n')}`;
+      } catch (error) {
+        throw new Error(`Failed to list node groups: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+  {
+    name: 'list_nodes_in_group',
+    description: 'Enumerate all nodes in the currently edited scene that belong to a specific group',
+    parameters: z.object({
+      group_name: z.string()
+        .min(1)
+        .describe('Group name to query'),
+    }),
+    execute: async ({ group_name }: ListNodesInGroupParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('list_nodes_in_group', { group_name });
+        const nodes = (result.nodes as Array<Record<string, unknown>>) ?? [];
+        if (nodes.length === 0) {
+          return `No nodes found in group "${group_name}".`;
+        }
+
+        const formatted = nodes
+          .map(node => `${node.name} (${node.type}) - ${node.path}`)
+          .join('\n');
+
+        return `Nodes in group "${group_name}":\n${formatted}`;
+      } catch (error) {
+        throw new Error(`Failed to list nodes in group: ${(error as Error).message}`);
       }
     },
     metadata: {

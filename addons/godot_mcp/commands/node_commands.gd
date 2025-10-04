@@ -3,6 +3,8 @@ class_name MCPNodeCommands
 extends MCPBaseCommandProcessor
 
 const SceneTransactionManager := MCPSceneTransactionManager
+const LOG_FILENAME := "addons/godot_mcp/commands/node_commands.gd"
+const DEFAULT_SYSTEM_SECTION := "node_commands"
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
@@ -12,16 +14,305 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"delete_node":
 			_delete_node(client_id, params, command_id)
 			return true
-		"update_node_property":
-			_update_node_property(client_id, params, command_id)
-			return true
-		"get_node_properties":
-			_get_node_properties(client_id, params, command_id)
-			return true
-		"list_nodes":
-			_list_nodes(client_id, params, command_id)
-			return true
-	return false  # Command not handled
+                "update_node_property":
+                        _update_node_property(client_id, params, command_id)
+                        return true
+                "get_node_properties":
+                        _get_node_properties(client_id, params, command_id)
+                        return true
+                "list_nodes":
+                        _list_nodes(client_id, params, command_id)
+                        return true
+                "rename_node":
+                        _rename_node(client_id, params, command_id)
+                        return true
+                "add_node_to_group":
+                        _add_node_to_group(client_id, params, command_id)
+                        return true
+                "remove_node_from_group":
+                        _remove_node_from_group(client_id, params, command_id)
+                        return true
+                "list_node_groups":
+                        _list_node_groups(client_id, params, command_id)
+                        return true
+                "list_nodes_in_group":
+                        _list_nodes_in_group(client_id, params, command_id)
+                        return true
+        return false  # Command not handled
+
+func _rename_node(client_id: int, params: Dictionary, command_id: String) -> void:
+        var node_path = params.get("node_path", "")
+        var new_name = params.get("new_name", "")
+        var transaction_id = params.get("transaction_id", "")
+
+        if node_path.is_empty():
+                return _send_error(client_id, "Node path cannot be empty", command_id)
+
+        if new_name.is_empty():
+                return _send_error(client_id, "New node name cannot be empty", command_id)
+
+        var node = _get_editor_node(node_path)
+        if not node:
+                return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+        if node.name == new_name:
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "new_name": new_name,
+                        "message": "Node already has the requested name",
+                        "status": "no_change"
+                }, command_id)
+                return
+
+        var parent = node.get_parent()
+        if parent:
+                for sibling in parent.get_children():
+                        if sibling != node and sibling.name == new_name:
+                                return _send_error(client_id, "A sibling node with the name %s already exists" % new_name, command_id)
+
+        var old_name = node.name
+        var transaction_metadata := {
+                "command": "rename_node",
+                "node_path": node_path,
+                "new_name": new_name,
+                "client_id": client_id,
+                "command_id": command_id,
+        }
+
+        var transaction
+        if transaction_id.is_empty():
+                transaction = SceneTransactionManager.begin_inline("Rename Node", transaction_metadata)
+        else:
+                transaction = SceneTransactionManager.get_transaction(transaction_id)
+                if not transaction:
+                        transaction = SceneTransactionManager.begin_registered(transaction_id, "Rename Node", transaction_metadata)
+
+        if not transaction:
+                return _send_error(client_id, "Failed to obtain scene transaction for node rename", command_id)
+
+        transaction.add_do_property(node, "name", new_name)
+        transaction.add_undo_property(node, "name", old_name)
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                _log("Renamed node", "_rename_node", {
+                        "old_name": old_name,
+                        "new_name": new_name,
+                        "node_path": node_path,
+                        "transaction_id": transaction.transaction_id,
+                })
+        )
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit node rename", command_id)
+
+                var updated_path = node.get_path()
+                var path_string = updated_path if typeof(updated_path) == TYPE_STRING else updated_path.to_string()
+                _send_success(client_id, {
+                        "previous_name": old_name,
+                        "new_name": new_name,
+                        "node_path": path_string,
+                        "transaction_id": transaction.transaction_id,
+                        "status": "committed"
+                }, command_id)
+        else:
+                _send_success(client_id, {
+                        "previous_name": old_name,
+                        "new_name": new_name,
+                        "node_path": node_path,
+                        "transaction_id": transaction.transaction_id,
+                        "status": "pending"
+                }, command_id)
+
+func _add_node_to_group(client_id: int, params: Dictionary, command_id: String) -> void:
+        var node_path = params.get("node_path", "")
+        var group_name = params.get("group_name", "")
+        var persistent = params.get("persistent", true)
+        var transaction_id = params.get("transaction_id", "")
+
+        if node_path.is_empty():
+                return _send_error(client_id, "Node path cannot be empty", command_id)
+
+        if group_name.is_empty():
+                return _send_error(client_id, "Group name cannot be empty", command_id)
+
+        var node = _get_editor_node(node_path)
+        if not node:
+                return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+        if node.is_in_group(group_name):
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "persistent": persistent,
+                        "status": "already_member"
+                }, command_id)
+                return
+
+        var transaction_metadata := {
+                "command": "add_node_to_group",
+                "node_path": node_path,
+                "group_name": group_name,
+                "persistent": persistent,
+                "client_id": client_id,
+                "command_id": command_id,
+        }
+
+        var transaction
+        if transaction_id.is_empty():
+                transaction = SceneTransactionManager.begin_inline("Add Node To Group", transaction_metadata)
+        else:
+                transaction = SceneTransactionManager.get_transaction(transaction_id)
+                if not transaction:
+                        transaction = SceneTransactionManager.begin_registered(transaction_id, "Add Node To Group", transaction_metadata)
+
+        if not transaction:
+                return _send_error(client_id, "Failed to obtain scene transaction for group addition", command_id)
+
+        transaction.add_do_method(node, "add_to_group", [group_name, persistent])
+        transaction.add_undo_method(node, "remove_from_group", [group_name])
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                _log("Added node to group", "_add_node_to_group", {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "persistent": persistent,
+                        "transaction_id": transaction.transaction_id,
+                })
+        )
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit group addition", command_id)
+
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "persistent": persistent,
+                        "transaction_id": transaction.transaction_id,
+                        "status": "committed"
+                }, command_id)
+        else:
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "persistent": persistent,
+                        "transaction_id": transaction.transaction_id,
+                        "status": "pending"
+                }, command_id)
+
+func _remove_node_from_group(client_id: int, params: Dictionary, command_id: String) -> void:
+        var node_path = params.get("node_path", "")
+        var group_name = params.get("group_name", "")
+        var transaction_id = params.get("transaction_id", "")
+        var restore_persistent = params.get("persistent", true)
+
+        if node_path.is_empty():
+                return _send_error(client_id, "Node path cannot be empty", command_id)
+
+        if group_name.is_empty():
+                return _send_error(client_id, "Group name cannot be empty", command_id)
+
+        var node = _get_editor_node(node_path)
+        if not node:
+                return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+        if not node.is_in_group(group_name):
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "status": "not_member"
+                }, command_id)
+                return
+
+        var transaction_metadata := {
+                "command": "remove_node_from_group",
+                "node_path": node_path,
+                "group_name": group_name,
+                "client_id": client_id,
+                "command_id": command_id,
+        }
+
+        var transaction
+        if transaction_id.is_empty():
+                transaction = SceneTransactionManager.begin_inline("Remove Node From Group", transaction_metadata)
+        else:
+                transaction = SceneTransactionManager.get_transaction(transaction_id)
+                if not transaction:
+                        transaction = SceneTransactionManager.begin_registered(transaction_id, "Remove Node From Group", transaction_metadata)
+
+        if not transaction:
+                return _send_error(client_id, "Failed to obtain scene transaction for group removal", command_id)
+
+        transaction.add_do_method(node, "remove_from_group", [group_name])
+        transaction.add_undo_method(node, "add_to_group", [group_name, restore_persistent])
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                _log("Removed node from group", "_remove_node_from_group", {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "persistent": restore_persistent,
+                        "transaction_id": transaction.transaction_id,
+                })
+        )
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit group removal", command_id)
+
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "transaction_id": transaction.transaction_id,
+                        "status": "committed"
+                }, command_id)
+        else:
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "group_name": group_name,
+                        "transaction_id": transaction.transaction_id,
+                        "status": "pending"
+                }, command_id)
+
+func _list_node_groups(client_id: int, params: Dictionary, command_id: String) -> void:
+        var node_path = params.get("node_path", "")
+        if node_path.is_empty():
+                return _send_error(client_id, "Node path cannot be empty", command_id)
+
+        var node = _get_editor_node(node_path)
+        if not node:
+                return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+        var groups: Array = node.get_groups()
+        _send_success(client_id, {
+                "node_path": node_path,
+                "groups": groups
+        }, command_id)
+
+func _list_nodes_in_group(client_id: int, params: Dictionary, command_id: String) -> void:
+        var group_name = params.get("group_name", "")
+        if group_name.is_empty():
+                return _send_error(client_id, "Group name cannot be empty", command_id)
+
+        var plugin = Engine.get_meta("GodotMCPPlugin")
+        if not plugin:
+                return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
+
+        var editor_interface = plugin.get_editor_interface()
+        var edited_scene_root = editor_interface.get_edited_scene_root()
+        if not edited_scene_root:
+                return _send_error(client_id, "No scene is currently being edited", command_id)
+
+        var results: Array = []
+        _collect_nodes_in_group(edited_scene_root, group_name, "/root", results)
+
+        _send_success(client_id, {
+                "group_name": group_name,
+                "nodes": results
+        }, command_id)
 
 func _create_node(client_id: int, params: Dictionary, command_id: String) -> void:
         var parent_path = params.get("parent_path", "/root")
@@ -296,10 +587,10 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 	}, command_id)
 
 func _list_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path = params.get("parent_path", "/root")
-	
-	# Get the parent node using the editor node helper
-	var parent = _get_editor_node(parent_path)
+        var parent_path = params.get("parent_path", "/root")
+
+        # Get the parent node using the editor node helper
+        var parent = _get_editor_node(parent_path)
 	if not parent:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
 	
@@ -312,7 +603,40 @@ func _list_nodes(client_id: int, params: Dictionary, command_id: String) -> void
 			"path": str(child.get_path()).replace(str(parent.get_path()), parent_path)
 		})
 	
-	_send_success(client_id, {
-		"parent_path": parent_path,
-		"children": children
-	}, command_id)
+        _send_success(client_id, {
+                "parent_path": parent_path,
+                "children": children
+        }, command_id)
+
+func _collect_nodes_in_group(node: Node, group_name: String, current_path: String, results: Array) -> void:
+        if node.is_in_group(group_name):
+                results.append({
+                        "name": node.name,
+                        "type": node.get_class(),
+                        "path": current_path,
+                })
+
+        for child in node.get_children():
+                if child is Node:
+                        _collect_nodes_in_group(child, group_name, current_path + "/" + child.name, results)
+
+func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
+        var payload := {
+                "filename": LOG_FILENAME,
+                "timestamp": Time.get_datetime_string_from_system(true, true),
+                "classname": "MCPNodeCommands",
+                "function": function_name,
+                "system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
+                "line_num": extra.get("line_num", 0),
+                "error": is_error ? message : "",
+                "db_phase": extra.get("db_phase", "none"),
+                "method": extra.get("method", "NONE"),
+                "message": message,
+        }
+
+        for key in extra.keys():
+                if not payload.has(key):
+                        payload[key] = extra[key]
+
+        print(JSON.stringify(payload))
+        print("[Continuous skepticism (Sherlock Protocol)] %s" % message)
