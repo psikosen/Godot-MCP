@@ -73,6 +73,69 @@ List all child nodes under a parent node.
 List all nodes under "/root/MainScene/UI".
 ```
 
+### rename_node
+Rename an existing node in the edited scene with undo support.
+
+**Parameters:**
+- `node_path` - Path to the node that should be renamed
+- `new_name` - New name to apply to the node
+- `transaction_id` (optional) - Use an existing transaction to batch the rename
+
+**Example:**
+```
+Rename the node at "/root/MainScene/Enemy" to "Boss" without affecting other children.
+```
+
+### add_node_to_group
+Add a node to a named group, optionally persisting the membership to the scene file.
+
+**Parameters:**
+- `node_path` - Path to the node to modify
+- `group_name` - Group to join (case-sensitive)
+- `persistent` (optional) - Whether the membership should be saved with the scene (default true)
+- `transaction_id` (optional) - Use an existing transaction to batch the operation
+
+**Example:**
+```
+Add the player node to the "damageable" group so enemies can find it easily.
+```
+
+### remove_node_from_group
+Remove a node from a named group with full undo/redo support.
+
+**Parameters:**
+- `node_path` - Path to the node to modify
+- `group_name` - Group that should be removed from the node
+- `persistent` (optional) - Whether undo should restore the membership as persistent (default true)
+- `transaction_id` (optional) - Use an existing transaction to batch the operation
+
+**Example:**
+```
+Remove "Boss" from the "spawned_enemies" group after the fight ends.
+```
+
+### list_node_groups
+List all groups a node currently belongs to.
+
+**Parameters:**
+- `node_path` - Path to the node to inspect
+
+**Example:**
+```
+Show every group that the player node is assigned to.
+```
+
+### list_nodes_in_group
+List every node in the edited scene that belongs to a specified group.
+
+**Parameters:**
+- `group_name` - Name of the group to query
+
+**Example:**
+```
+List every node in the "interactable" group so I can audit them.
+```
+
 ## Script Tools
 
 ### create_script
@@ -229,6 +292,70 @@ Query the cached index using glob patterns to quickly list files or directories.
 **Example:**
 ```
 Show me every GDScript under addons and docs/*.md files.
+```
+
+### list_input_actions
+List every configured input action along with its deadzone and registered events.
+
+**Parameters:** None
+
+**Example:**
+```
+Audit every action in the Input Map so I can document the controls.
+```
+
+### add_input_action
+Create or overwrite a project input action, optionally seeding it with input events.
+
+**Parameters:**
+- `action_name` - Name of the action to create or overwrite
+- `deadzone` (optional) - Custom deadzone value for analog inputs
+- `overwrite` (optional) - Whether an existing action should be replaced (default false)
+- `persistent` (optional) - Save the change to project.godot immediately (default true)
+- `events` (optional) - Array of input event dictionaries to assign to the action
+
+**Example:**
+```
+Create an action called "dash" that listens to Shift and a controller face button.
+```
+
+### remove_input_action
+Delete an input action from the project settings.
+
+**Parameters:**
+- `action_name` - Name of the action to remove
+- `persistent` (optional) - Save the change to project.godot immediately (default true)
+
+**Example:**
+```
+Remove the unused "debug_toggle" action from the input map.
+```
+
+### add_input_event_to_action
+Register an additional input event on an existing action.
+
+**Parameters:**
+- `action_name` - Name of the action to modify
+- `event` - Dictionary describing the input event to add (e.g., key, mouse button, joypad button)
+- `persistent` (optional) - Save the change to project.godot immediately (default true)
+
+**Example:**
+```
+Add the right mouse button as an alternative way to trigger the "aim" action.
+```
+
+### remove_input_event_from_action
+Remove a registered input event by index or by matching event fields.
+
+**Parameters:**
+- `action_name` - Name of the action to modify
+- `event_index` (optional) - Index of the event to remove (0-based)
+- `event` (optional) - Dictionary describing the event to match for removal
+- `persistent` (optional) - Save the change to project.godot immediately (default true)
+
+**Example:**
+```
+Remove the duplicate Spacebar binding from the "jump" action.
 ```
 
 ## Using Commands with Claude

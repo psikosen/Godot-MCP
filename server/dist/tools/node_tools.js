@@ -242,5 +242,228 @@ export var nodeTools = [
             requiredRole: 'read',
         },
     },
+    {
+        name: 'rename_node',
+        description: 'Rename an existing node while preserving undo history',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the node that should be renamed (e.g. "/root/MainScene/Player")'),
+            new_name: z.string()
+                .min(1)
+                .describe('New name for the node'),
+            transaction_id: z.string().optional()
+                .describe('Optional scene transaction identifier used to batch operations'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, status_4, previousName, error_6;
+            var _c, _d, _e;
+            var node_path = _b.node_path, new_name = _b.new_name, transaction_id = _b.transaction_id;
+            return __generator(this, function (_f) {
+                switch (_f.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _f.label = 1;
+                    case 1:
+                        _f.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('rename_node', {
+                                node_path: node_path,
+                                new_name: new_name,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _f.sent();
+                        status_4 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
+                        if (status_4 === 'no_change') {
+                            return [2 /*return*/, "Node at ".concat(node_path, " already has the name \"").concat(new_name, "\".")];
+                        }
+                        previousName = (_e = (_d = result.previous_name) !== null && _d !== void 0 ? _d : node_path.split('/').pop()) !== null && _e !== void 0 ? _e : node_path;
+                        return [2 /*return*/, "Renamed node ".concat(previousName, " to ").concat(result.new_name, " [").concat(status_4, "]")];
+                    case 3:
+                        error_6 = _f.sent();
+                        throw new Error("Failed to rename node: ".concat(error_6.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'add_node_to_group',
+        description: 'Add a node to a Godot group with optional persistence for scene saving',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the node that should join the group (e.g. "/root/MainScene/Enemy")'),
+            group_name: z.string()
+                .min(1)
+                .describe('Group name to assign (case-sensitive)'),
+            persistent: z.boolean().optional()
+                .describe('Whether the membership should be stored in the scene file (default true)'),
+            transaction_id: z.string().optional()
+                .describe('Optional scene transaction identifier used to batch operations'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, status_5, error_7;
+            var _c;
+            var node_path = _b.node_path, group_name = _b.group_name, persistent = _b.persistent, transaction_id = _b.transaction_id;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('add_node_to_group', {
+                                node_path: node_path,
+                                group_name: group_name,
+                                persistent: persistent,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _d.sent();
+                        status_5 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
+                        if (status_5 === 'already_member') {
+                            return [2 /*return*/, "Node at ".concat(node_path, " is already in group \"").concat(group_name, "\".")];
+                        }
+                        return [2 /*return*/, "Added node ".concat(node_path, " to group \"").concat(group_name, "\" [").concat(status_5, "]")];
+                    case 3:
+                        error_7 = _d.sent();
+                        throw new Error("Failed to add node to group: ".concat(error_7.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'remove_node_from_group',
+        description: 'Remove a node from a Godot group with undo support',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the node whose group membership should be removed'),
+            group_name: z.string()
+                .min(1)
+                .describe('Group name to remove from the node'),
+            persistent: z.boolean().optional()
+                .describe('Whether undo should restore the membership as persistent (default true)'),
+            transaction_id: z.string().optional()
+                .describe('Optional scene transaction identifier used to batch operations'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, status_6, error_8;
+            var _c;
+            var node_path = _b.node_path, group_name = _b.group_name, persistent = _b.persistent, transaction_id = _b.transaction_id;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('remove_node_from_group', {
+                                node_path: node_path,
+                                group_name: group_name,
+                                persistent: persistent,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _d.sent();
+                        status_6 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
+                        if (status_6 === 'not_member') {
+                            return [2 /*return*/, "Node at ".concat(node_path, " is not part of group \"").concat(group_name, "\".")];
+                        }
+                        return [2 /*return*/, "Removed node ".concat(node_path, " from group \"").concat(group_name, "\" [").concat(status_6, "]")];
+                    case 3:
+                        error_8 = _d.sent();
+                        throw new Error("Failed to remove node from group: ".concat(error_8.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'list_node_groups',
+        description: 'List all groups assigned to a specific node',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the node whose groups should be listed'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, groups, error_9;
+            var _c;
+            var node_path = _b.node_path;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('list_node_groups', { node_path: node_path })];
+                    case 2:
+                        result = _d.sent();
+                        groups = (_c = result.groups) !== null && _c !== void 0 ? _c : [];
+                        if (groups.length === 0) {
+                            return [2 /*return*/, "Node at ".concat(node_path, " is not assigned to any groups.")];
+                        }
+                        return [2 /*return*/, "Groups for node ".concat(node_path, ":\n").concat(groups.join('\n'))];
+                    case 3:
+                        error_9 = _d.sent();
+                        throw new Error("Failed to list node groups: ".concat(error_9.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
+        name: 'list_nodes_in_group',
+        description: 'Enumerate all nodes in the currently edited scene that belong to a specific group',
+        parameters: z.object({
+            group_name: z.string()
+                .min(1)
+                .describe('Group name to query'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, nodes, formatted, error_10;
+            var _c;
+            var group_name = _b.group_name;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('list_nodes_in_group', { group_name: group_name })];
+                    case 2:
+                        result = _d.sent();
+                        nodes = (_c = result.nodes) !== null && _c !== void 0 ? _c : [];
+                        if (nodes.length === 0) {
+                            return [2 /*return*/, "No nodes found in group \"".concat(group_name, "\".")];
+                        }
+                        formatted = nodes
+                            .map(function (node) { return "".concat(node.name, " (").concat(node.type, ") - ").concat(node.path); })
+                            .join('\n');
+                        return [2 /*return*/, "Nodes in group \"".concat(group_name, "\":\n").concat(formatted)];
+                    case 3:
+                        error_10 = _d.sent();
+                        throw new Error("Failed to list nodes in group: ".concat(error_10.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
 ];
 //# sourceMappingURL=node_tools.js.map
