@@ -61,6 +61,9 @@ export const sceneTools: MCPTool[] = [
         throw new Error(`Failed to create scene: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -79,6 +82,9 @@ export const sceneTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to save scene: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 
@@ -99,6 +105,9 @@ export const sceneTools: MCPTool[] = [
         throw new Error(`Failed to open scene: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -115,6 +124,9 @@ export const sceneTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to get current scene: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 
@@ -146,6 +158,9 @@ export const sceneTools: MCPTool[] = [
         throw new Error(`Failed to get project info: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'read',
+    },
   },
 
   {
@@ -173,6 +188,9 @@ export const sceneTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to create resource: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 
@@ -202,6 +220,9 @@ export const sceneTools: MCPTool[] = [
         throw new Error(`Failed to begin scene transaction: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -223,6 +244,9 @@ export const sceneTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to commit scene transaction: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 
@@ -246,6 +270,9 @@ export const sceneTools: MCPTool[] = [
         throw new Error(`Failed to rollback scene transaction: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -267,6 +294,9 @@ export const sceneTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to list scene transactions: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 ];

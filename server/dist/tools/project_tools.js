@@ -57,6 +57,9 @@ export var projectTools = [
                 }
             });
         }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
     },
     {
         name: 'query_project_index',
@@ -97,6 +100,9 @@ export var projectTools = [
                 }
             });
         }); },
+        metadata: {
+            requiredRole: 'read',
+        },
     },
 ];
 //# sourceMappingURL=project_tools.js.map

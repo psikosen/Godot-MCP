@@ -141,6 +141,22 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `list_permission_escalations` - Lists pending and resolved permission escalation requests
 - `resolve_permission_escalation` - Approve or deny a recorded escalation request
 
+### Command Roles & Escalations
+
+Every tool is tagged with a required role that indicates the level of trust needed to run it:
+
+- **read** – Safe, read-only commands that never mutate project state.
+- **edit** – Commands that edit project files or the scene tree under the existing capability allowlist.
+- **admin** – High-risk commands that can execute arbitrary code or bypass guardrails.
+
+The MCP server automatically records an escalation request for any command whose required role is not in the default auto-approved set (currently `read` and `edit`). When an escalation is required, the tool returns the escalation identifier along with a suggested natural-language prompt that a human reviewer can use to approve the action. Reviewers can inspect and resolve queued requests via the `list_permission_escalations` and `resolve_permission_escalation` tools.
+
+Commands that currently require `admin` approval include:
+
+- `apply_patch`
+- `execute_editor_script`
+- `resolve_permission_escalation`
+
 #### Editor Commands
 - `get-editor-state` - Gets current editor state
 - `run-project` - Runs the project

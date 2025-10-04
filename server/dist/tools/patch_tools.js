@@ -59,6 +59,9 @@ export var patchTools = [
                 }
             });
         }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
     },
     {
         name: 'apply_patch',
@@ -81,6 +84,10 @@ export var patchTools = [
                 }
             });
         }); },
+        metadata: {
+            requiredRole: 'admin',
+            escalationPrompt: 'Request approval to apply a pending patch to the repository.',
+        },
     },
     {
         name: 'cancel_patch',
@@ -98,6 +105,9 @@ export var patchTools = [
                     }, null, 2)];
             });
         }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
     },
 ];
 //# sourceMappingURL=patch_tools.js.map

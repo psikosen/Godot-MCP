@@ -15,6 +15,8 @@ export interface EscalationRecord {
   resolvedAt?: string;
   resolver?: string;
   notes?: string;
+  prompt?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface EscalationState {
@@ -26,6 +28,8 @@ interface RecordEscalationInput {
   mode: string;
   reason: string;
   requestedBy: string;
+  prompt?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface ResolveEscalationInput {
@@ -52,13 +56,25 @@ export class EscalationManager {
       storagePath ?? path.resolve(process.cwd(), '..', 'project-manager', 'permission_escalations.json');
   }
 
-  async recordEscalation({ path: relativePath, mode, reason, requestedBy }: RecordEscalationInput): Promise<EscalationRecord> {
+  async recordEscalation({
+    path: relativePath,
+    mode,
+    reason,
+    requestedBy,
+    prompt,
+    metadata,
+  }: RecordEscalationInput): Promise<EscalationRecord> {
     return this.withLock(async () => {
       const state = await this.loadState();
       const normalizedPath = this.normalizePath(relativePath);
 
       const existing = state.records.find(
-        record => record.status === 'pending' && record.path === normalizedPath && record.mode === mode && record.reason === reason,
+        record =>
+          record.status === 'pending' &&
+          record.path === normalizedPath &&
+          record.mode === mode &&
+          record.reason === reason &&
+          record.requestedBy === requestedBy,
       );
 
       if (existing) {
@@ -77,6 +93,8 @@ export class EscalationManager {
         requestedBy,
         requestedAt: new Date().toISOString(),
         status: 'pending',
+        prompt,
+        metadata,
       };
 
       state.records.push(record);

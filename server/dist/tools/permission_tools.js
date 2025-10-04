@@ -63,6 +63,9 @@ export var permissionTools = [
                 }
             });
         }); },
+        metadata: {
+            requiredRole: 'read',
+        },
     },
     {
         name: 'resolve_permission_escalation',
@@ -92,10 +95,16 @@ export var permissionTools = [
                                 resolved_at: record.resolvedAt,
                                 resolver: record.resolver,
                                 notes: record.notes,
+                                prompt: record.prompt,
+                                metadata: record.metadata,
                             }, null, 2)];
                 }
             });
         }); },
+        metadata: {
+            requiredRole: 'admin',
+            escalationPrompt: 'Request approval to resolve a pending permission escalation.',
+        },
     },
 ];
 //# sourceMappingURL=permission_tools.js.map

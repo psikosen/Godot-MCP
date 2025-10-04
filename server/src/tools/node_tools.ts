@@ -66,6 +66,9 @@ export const nodeTools: MCPTool[] = [
         throw new Error(`Failed to create node: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -87,6 +90,9 @@ export const nodeTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to delete node: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 
@@ -120,6 +126,9 @@ export const nodeTools: MCPTool[] = [
         throw new Error(`Failed to update node property: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -144,6 +153,9 @@ export const nodeTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to get node properties: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 
@@ -173,6 +185,9 @@ export const nodeTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to list nodes: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 ];

@@ -61,7 +61,7 @@ var EscalationManager = /** @class */ (function () {
     EscalationManager.prototype.recordEscalation = function (_a) {
         return __awaiter(this, arguments, void 0, function (_b) {
             var _this = this;
-            var relativePath = _b.path, mode = _b.mode, reason = _b.reason, requestedBy = _b.requestedBy;
+            var relativePath = _b.path, mode = _b.mode, reason = _b.reason, requestedBy = _b.requestedBy, prompt = _b.prompt, metadata = _b.metadata;
             return __generator(this, function (_c) {
                 return [2 /*return*/, this.withLock(function () { return __awaiter(_this, void 0, void 0, function () {
                         var state, normalizedPath, existing, record;
@@ -71,7 +71,13 @@ var EscalationManager = /** @class */ (function () {
                                 case 1:
                                     state = _a.sent();
                                     normalizedPath = this.normalizePath(relativePath);
-                                    existing = state.records.find(function (record) { return record.status === 'pending' && record.path === normalizedPath && record.mode === mode && record.reason === reason; });
+                                    existing = state.records.find(function (record) {
+                                        return record.status === 'pending' &&
+                                            record.path === normalizedPath &&
+                                            record.mode === mode &&
+                                            record.reason === reason &&
+                                            record.requestedBy === requestedBy;
+                                    });
                                     if (existing) {
                                         this.log('Escalation already pending', {
                                             systemSection: 'record',
@@ -87,6 +93,8 @@ var EscalationManager = /** @class */ (function () {
                                         requestedBy: requestedBy,
                                         requestedAt: new Date().toISOString(),
                                         status: 'pending',
+                                        prompt: prompt,
+                                        metadata: metadata,
                                     };
                                     state.records.push(record);
                                     return [4 /*yield*/, this.saveState(state)];

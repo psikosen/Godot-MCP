@@ -10,12 +10,16 @@ export interface EscalationRecord {
     resolvedAt?: string;
     resolver?: string;
     notes?: string;
+    prompt?: string;
+    metadata?: Record<string, unknown>;
 }
 interface RecordEscalationInput {
     path: string;
     mode: string;
     reason: string;
     requestedBy: string;
+    prompt?: string;
+    metadata?: Record<string, unknown>;
 }
 interface ResolveEscalationInput {
     id: string;
@@ -34,7 +38,7 @@ export declare class EscalationManager {
     private readonly storagePath;
     private queue;
     constructor(storagePath?: string);
-    recordEscalation({ path: relativePath, mode, reason, requestedBy }: RecordEscalationInput): Promise<EscalationRecord>;
+    recordEscalation({ path: relativePath, mode, reason, requestedBy, prompt, metadata, }: RecordEscalationInput): Promise<EscalationRecord>;
     listEscalations(options?: ListOptions): Promise<EscalationRecord[]>;
     resolveEscalation({ id, status, resolver, notes }: ResolveEscalationInput): Promise<EscalationRecord>;
     private withLock;
