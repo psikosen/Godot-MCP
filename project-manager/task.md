@@ -17,7 +17,7 @@
 - [x] Transactional scene edits with UndoRedo integration.
 - [ ] Capability scoping & permissions (allowlists, read-only vs read-write, escalation prompts).
   - [x] Enforce write allowlist for patch pipeline touching scripts/scenes/docs.
-  - [ ] Introduce escalation prompts & per-command roles for high-risk operations.
+  - [x] Introduce escalation prompts & per-command roles for high-risk operations.
 - [ ] Structural validation for scenes/scripts (lint, gdformat, scene integrity checks).
 - [ ] Robust error model & diagnostics (standard envelope, log capture).
 - [x] State/model context indexing (project map) with incremental updates.

@@ -16,6 +16,7 @@ mono_crash.*.json
 node_modules/
 npm-debug.log
 dist/
+!server/dist/
 
 # System files
 .DS_Store

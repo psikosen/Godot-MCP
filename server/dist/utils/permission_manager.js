@@ -92,6 +92,11 @@ var PermissionManager = /** @class */ (function () {
                                 mode: mode,
                                 reason: 'not_allowlisted',
                                 requestedBy: 'permission_manager',
+                                prompt: "Request approval to ".concat(mode, " ").concat(normalized),
+                                metadata: {
+                                    relativePath: normalized,
+                                    mode: mode,
+                                },
                             })];
                     case 1:
                         escalation = _a.sent();

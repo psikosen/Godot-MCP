@@ -2,6 +2,16 @@
 
 This document provides a reference for the commands available through the Godot MCP integration.
 
+## Command Roles & Escalations
+
+Each command now advertises a required role:
+
+- **read** – Read-only operations that inspect project state.
+- **edit** – Write operations covered by the filesystem allowlist.
+- **admin** – High-impact operations that require a human escalation before execution.
+
+When a command requires a role outside the default (`read` and `edit`), the server records an escalation request and returns its identifier along with a suggested approval prompt. Use `list_permission_escalations` and `resolve_permission_escalation` to review and resolve pending approvals.
+
 ## Node Tools
 
 ### create_node

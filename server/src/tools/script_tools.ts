@@ -64,6 +64,9 @@ export const scriptTools: MCPTool[] = [
         throw new Error(`Failed to create script: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
 
   {
@@ -88,6 +91,9 @@ export const scriptTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to edit script: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 
@@ -115,6 +121,9 @@ export const scriptTools: MCPTool[] = [
       } catch (error) {
         throw new Error(`Failed to get script: ${(error as Error).message}`);
       }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 
@@ -175,6 +184,9 @@ export const scriptTools: MCPTool[] = [
       template = template.trimEnd();
       
       return `Generated GDScript template:\n\n\`\`\`gdscript\n${template}\n\`\`\``;
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 ];

@@ -17,6 +17,9 @@ export const projectTools: MCPTool[] = [
         root_entries: snapshot.root,
       }, null, 2);
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
   {
     name: 'query_project_index',
@@ -56,6 +59,9 @@ export const projectTools: MCPTool[] = [
         count: matches.length,
         matches,
       }, null, 2);
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 ];

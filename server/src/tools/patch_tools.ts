@@ -17,6 +17,9 @@ export const patchTools: MCPTool[] = [
         files: preview.files,
       }, null, 2);
     },
+    metadata: {
+      requiredRole: 'edit',
+    },
   },
   {
     name: 'apply_patch',
@@ -31,6 +34,10 @@ export const patchTools: MCPTool[] = [
         applied_files: result.appliedFiles,
       }, null, 2);
     },
+    metadata: {
+      requiredRole: 'admin',
+      escalationPrompt: 'Request approval to apply a pending patch to the repository.',
+    },
   },
   {
     name: 'cancel_patch',
@@ -44,6 +51,9 @@ export const patchTools: MCPTool[] = [
         patch_id,
         cancelled: true,
       }, null, 2);
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 ];

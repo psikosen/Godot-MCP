@@ -36,5 +36,9 @@ export const editorTools: MCPTool[] = [
         throw new Error(`Script execution failed: ${(error as Error).message}`);
       }
     },
+    metadata: {
+      requiredRole: 'admin',
+      escalationPrompt: 'Request approval to execute arbitrary editor scripts within Godot.',
+    },
   },
 ];

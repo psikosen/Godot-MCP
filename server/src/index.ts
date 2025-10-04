@@ -7,6 +7,8 @@ import { patchTools } from './tools/patch_tools.js';
 import { projectTools } from './tools/project_tools.js';
 import { permissionTools } from './tools/permission_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
+import { commandGuard } from './utils/command_guard.js';
+import { MCPTool } from './utils/types.js';
 
 // Import resources
 import { 
@@ -43,8 +45,18 @@ async function main() {
   });
 
   // Register all tools
+  const registerTool = <T>(tool: MCPTool<T>) => {
+    server.addTool({
+      ...tool,
+      async execute(args: T): Promise<string> {
+        await commandGuard.assertAllowed(tool, args);
+        return tool.execute(args);
+      },
+    });
+  };
+
   [...nodeTools, ...scriptTools, ...sceneTools, ...editorTools, ...patchTools, ...projectTools, ...permissionTools].forEach(tool => {
-    server.addTool(tool);
+    registerTool(tool);
   });
 
   // Register all resources

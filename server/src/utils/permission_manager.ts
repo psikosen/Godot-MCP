@@ -51,6 +51,11 @@ export class PermissionManager {
       mode,
       reason: 'not_allowlisted',
       requestedBy: 'permission_manager',
+      prompt: `Request approval to ${mode} ${normalized}`,
+      metadata: {
+        relativePath: normalized,
+        mode,
+      },
     });
 
     this.log('Permission requires escalation', {
