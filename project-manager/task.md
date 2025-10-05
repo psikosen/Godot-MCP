@@ -85,3 +85,13 @@
 - [ ] Surface Godot editor debugger warnings exposed in `editor/debugger/editor_debugger_node.cpp` as structured diagnostics via MCP.
 - [ ] Mirror the official `modules/gdscript/tools/lint` checks through the structural validation gate.
 - [ ] Track upstream `scene/3d` node additions (e.g. `voxel_gi` changes) to keep node tool metadata in sync.
+
+## Upstream Alignment — Module coverage backlog
+- [x] Navigation: expose navmesh baking, region, and agent configuration endpoints that wrap `modules/navigation_2d` and `modules/navigation_3d` APIs.
+- [ ] Physics: add inspection and mutation helpers for `godot_physics_2d`, `godot_physics_3d`, and `jolt_physics` bodies, joints, and areas.
+- [ ] Rendering assets: support GLTF/FBX import workflows leveraging `modules/gltf`, `modules/fbx`, and `modules/xatlas_unwrap` utilities.
+- [ ] Materials & light transport: surface shader, lightmap, and mesh optimization pipelines aligned with `modules/glslang`, `modules/lightmapper_rd`, and `modules/meshoptimizer`.
+- [ ] Audio: automate audio bus, stream, and interactive music tooling with `modules/interactive_music`, `modules/ogg`, and `modules/vorbis`.
+- [ ] XR & VR: implement project configuration flows for `modules/openxr`, `modules/mobile_vr`, and `modules/webxr`.
+- [ ] Multiplayer & networking: add project scaffolds and live session utilities for `modules/multiplayer`, `modules/webrtc`, and `modules/websocket`.
+- [ ] Compression & texture pipelines: orchestrate transcoding and compression tasks across `modules/astcenc`, `modules/ktx`, and `modules/webp`.

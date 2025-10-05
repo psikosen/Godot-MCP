@@ -143,6 +143,14 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `rollback_scene_transaction` - Roll back a transaction (even after commit)
 - `list_scene_transactions` - List transaction identifiers that are currently tracked
 
+#### Navigation Commands
+- `list_navigation_maps` - Summarize NavigationRegion2D/3D nodes and their resources
+- `list_navigation_agents` - Inspect NavigationAgent2D/3D avoidance and target settings
+- `bake_navigation_region` - Trigger baking on a navigation region (threaded by default)
+- `update_navigation_region` - Change navigation region node properties with undo/redo
+- `update_navigation_resource` - Edit NavigationPolygon or NavigationMesh resource properties
+- `update_navigation_agent` - Adjust NavigationAgent parameters with undo/redo
+
 #### Project Commands
 - `refresh_project_index` - Rebuild the cached project index snapshot
 - `query_project_index` - Query the cached project index with glob patterns
