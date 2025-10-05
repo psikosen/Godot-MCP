@@ -6,6 +6,7 @@ import { editorTools } from './tools/editor_tools.js';
 import { patchTools } from './tools/patch_tools.js';
 import { projectTools } from './tools/project_tools.js';
 import { permissionTools } from './tools/permission_tools.js';
+import { navigationTools } from './tools/navigation_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
@@ -55,7 +56,16 @@ async function main() {
     });
   };
 
-  [...nodeTools, ...scriptTools, ...sceneTools, ...editorTools, ...patchTools, ...projectTools, ...permissionTools].forEach(tool => {
+  [
+    ...nodeTools,
+    ...scriptTools,
+    ...sceneTools,
+    ...editorTools,
+    ...patchTools,
+    ...projectTools,
+    ...permissionTools,
+    ...navigationTools,
+  ].forEach(tool => {
     registerTool(tool);
   });
 
