@@ -38,6 +38,62 @@ interface CreateResourceParams {
   properties?: Record<string, any>;
 }
 
+interface ConfigurePhysicsNodeParams {
+  node_path: string;
+  properties: Record<string, unknown>;
+  transaction_id?: string;
+}
+
+const physicsPropertiesSchema = z
+  .record(z.any())
+  .refine((props) => Object.keys(props).length > 0, {
+    message: 'At least one property must be provided',
+  });
+
+const formatVariant = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch (error) {
+      return String(value);
+    }
+  }
+
+  return String(value);
+};
+
+const formatPhysicsResponse = (
+  kind: 'body' | 'area' | 'joint',
+  result: CommandResult,
+): string => {
+  const nodePath = (result.node_path as string) ?? 'unknown node';
+  const nodeType = (result.node_type as string) ?? 'UnknownNode';
+  const dimension = (result.dimension as string) ?? 'unknown';
+  const status = (result.status as string) ?? 'pending';
+  const transactionId = result.transaction_id ? ` (transaction ${result.transaction_id})` : '';
+  const changes = Array.isArray(result.changes) ? (result.changes as any[]) : [];
+
+  if (changes.length === 0) {
+    return `No ${kind} properties changed for ${nodeType} at ${nodePath} (${dimension})${transactionId}; status=${status}`;
+  }
+
+  const changeLines = changes
+    .map((change) => {
+      const property = change.property ?? 'property';
+      const newValue = formatVariant(change.new_value ?? change.parsed_value ?? change.input_value);
+      const previousValue = formatVariant(change.old_value ?? '');
+      const newType = change.new_type ? ` [${change.new_type}]` : '';
+      return `- ${property}${newType}: ${previousValue} -> ${newValue}`;
+    })
+    .join('\n');
+
+  return `Updated ${kind} ${nodeType} at ${nodePath} (${dimension})${transactionId} [${status}]\n${changeLines}`;
+};
+
 /**
  * Definition for scene tools - operations that manipulate Godot scenes
  */
@@ -297,6 +353,96 @@ export const sceneTools: MCPTool[] = [
     },
     metadata: {
       requiredRole: 'read',
+    },
+  },
+
+  {
+    name: 'configure_physics_body',
+    description: 'Update PhysicsBody2D/3D nodes with undo/redo aware property changes',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the physics body node (e.g. "/root/MainScene/Player")'),
+      properties: physicsPropertiesSchema.describe('Dictionary of physics properties to update'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier to batch multiple edits'),
+    }),
+    execute: async ({ node_path, properties, transaction_id }: ConfigurePhysicsNodeParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('configure_physics_body', {
+          node_path,
+          properties,
+          transaction_id,
+        });
+
+        return formatPhysicsResponse('body', result);
+      } catch (error) {
+        throw new Error(`Failed to configure physics body: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+
+  {
+    name: 'configure_physics_area',
+    description: 'Update Area2D/Area3D monitoring and collision settings with undo support',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the Area2D/Area3D node'),
+      properties: physicsPropertiesSchema.describe('Dictionary of area properties to update'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier to batch multiple edits'),
+    }),
+    execute: async ({ node_path, properties, transaction_id }: ConfigurePhysicsNodeParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('configure_physics_area', {
+          node_path,
+          properties,
+          transaction_id,
+        });
+
+        return formatPhysicsResponse('area', result);
+      } catch (error) {
+        throw new Error(`Failed to configure physics area: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+
+  {
+    name: 'configure_physics_joint',
+    description: 'Update Joint2D/Joint3D connections and limits with undo support',
+    parameters: z.object({
+      node_path: z.string()
+        .describe('Path to the joint node to update'),
+      properties: physicsPropertiesSchema.describe('Dictionary of joint properties to update'),
+      transaction_id: z.string().optional()
+        .describe('Optional transaction identifier to batch multiple edits'),
+    }),
+    execute: async ({ node_path, properties, transaction_id }: ConfigurePhysicsNodeParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('configure_physics_joint', {
+          node_path,
+          properties,
+          transaction_id,
+        });
+
+        return formatPhysicsResponse('joint', result);
+      } catch (error) {
+        throw new Error(`Failed to configure physics joint: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
     },
   },
 ];

@@ -269,6 +269,45 @@ Create a new resource in the project.
 Create a StyleBoxFlat resource at "res://resources/button_style.tres" with a blue background color.
 ```
 
+### configure_physics_body
+Configure properties on PhysicsBody2D and PhysicsBody3D nodes with undo/redo support.
+
+**Parameters:**
+- `node_path` - Path to the physics body node (e.g., "/root/MainScene/Player")
+- `properties` - Dictionary of physics properties to update (e.g., `{ "mass": 8.5, "collision_mask": 3 }`)
+- `transaction_id` (optional) - Use an existing transaction identifier to batch several edits
+
+**Example:**
+```
+Increase the mass on the player rigid body and restrict it to collisions on layers 1 and 2.
+```
+
+### configure_physics_area
+Adjust Area2D and Area3D monitoring, collision masks, and physics callbacks.
+
+**Parameters:**
+- `node_path` - Path to the area node that should be updated
+- `properties` - Dictionary of area properties to change (e.g., `{ "monitoring": true, "gravity_space_override": 1 }`)
+- `transaction_id` (optional) - Optional transaction identifier to stage the change before committing
+
+**Example:**
+```
+Enable monitoring on the enemy detection area and expand the collision mask to include the NPC layer.
+```
+
+### configure_physics_joint
+Update Joint2D and Joint3D configuration including connected bodies and constraint limits.
+
+**Parameters:**
+- `node_path` - Path to the joint node (e.g., "/root/MainScene/HingeJoint")
+- `properties` - Dictionary of joint properties to update (e.g., `{ "node_a": "../BodyA", "angular_limit_lower": -0.5 }`)
+- `transaction_id` (optional) - Optional transaction identifier when batching edits
+
+**Example:**
+```
+Retarget the hinge joint to connect the new door and clamp its angular limits to ±30 degrees.
+```
+
 ## Project Tools
 
 ### refresh_project_index

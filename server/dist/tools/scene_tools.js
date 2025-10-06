@@ -36,6 +36,48 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
+var physicsPropertiesSchema = z
+    .record(z.any())
+    .refine(function (props) { return Object.keys(props).length > 0; }, {
+    message: 'At least one property must be provided',
+});
+var formatVariant = function (value) {
+    if (value === null || value === undefined) {
+        return 'null';
+    }
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value);
+        }
+        catch (error) {
+            return String(value);
+        }
+    }
+    return String(value);
+};
+var formatPhysicsResponse = function (kind, result) {
+    var _a, _b, _c, _d;
+    var nodePath = (_a = result.node_path) !== null && _a !== void 0 ? _a : 'unknown node';
+    var nodeType = (_b = result.node_type) !== null && _b !== void 0 ? _b : 'UnknownNode';
+    var dimension = (_c = result.dimension) !== null && _c !== void 0 ? _c : 'unknown';
+    var status = (_d = result.status) !== null && _d !== void 0 ? _d : 'pending';
+    var transactionId = result.transaction_id ? " (transaction ".concat(result.transaction_id, ")") : '';
+    var changes = Array.isArray(result.changes) ? result.changes : [];
+    if (changes.length === 0) {
+        return "No ".concat(kind, " properties changed for ").concat(nodeType, " at ").concat(nodePath, " (").concat(dimension, ")").concat(transactionId, "; status=").concat(status);
+    }
+    var changeLines = changes
+        .map(function (change) {
+        var _a, _b, _c, _d;
+        var property = (_a = change.property) !== null && _a !== void 0 ? _a : 'property';
+        var newValue = formatVariant((_c = (_b = change.new_value) !== null && _b !== void 0 ? _b : change.parsed_value) !== null && _c !== void 0 ? _c : change.input_value);
+        var previousValue = formatVariant((_d = change.old_value) !== null && _d !== void 0 ? _d : '');
+        var newType = change.new_type ? " [".concat(change.new_type, "]") : '';
+        return "- ".concat(property).concat(newType, ": ").concat(previousValue, " -> ").concat(newValue);
+    })
+        .join('\n');
+    return "Updated ".concat(kind, " ").concat(nodeType, " at ").concat(nodePath, " (").concat(dimension, ")").concat(transactionId, " [").concat(status, "]\n").concat(changeLines);
+};
 /**
  * Definition for scene tools - operations that manipulate Godot scenes
  */
@@ -384,6 +426,123 @@ export var sceneTools = [
         }); },
         metadata: {
             requiredRole: 'read',
+        },
+    },
+    {
+        name: 'configure_physics_body',
+        description: 'Update PhysicsBody2D/3D nodes with undo/redo aware property changes',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the physics body node (e.g. "/root/MainScene/Player")'),
+            properties: physicsPropertiesSchema.describe('Dictionary of physics properties to update'),
+            transaction_id: z.string().optional()
+                .describe('Optional transaction identifier to batch multiple edits'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_11;
+            var node_path = _b.node_path, properties = _b.properties, transaction_id = _b.transaction_id;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('configure_physics_body', {
+                                node_path: node_path,
+                                properties: properties,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, formatPhysicsResponse('body', result)];
+                    case 3:
+                        error_11 = _c.sent();
+                        throw new Error("Failed to configure physics body: ".concat(error_11.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'configure_physics_area',
+        description: 'Update Area2D/Area3D monitoring and collision settings with undo support',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the Area2D/Area3D node'),
+            properties: physicsPropertiesSchema.describe('Dictionary of area properties to update'),
+            transaction_id: z.string().optional()
+                .describe('Optional transaction identifier to batch multiple edits'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_12;
+            var node_path = _b.node_path, properties = _b.properties, transaction_id = _b.transaction_id;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('configure_physics_area', {
+                                node_path: node_path,
+                                properties: properties,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, formatPhysicsResponse('area', result)];
+                    case 3:
+                        error_12 = _c.sent();
+                        throw new Error("Failed to configure physics area: ".concat(error_12.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'configure_physics_joint',
+        description: 'Update Joint2D/Joint3D connections and limits with undo support',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the joint node to update'),
+            properties: physicsPropertiesSchema.describe('Dictionary of joint properties to update'),
+            transaction_id: z.string().optional()
+                .describe('Optional transaction identifier to batch multiple edits'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_13;
+            var node_path = _b.node_path, properties = _b.properties, transaction_id = _b.transaction_id;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('configure_physics_joint', {
+                                node_path: node_path,
+                                properties: properties,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, formatPhysicsResponse('joint', result)];
+                    case 3:
+                        error_13 = _c.sent();
+                        throw new Error("Failed to configure physics joint: ".concat(error_13.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
         },
     },
 ];
