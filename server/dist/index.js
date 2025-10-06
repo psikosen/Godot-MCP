@@ -69,6 +69,7 @@ import { commandGuard } from './utils/command_guard.js';
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResource, scriptListResource, scriptMetadataResource } from './resources/script_resources.js';
 import { projectStructureResource, projectSettingsResource, projectResourcesResource, projectIndexResource, } from './resources/project_resources.js';
+import { audioBusResource } from './resources/audio_resources.js';
 import { editorStateResource, selectedNodeResource, currentScriptResource } from './resources/editor_resources.js';
 /**
  * Main entry point for the Godot MCP server
@@ -109,6 +110,7 @@ function main() {
                     server.addResource(projectSettingsResource);
                     server.addResource(projectResourcesResource);
                     server.addResource(projectIndexResource);
+                    server.addResource(audioBusResource);
                     server.addResource(editorStateResource);
                     server.addResource(selectedNodeResource);
                     server.addResource(currentScriptResource);

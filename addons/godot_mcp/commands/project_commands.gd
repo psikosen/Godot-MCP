@@ -37,6 +37,9 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
                 "remove_input_event_from_action":
                         _remove_input_event_from_action(client_id, params, command_id)
                         return true
+                "list_audio_buses":
+                        _list_audio_buses(client_id, params, command_id)
+                        return true
         return false  # Command not handled
 
 func _get_project_info(client_id: int, _params: Dictionary, command_id: String) -> void:
@@ -182,18 +185,64 @@ func _list_project_resources(client_id: int, params: Dictionary, command_id: Str
                 "scenes": [],
                 "scripts": [],
                 "textures": [],
-		"audio": [],
-		"models": [],
-		"resources": []
-	}
-	
-	var dir = DirAccess.open("res://")
-	if dir:
-		_scan_resources(dir, "", resources)
-	else:
-		return _send_error(client_id, "Failed to open res:// directory", command_id)
-	
+                "audio": [],
+                "models": [],
+                "resources": []
+        }
+
+        var dir = DirAccess.open("res://")
+        if dir:
+                _scan_resources(dir, "", resources)
+        else:
+                return _send_error(client_id, "Failed to open res:// directory", command_id)
+
         _send_success(client_id, resources, command_id)
+
+func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) -> void:
+        var bus_count := AudioServer.get_bus_count()
+        var buses: Array = []
+
+        for bus_index in range(bus_count):
+                var bus_data := {
+                        "index": bus_index,
+                        "name": String(AudioServer.get_bus_name(bus_index)),
+                        "channels": AudioServer.get_bus_channels(bus_index),
+                        "volume_db": AudioServer.get_bus_volume_db(bus_index),
+                        "solo": AudioServer.is_bus_solo(bus_index),
+                        "mute": AudioServer.is_bus_mute(bus_index),
+                        "bypass_effects": AudioServer.is_bus_bypassing_effects(bus_index),
+                        "send": String(AudioServer.get_bus_send(bus_index)),
+                        "effects": []
+                }
+
+                var effect_count := AudioServer.get_bus_effect_count(bus_index)
+                var effects: Array = []
+
+                for effect_index in range(effect_count):
+                        var effect := AudioServer.get_bus_effect(bus_index, effect_index)
+                        var effect_data := {
+                                "index": effect_index,
+                                "type": effect.get_class() if effect else "Unknown",
+                                "enabled": AudioServer.is_bus_effect_enabled(bus_index, effect_index)
+                        }
+
+                        if effect and effect is Resource:
+                                effect_data["resource_path"] = effect.resource_path
+                                effect_data["resource_name"] = effect.resource_name
+
+                        effects.append(effect_data)
+
+                bus_data["effects"] = effects
+
+                buses.append(bus_data)
+
+        var layout := {
+                "bus_count": bus_count,
+                "buses": buses
+        }
+
+        _log("Enumerated audio buses", "_list_audio_buses", {"bus_count": bus_count})
+        _send_success(client_id, layout, command_id)
 
 func _list_input_actions(client_id: int, _params: Dictionary, command_id: String) -> void:
         var actions := []

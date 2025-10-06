@@ -89,6 +89,24 @@ export const projectTools: MCPTool[] = [
     },
   },
   {
+    name: 'list_audio_buses',
+    description: 'Inspect the project audio bus layout including routing, volume, and effects.',
+    parameters: z.object({}),
+    execute: async (): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('list_audio_buses', {});
+        return JSON.stringify(result, null, 2);
+      } catch (error) {
+        throw new Error(`Failed to list audio buses: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+  {
     name: 'add_input_action',
     description: 'Create or overwrite a Godot input action with optional default events.',
     parameters: z.object({

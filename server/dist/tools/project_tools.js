@@ -138,6 +138,34 @@ export var projectTools = [
         },
     },
     {
+        name: 'list_audio_buses',
+        description: 'Inspect the project audio bus layout including routing, volume, and effects.',
+        parameters: z.object({}),
+        execute: function () { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, result, error_2;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('list_audio_buses', {})];
+                    case 2:
+                        result = _a.sent();
+                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                    case 3:
+                        error_2 = _a.sent();
+                        throw new Error("Failed to list audio buses: ".concat(error_2.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
         name: 'add_input_action',
         description: 'Create or overwrite a Godot input action with optional default events.',
         parameters: z.object({
@@ -159,7 +187,7 @@ export var projectTools = [
                 .describe('Optional array of input events to register with the action.'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_2;
+            var godot, result, error_3;
             var _c, _d;
             var action_name = _b.action_name, deadzone = _b.deadzone, overwrite = _b.overwrite, persistent = _b.persistent, events = _b.events;
             return __generator(this, function (_e) {
@@ -180,8 +208,8 @@ export var projectTools = [
                         result = _e.sent();
                         return [2 /*return*/, "Created/updated input action \"".concat(result.action_name, "\" with ").concat((_d = (_c = result.events) === null || _c === void 0 ? void 0 : _c.length) !== null && _d !== void 0 ? _d : 0, " event(s).")];
                     case 3:
-                        error_2 = _e.sent();
-                        throw new Error("Failed to add input action: ".concat(error_2.message));
+                        error_3 = _e.sent();
+                        throw new Error("Failed to add input action: ".concat(error_3.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -201,7 +229,7 @@ export var projectTools = [
                 .describe('Persist changes to project.godot immediately (default true).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, error_3;
+            var godot, error_4;
             var action_name = _b.action_name, persistent = _b.persistent;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -218,8 +246,8 @@ export var projectTools = [
                         _c.sent();
                         return [2 /*return*/, "Removed input action \"".concat(action_name, "\".")];
                     case 3:
-                        error_3 = _c.sent();
-                        throw new Error("Failed to remove input action: ".concat(error_3.message));
+                        error_4 = _c.sent();
+                        throw new Error("Failed to remove input action: ".concat(error_4.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -241,7 +269,7 @@ export var projectTools = [
                 .describe('Persist changes to project.godot immediately (default true).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_4;
+            var godot, result, error_5;
             var action_name = _b.action_name, event = _b.event, persistent = _b.persistent;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -259,8 +287,8 @@ export var projectTools = [
                         result = _c.sent();
                         return [2 /*return*/, "Added event to action \"".concat(result.action_name, "\".")];
                     case 3:
-                        error_4 = _c.sent();
-                        throw new Error("Failed to add input event: ".concat(error_4.message));
+                        error_5 = _c.sent();
+                        throw new Error("Failed to add input event: ".concat(error_5.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -290,7 +318,7 @@ export var projectTools = [
             path: ['event_index'],
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_5;
+            var godot, result, error_6;
             var action_name = _b.action_name, event_index = _b.event_index, event = _b.event, persistent = _b.persistent;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -309,8 +337,8 @@ export var projectTools = [
                         result = _c.sent();
                         return [2 /*return*/, "Removed event from action \"".concat(result.action_name, "\".")];
                     case 3:
-                        error_5 = _c.sent();
-                        throw new Error("Failed to remove input event: ".concat(error_5.message));
+                        error_6 = _c.sent();
+                        throw new Error("Failed to remove input event: ".concat(error_6.message));
                     case 4: return [2 /*return*/];
                 }
             });
