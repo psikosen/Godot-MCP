@@ -15,6 +15,7 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
   - **Script Commands**: Edit, analyze, and create GDScript files
   - **Scene Commands**: Manipulate scenes and their structure
   - **Physics Configuration**: Configure physics bodies, areas, and joints with transaction-aware updates
+  - **CSG & GridMap Helpers**: Prototype boolean geometry and GridMap layouts with undo-safe editing primitives
   - **Project Commands**: Access project settings and resources
   - **Editor Commands**: Control various editor functionality
 
@@ -153,6 +154,9 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `configure_physics_body` - Adjust PhysicsBody2D/3D properties with undo/redo
 - `configure_physics_area` - Update Area2D/Area3D monitoring, gravity, and masks
 - `configure_physics_joint` - Rewire Joint2D/3D connections and constraint limits
+- `configure_csg_shape` - Tweak CSG combiners and primitives with undo/redo support
+- `paint_gridmap_cells` - Stamp MeshLibrary items into GridMap coordinates in batches
+- `clear_gridmap_cells` - Remove items from GridMap cells while preserving undo history
 
 #### Navigation Commands
 - `list_navigation_maps` - Summarize NavigationRegion2D/3D nodes and their resources
