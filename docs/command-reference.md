@@ -308,6 +308,45 @@ Update Joint2D and Joint3D configuration including connected bodies and constrai
 Retarget the hinge joint to connect the new door and clamp its angular limits to ±30 degrees.
 ```
 
+### configure_csg_shape
+Configure CSGCombiner3D, CSGBox3D, and other CSG nodes with undo/redo aware property updates.
+
+**Parameters:**
+- `node_path` - Path to the target CSG node (e.g., "/root/Level/CSGCombiner3D")
+- `properties` - Dictionary of CSG properties to update (e.g., `{ "operation": 1, "snap": 0.5 }`)
+- `transaction_id` (optional) - Optional transaction identifier when batching edits
+
+**Example:**
+```
+Hollow out the hallway CSG combiner and flip its boolean operation to subtraction.
+```
+
+### paint_gridmap_cells
+Stamp MeshLibrary items into GridMap coordinates to block out level geometry quickly.
+
+**Parameters:**
+- `node_path` - Path to the GridMap node that should be modified
+- `cells` - Array of cell dictionaries. Each entry must include either a `position` object with `x`, `y`, `z` fields or standalone `x`, `y`, `z` keys, plus an `item` id and optional `orientation` index.
+- `transaction_id` (optional) - Optional transaction identifier to stage multiple edits before commit
+
+**Example:**
+```
+Paint a 3×3 platform in the GridMap using the stone tile (item 4) with default orientation.
+```
+
+### clear_gridmap_cells
+Erase previously painted GridMap cells, returning them to the empty slot while preserving undo history.
+
+**Parameters:**
+- `node_path` - Path to the GridMap node that should be cleared
+- `cells` - Array of positions to clear. Each entry can provide a `position` object or explicit `x`, `y`, `z` values.
+- `transaction_id` (optional) - Optional transaction identifier to queue the clears before committing
+
+**Example:**
+```
+Clear the doorway cells we just carved out of the GridMap.
+```
+
 ## Project Tools
 
 ### refresh_project_index
