@@ -41,6 +41,52 @@ var physicsPropertiesSchema = z
     .refine(function (props) { return Object.keys(props).length > 0; }, {
     message: 'At least one property must be provided',
 });
+var csgPropertiesSchema = z
+    .record(z.any())
+    .refine(function (props) { return Object.keys(props).length > 0; }, {
+    message: 'At least one property must be provided',
+});
+var gridMapPositionSchema = z.object({
+    x: z.number().int().describe('Grid cell X coordinate'),
+    y: z.number().int().describe('Grid cell Y coordinate'),
+    z: z.number().int().describe('Grid cell Z coordinate'),
+});
+var gridMapPaintCellSchema = z
+    .object({
+    position: gridMapPositionSchema.optional(),
+    x: z.number().int().optional(),
+    y: z.number().int().optional(),
+    z: z.number().int().optional(),
+    item: z.number().int().describe('MeshLibrary item ID to place in the cell'),
+    orientation: z.number().int().optional().describe('Optional cell orientation index'),
+})
+    .superRefine(function (value, ctx) {
+    var hasPositionObject = value.position !== undefined;
+    var hasComponents = value.x !== undefined && value.y !== undefined && value.z !== undefined;
+    if (!hasPositionObject && !hasComponents) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Provide either a position object or explicit x, y, z coordinates',
+        });
+    }
+});
+var gridMapClearCellSchema = z
+    .object({
+    position: gridMapPositionSchema.optional(),
+    x: z.number().int().optional(),
+    y: z.number().int().optional(),
+    z: z.number().int().optional(),
+})
+    .superRefine(function (value, ctx) {
+    var hasPositionObject = value.position !== undefined;
+    var hasComponents = value.x !== undefined && value.y !== undefined && value.z !== undefined;
+    if (!hasPositionObject && !hasComponents) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Provide either a position object or explicit x, y, z coordinates',
+        });
+    }
+});
 var formatVariant = function (value) {
     if (value === null || value === undefined) {
         return 'null';
@@ -77,6 +123,72 @@ var formatPhysicsResponse = function (kind, result) {
     })
         .join('\n');
     return "Updated ".concat(kind, " ").concat(nodeType, " at ").concat(nodePath, " (").concat(dimension, ")").concat(transactionId, " [").concat(status, "]\n").concat(changeLines);
+};
+var formatCsgResponse = function (result) {
+    var _a, _b, _c, _d, _e;
+    var nodePath = (_a = result.node_path) !== null && _a !== void 0 ? _a : 'unknown node';
+    var requestedPath = (_b = result.requested_path) !== null && _b !== void 0 ? _b : nodePath;
+    var nodeType = (_c = result.node_type) !== null && _c !== void 0 ? _c : 'CSGShape';
+    var dimension = (_d = result.dimension) !== null && _d !== void 0 ? _d : 'unknown';
+    var status = (_e = result.status) !== null && _e !== void 0 ? _e : 'pending';
+    var transactionId = result.transaction_id ? " (transaction ".concat(result.transaction_id, ")") : '';
+    var changes = Array.isArray(result.changes) ? result.changes : [];
+    if (changes.length === 0) {
+        return "No CSG properties changed for ".concat(nodeType, " at ").concat(nodePath, " (").concat(dimension, ")").concat(transactionId, " [").concat(status, "]");
+    }
+    var changeLines = changes
+        .map(function (change) {
+        var _a, _b, _c, _d;
+        var property = (_a = change.property) !== null && _a !== void 0 ? _a : 'property';
+        var newValue = formatVariant((_c = (_b = change.new_value) !== null && _b !== void 0 ? _b : change.parsed_value) !== null && _c !== void 0 ? _c : change.input_value);
+        var oldValue = formatVariant((_d = change.old_value) !== null && _d !== void 0 ? _d : '');
+        var newType = change.new_type ? " [".concat(change.new_type, "]") : '';
+        var oldType = change.old_type ? " [".concat(change.old_type, "]") : '';
+        return "- ".concat(property).concat(newType, ": ").concat(oldValue).concat(oldType, " -> ").concat(newValue);
+    })
+        .join('\n');
+    return "Updated CSG ".concat(nodeType, " at ").concat(nodePath, " (").concat(dimension, ") from ").concat(requestedPath).concat(transactionId, " [").concat(status, "]\n").concat(changeLines);
+};
+var positionToString = function (position) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    if (position && typeof position === 'object') {
+        var x = (_c = ((_b = (_a = position.x) !== null && _a !== void 0 ? _a : position.X) !== null && _b !== void 0 ? _b : position[0])) !== null && _c !== void 0 ? _c : '?';
+        var y = (_f = ((_e = (_d = position.y) !== null && _d !== void 0 ? _d : position.Y) !== null && _e !== void 0 ? _e : position[1])) !== null && _f !== void 0 ? _f : '?';
+        var z_1 = (_j = ((_h = (_g = position.z) !== null && _g !== void 0 ? _g : position.Z) !== null && _h !== void 0 ? _h : position[2])) !== null && _j !== void 0 ? _j : '?';
+        return "(".concat(x, ", ").concat(y, ", ").concat(z_1, ")");
+    }
+    return String(position !== null && position !== void 0 ? position : '(unknown position)');
+};
+var formatGridMapResponse = function (action, result) {
+    var _a, _b, _c, _d;
+    var nodePath = (_a = result.node_path) !== null && _a !== void 0 ? _a : 'unknown node';
+    var requestedPath = (_b = result.requested_path) !== null && _b !== void 0 ? _b : nodePath;
+    var nodeType = (_c = result.node_type) !== null && _c !== void 0 ? _c : 'GridMap';
+    var status = (_d = result.status) !== null && _d !== void 0 ? _d : 'pending';
+    var transactionId = result.transaction_id ? " (transaction ".concat(result.transaction_id, ")") : '';
+    var changes = Array.isArray(result.changes) ? result.changes : [];
+    if (changes.length === 0) {
+        var verb = action === 'paint' ? 'updated' : 'cleared';
+        return "No GridMap cells ".concat(verb, " for ").concat(nodeType, " at ").concat(nodePath).concat(transactionId, " [").concat(status, "]");
+    }
+    var changeLines = changes
+        .map(function (change) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        var position = positionToString(change.position);
+        if (action === 'paint') {
+            var item = formatVariant(change.item);
+            var orientation_1 = formatVariant((_a = change.orientation) !== null && _a !== void 0 ? _a : 0);
+            var previousItem = formatVariant((_c = (_b = change.previous_item) !== null && _b !== void 0 ? _b : change.previousItem) !== null && _c !== void 0 ? _c : 'none');
+            var previousOrientation_1 = formatVariant((_e = (_d = change.previous_orientation) !== null && _d !== void 0 ? _d : change.previousOrientation) !== null && _e !== void 0 ? _e : 0);
+            return "- ".concat(position, ": ").concat(previousItem, "/").concat(previousOrientation_1, " -> ").concat(item, "/").concat(orientation_1);
+        }
+        var clearedItem = formatVariant((_g = (_f = change.cleared_item) !== null && _f !== void 0 ? _f : change.previous_item) !== null && _g !== void 0 ? _g : 'none');
+        var previousOrientation = formatVariant((_j = (_h = change.previous_orientation) !== null && _h !== void 0 ? _h : change.previousOrientation) !== null && _j !== void 0 ? _j : 0);
+        return "- ".concat(position, ": removed item ").concat(clearedItem, " (orientation ").concat(previousOrientation, ")");
+    })
+        .join('\n');
+    var actionVerb = action === 'paint' ? 'Painted' : 'Cleared';
+    return "".concat(actionVerb, " ").concat(changes.length, " GridMap cell").concat(changes.length === 1 ? '' : 's', " on ").concat(nodeType, " at ").concat(nodePath, " from ").concat(requestedPath).concat(transactionId, " [").concat(status, "]\n").concat(changeLines);
 };
 /**
  * Definition for scene tools - operations that manipulate Godot scenes
@@ -537,6 +649,127 @@ export var sceneTools = [
                     case 3:
                         error_13 = _c.sent();
                         throw new Error("Failed to configure physics joint: ".concat(error_13.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'configure_csg_shape',
+        description: 'Update CSG nodes with undo/redo aware property changes',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the CSG node to configure (e.g. "/root/Level/CSGCombiner3D")'),
+            properties: csgPropertiesSchema.describe('Dictionary of CSG properties to update'),
+            transaction_id: z.string().optional()
+                .describe('Optional transaction identifier to batch multiple edits'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_14;
+            var node_path = _b.node_path, properties = _b.properties, transaction_id = _b.transaction_id;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('configure_csg_shape', {
+                                node_path: node_path,
+                                properties: properties,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, formatCsgResponse(result)];
+                    case 3:
+                        error_14 = _c.sent();
+                        throw new Error("Failed to configure CSG shape: ".concat(error_14.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'paint_gridmap_cells',
+        description: 'Fill GridMap cells with MeshLibrary items using undo/redo aware transactions',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the GridMap node (e.g. "/root/Level/GridMap")'),
+            cells: z.array(gridMapPaintCellSchema)
+                .min(1, 'At least one cell must be provided')
+                .describe('Array of cell definitions including coordinates, item id, and optional orientation'),
+            transaction_id: z.string().optional()
+                .describe('Optional transaction identifier when batching cell edits'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_15;
+            var node_path = _b.node_path, cells = _b.cells, transaction_id = _b.transaction_id;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('paint_gridmap_cells', {
+                                node_path: node_path,
+                                cells: cells,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, formatGridMapResponse('paint', result)];
+                    case 3:
+                        error_15 = _c.sent();
+                        throw new Error("Failed to paint GridMap cells: ".concat(error_15.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'clear_gridmap_cells',
+        description: 'Clear GridMap cells back to empty space with undo/redo support',
+        parameters: z.object({
+            node_path: z.string()
+                .describe('Path to the GridMap node (e.g. "/root/Level/GridMap")'),
+            cells: z.array(gridMapClearCellSchema)
+                .min(1, 'At least one cell position must be provided')
+                .describe('Array of cell positions to clear (either position objects or x/y/z components)'),
+            transaction_id: z.string().optional()
+                .describe('Optional transaction identifier when batching cell clears'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, error_16;
+            var node_path = _b.node_path, cells = _b.cells, transaction_id = _b.transaction_id;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('clear_gridmap_cells', {
+                                node_path: node_path,
+                                cells: cells,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, formatGridMapResponse('clear', result)];
+                    case 3:
+                        error_16 = _c.sent();
+                        throw new Error("Failed to clear GridMap cells: ".concat(error_16.message));
                     case 4: return [2 /*return*/];
                 }
             });

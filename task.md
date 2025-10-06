@@ -1,5 +1,11 @@
 # Task Plan
 
+## Current Execution Plan
+- [x] Extend the Godot MCP scene command processor with a physics world snapshot exporter and structured logging.
+- [x] Expose the snapshot via a new `godot://physics/world` MCP resource and ensure the server registers it.
+- [x] Document the resource, update roadmap tracking, and keep existing task records accurate.
+- [x] Run full lint, test, and build suites for the MCP server before shipping.
+
 ## Completed
 - [x] Research additional Godot editor features that expand MCP automation options
 - [x] Implement new node group management commands in the Godot MCP plugin
@@ -14,7 +20,7 @@
 - [x] Add navigation map and agent tooling so MCP can read, bake, and edit resources backed by the `navigation_2d` and `navigation_3d` modules.
 - [x] Extend scene commands to support physics body, area, and joint configuration in line with `godot_physics_2d` and `godot_physics_3d` modules.
 - [x] Provide CSG and GridMap manipulation helpers covering the `csg` and `gridmap` modules for rapid level prototyping.
-- [ ] Integrate GLTF and FBX import automation to mirror workflows supported by the `gltf` and `fbx` modules.
+- [x] Integrate GLTF and FBX import automation to mirror workflows supported by the `gltf` and `fbx` modules.
 - [ ] Surface audio bus, interactive music, and audio stream configuration commands to match `interactive_music`, `ogg`, and `vorbis` module capabilities.
 - [ ] Add shader and material editing pipelines that understand `glslang`, `lightmapper_rd`, and `meshoptimizer` module outputs.
 - [ ] Support XR platform setup commands for `openxr`, `mobile_vr`, and `webxr` modules.
@@ -25,7 +31,7 @@
 ### High-priority resource endpoints
 - [ ] `godot://animation/state-machines` — surface AnimationTree graphs, state transitions, and blend spaces for inspection.
 - [ ] `godot://animation/tracks` — expose timeline tracks from AnimationPlayer resources for read/write editing.
-- [ ] `godot://physics/world` — provide a structured snapshot of physics bodies, areas, and joints per space.
+- [x] `godot://physics/world` — provide a structured snapshot of physics bodies, areas, and joints per space.
 - [ ] `godot://ui/theme` — fetch active theme metadata, styles, and font resources for UI audits.
 - [x] `godot://audio/buses` — return audio bus layout, effects stack, and mute/solo state for project mixes.
 

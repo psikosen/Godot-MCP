@@ -113,11 +113,11 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `godot://project/info` - Project metadata and settings
 - `godot://project/index` - Cached project file and directory index snapshot
 - `godot://audio/buses` - Project audio bus layout, routing metadata, and effect stacks
+- `godot://physics/world` - Live snapshot of 2D/3D physics spaces with per-space gravity, body/area/joint inventories, and configuration metadata.
 
 #### Upcoming Resource Endpoints (sourced from godotengine/godot)
 - `godot://animation/state-machines` - Inspect AnimationTree graphs, blend spaces, and transitions for the active scene.
 - `godot://animation/tracks` - Read and edit AnimationPlayer timelines, tracks, and keyframes.
-- `godot://physics/world` - Summarize physics bodies, areas, and joints within each active physics space.
 - `godot://ui/theme` - Surface the currently applied UI Theme resources, styles, and fonts for audit.
 
 ### Command Categories:
