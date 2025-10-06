@@ -240,3 +240,44 @@ The testing strategy will follow these principles:
 - [Node.js](https://nodejs.org/)
 - [Godot Engine](https://godotengine.org/)
 - [FastMCP](https://github.com/punkpeye/fastmcp)
+## Capability Expansion Roadmap (Derived from Godot upstream)
+
+To extend MCP coverage beyond the current node, script, and navigation flows, we will iterate through subsystem-focused epics. Each epic references concrete APIs and editor systems present in the [godotengine/godot](https://github.com/godotengine/godot) repository so implementation tracks upstream behavior.
+
+### 1. Animation & VFX Tooling
+- **Resources**: expose `godot://animation/state-machines` (AnimationTree graphs) and `godot://animation/tracks` (AnimationPlayer timelines).
+- **Commands**: add `list_animation_players`, `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, and `sync_particles_with_animation`.
+- **Dependencies**: AnimationServer, AnimationTree, Skeleton3D APIs.
+- **Notes**: ensure UndoRedo coverage for blend parameter edits and timeline modifications.
+
+### 2. Physics, Navigation, & Profiling
+- **Resources**: provide `godot://physics/world` snapshots and extend navigation data with TileMap rebake metadata.
+- **Commands**: implement `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, and `synchronize_navmesh_with_tilemap`.
+- **Dependencies**: PhysicsServer2D/3D, Joint APIs, EditorNavigationRegion gizmos.
+- **Notes**: guard high-impact profiling commands behind escalation.
+
+### 3. UI & Interaction Systems
+- **Resources**: serve `godot://ui/theme` for project-wide theme audits.
+- **Commands**: build `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, and `validate_accessibility`.
+- **Dependencies**: ThemeDB, InputMap, editor signal utilities.
+- **Notes**: integrate accessibility scanning with Control focus and localization metadata.
+
+### 4. Audio & Media Pipelines
+- **Resources**: add `godot://audio/buses` exposing AudioServer routing.
+- **Commands**: create `configure_audio_bus`, `author_audio_stream_player`, `generate_dynamic_music_layer`, `analyze_waveform`, and `batch_import_audio_assets`.
+- **Dependencies**: AudioServer, EditorImportPlugin hooks, InteractiveMusic classes.
+- **Notes**: ensure importer automation respects project preset files.
+- **Status**: Audio bus introspection resource delivered via `list_audio_buses` (read-only) to surface routing, levels, and effect chains.
+
+### 5. Rendering, Materials, & Assets
+- **Commands**: deliver `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, and `configure_environment`.
+- **Dependencies**: RenderingServer, LightmapGI, meshoptimizer bindings.
+- **Notes**: capture shader compilation diagnostics and ensure fallback when offline.
+
+### 6. Project & Editor Automation
+- **Commands**: implement `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, and `snapshot_scene_state`.
+- **Dependencies**: ProjectSettings, EditorRun, EditorProfiler, EditorPlugin subsystem.
+- **Notes**: headless run and profiling require explicit permission escalation and log capture plumbing.
+
+Execution across these epics should follow thin, end-to-end slices—one resource endpoint and its companion command at a time—while instrumenting structured logging per the canonical schema.
+

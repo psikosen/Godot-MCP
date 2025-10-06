@@ -110,6 +110,13 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `godot://scene/current` - The currently open scene
 - `godot://project/info` - Project metadata and settings
 - `godot://project/index` - Cached project file and directory index snapshot
+- `godot://audio/buses` - Project audio bus layout, routing metadata, and effect stacks
+
+#### Upcoming Resource Endpoints (sourced from godotengine/godot)
+- `godot://animation/state-machines` - Inspect AnimationTree graphs, blend spaces, and transitions for the active scene.
+- `godot://animation/tracks` - Read and edit AnimationPlayer timelines, tracks, and keyframes.
+- `godot://physics/world` - Summarize physics bodies, areas, and joints within each active physics space.
+- `godot://ui/theme` - Surface the currently applied UI Theme resources, styles, and fonts for audit.
 
 ### Command Categories:
 
@@ -159,6 +166,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `remove_input_action` - Delete an input action from the project settings
 - `add_input_event_to_action` - Register an additional event on an existing input action
 - `remove_input_event_from_action` - Remove an input event by index or matching fields
+- `list_audio_buses` - Enumerate the audio bus graph with volume, routing, and effect status
 
 #### Patch Commands
 - `preview_patch` - Preview a diff before it is applied
@@ -171,6 +179,14 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Editor Commands
 - `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
+
+#### Planned Command Expansions (roadmap)
+- **Animation & VFX**: `list_animation_players`, `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
+- **Physics & Navigation**: `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, `synchronize_navmesh_with_tilemap`.
+- **UI & Interaction**: `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, `validate_accessibility`.
+- **Audio & Media**: `configure_audio_bus`, `author_audio_stream_player`, `generate_dynamic_music_layer`, `analyze_waveform`, `batch_import_audio_assets`.
+- **Rendering & Assets**: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`.
+- **Project & Editor Automation**: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
 
 ### Command Roles & Escalations
 

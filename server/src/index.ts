@@ -27,6 +27,7 @@ import {
   projectResourcesResource,
   projectIndexResource,
 } from './resources/project_resources.js';
+import { audioBusResource } from './resources/audio_resources.js';
 import { 
   editorStateResource,
   selectedNodeResource,
@@ -77,6 +78,7 @@ async function main() {
   server.addResource(projectSettingsResource);
   server.addResource(projectResourcesResource);
   server.addResource(projectIndexResource);
+  server.addResource(audioBusResource);
   server.addResource(editorStateResource);
   server.addResource(selectedNodeResource);
   server.addResource(currentScriptResource);
