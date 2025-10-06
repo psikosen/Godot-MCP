@@ -436,6 +436,26 @@ Remove a registered input event by index or by matching event fields.
 Remove the duplicate Spacebar binding from the "jump" action.
 ```
 
+## MCP Resources
+
+### godot://physics/world
+Return a structured snapshot of every active physics space in the currently edited scene. The payload groups 2D and 3D spaces, exposes their gravity configuration, and enumerates every physics body, area, and joint assigned to each space.
+
+**Response highlights:**
+- `scene_path`, `scene_name`, and `captured_at` identify where the snapshot originated.
+- `spaces.2d[]` / `spaces.3d[]` list physics spaces with `space_id`, `label`, `space_rid`, gravity metadata, activation state, and nested `bodies`, `areas`, and `joints` arrays.
+- Each body entry surfaces collision layers/masks, key physics properties (mass, gravity scale, velocity, sleep state, etc.), and script/group metadata to help audit configuration.
+- Area entries capture monitoring flags, gravity overrides, damping, and override modes, while joint entries report their endpoints, force/solver settings, and collision flags.
+- `counts` summarizes totals for quick reporting (`overall.spaces`, `overall.bodies`, `overall.areas`, `overall.joints`).
+
+**Example:**
+```
+@mcp godot-mcp read godot://physics/world
+```
+
+### godot://audio/buses
+Provide the audio bus layout, including hierarchy, effect chains, and mute/solo states for every bus. Use this snapshot to audit mix routing or verify automation changes without opening the Godot editor UI.
+
 ## Using Commands with Claude
 
 When working with Claude, you don't need to specify the exact command name or format. Instead, describe what you want to do in natural language, and Claude will use the appropriate command. For example:
