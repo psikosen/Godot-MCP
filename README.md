@@ -14,6 +14,7 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
   - **Node Commands**: Create, modify, and manage nodes in your scenes
   - **Script Commands**: Edit, analyze, and create GDScript files
   - **Scene Commands**: Manipulate scenes and their structure
+  - **Physics Configuration**: Configure physics bodies, areas, and joints with transaction-aware updates
   - **Project Commands**: Access project settings and resources
   - **Editor Commands**: Control various editor functionality
 
@@ -149,6 +150,9 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `commit_scene_transaction` - Commit a pending scene transaction
 - `rollback_scene_transaction` - Roll back a transaction (even after commit)
 - `list_scene_transactions` - List transaction identifiers that are currently tracked
+- `configure_physics_body` - Adjust PhysicsBody2D/3D properties with undo/redo
+- `configure_physics_area` - Update Area2D/Area3D monitoring, gravity, and masks
+- `configure_physics_joint` - Rewire Joint2D/3D connections and constraint limits
 
 #### Navigation Commands
 - `list_navigation_maps` - Summarize NavigationRegion2D/3D nodes and their resources
