@@ -166,6 +166,128 @@ export var projectTools = [
         },
     },
     {
+        name: 'configure_audio_bus',
+        description: 'Modify a Godot audio bus, toggling volume, routing, and effect state with optional persistence.',
+        parameters: z
+            .object({
+            bus_name: z
+                .string()
+                .min(1)
+                .optional()
+                .describe('Name of the audio bus to configure.'),
+            bus_index: z
+                .number()
+                .int()
+                .nonnegative()
+                .optional()
+                .describe('Index of the audio bus to configure.'),
+            new_name: z
+                .string()
+                .min(1)
+                .optional()
+                .describe('Optional new name for the bus.'),
+            volume_db: z
+                .number()
+                .optional()
+                .describe('Set the bus volume in decibels.'),
+            solo: z
+                .boolean()
+                .optional()
+                .describe('Toggle solo state.'),
+            mute: z
+                .boolean()
+                .optional()
+                .describe('Toggle mute state.'),
+            bypass_effects: z
+                .boolean()
+                .optional()
+                .describe('Toggle bypass on the entire effect chain.'),
+            send: z
+                .string()
+                .optional()
+                .describe('Set the downstream send target bus (empty string clears).'),
+            effects: z
+                .array(z
+                .object({
+                index: z
+                    .number()
+                    .int()
+                    .nonnegative()
+                    .describe('Effect index on the target bus.'),
+                enabled: z
+                    .boolean()
+                    .optional()
+                    .describe('Enable or disable the effect at the provided index.'),
+            })
+                .strict())
+                .optional()
+                .describe('Batch toggle effect state for the bus.'),
+            persist: z
+                .boolean()
+                .optional()
+                .describe('Persist the mutated bus layout to the project default layout resource.'),
+        })
+            .refine(function (data) { return data.bus_name !== undefined || data.bus_index !== undefined; }, {
+            message: 'Either bus_name or bus_index must be provided.',
+            path: ['bus_name'],
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, payload, result, error_3;
+            var bus_name = _b.bus_name, bus_index = _b.bus_index, new_name = _b.new_name, volume_db = _b.volume_db, solo = _b.solo, mute = _b.mute, bypass_effects = _b.bypass_effects, send = _b.send, effects = _b.effects, persist = _b.persist;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {};
+                        if (bus_name !== undefined) {
+                            payload.bus_name = bus_name;
+                        }
+                        if (bus_index !== undefined) {
+                            payload.bus_index = bus_index;
+                        }
+                        if (new_name !== undefined) {
+                            payload.new_name = new_name;
+                        }
+                        if (volume_db !== undefined) {
+                            payload.volume_db = volume_db;
+                        }
+                        if (solo !== undefined) {
+                            payload.solo = solo;
+                        }
+                        if (mute !== undefined) {
+                            payload.mute = mute;
+                        }
+                        if (bypass_effects !== undefined) {
+                            payload.bypass_effects = bypass_effects;
+                        }
+                        if (send !== undefined) {
+                            payload.send = send;
+                        }
+                        if (effects !== undefined) {
+                            payload.effects = effects;
+                        }
+                        if (persist !== undefined) {
+                            payload.persist = persist;
+                        }
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('configure_audio_bus', payload)];
+                    case 2:
+                        result = _c.sent();
+                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                    case 3:
+                        error_3 = _c.sent();
+                        throw new Error("Failed to configure audio bus: ".concat(error_3.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
         name: 'add_input_action',
         description: 'Create or overwrite a Godot input action with optional default events.',
         parameters: z.object({
@@ -187,7 +309,7 @@ export var projectTools = [
                 .describe('Optional array of input events to register with the action.'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_3;
+            var godot, result, error_4;
             var _c, _d;
             var action_name = _b.action_name, deadzone = _b.deadzone, overwrite = _b.overwrite, persistent = _b.persistent, events = _b.events;
             return __generator(this, function (_e) {
@@ -208,8 +330,8 @@ export var projectTools = [
                         result = _e.sent();
                         return [2 /*return*/, "Created/updated input action \"".concat(result.action_name, "\" with ").concat((_d = (_c = result.events) === null || _c === void 0 ? void 0 : _c.length) !== null && _d !== void 0 ? _d : 0, " event(s).")];
                     case 3:
-                        error_3 = _e.sent();
-                        throw new Error("Failed to add input action: ".concat(error_3.message));
+                        error_4 = _e.sent();
+                        throw new Error("Failed to add input action: ".concat(error_4.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -229,7 +351,7 @@ export var projectTools = [
                 .describe('Persist changes to project.godot immediately (default true).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, error_4;
+            var godot, error_5;
             var action_name = _b.action_name, persistent = _b.persistent;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -246,8 +368,8 @@ export var projectTools = [
                         _c.sent();
                         return [2 /*return*/, "Removed input action \"".concat(action_name, "\".")];
                     case 3:
-                        error_4 = _c.sent();
-                        throw new Error("Failed to remove input action: ".concat(error_4.message));
+                        error_5 = _c.sent();
+                        throw new Error("Failed to remove input action: ".concat(error_5.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -269,7 +391,7 @@ export var projectTools = [
                 .describe('Persist changes to project.godot immediately (default true).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_5;
+            var godot, result, error_6;
             var action_name = _b.action_name, event = _b.event, persistent = _b.persistent;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -287,8 +409,8 @@ export var projectTools = [
                         result = _c.sent();
                         return [2 /*return*/, "Added event to action \"".concat(result.action_name, "\".")];
                     case 3:
-                        error_5 = _c.sent();
-                        throw new Error("Failed to add input event: ".concat(error_5.message));
+                        error_6 = _c.sent();
+                        throw new Error("Failed to add input event: ".concat(error_6.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -318,7 +440,7 @@ export var projectTools = [
             path: ['event_index'],
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_6;
+            var godot, result, error_7;
             var action_name = _b.action_name, event_index = _b.event_index, event = _b.event, persistent = _b.persistent;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -337,8 +459,8 @@ export var projectTools = [
                         result = _c.sent();
                         return [2 /*return*/, "Removed event from action \"".concat(result.action_name, "\".")];
                     case 3:
-                        error_6 = _c.sent();
-                        throw new Error("Failed to remove input event: ".concat(error_6.message));
+                        error_7 = _c.sent();
+                        throw new Error("Failed to remove input event: ".concat(error_7.message));
                     case 4: return [2 /*return*/];
                 }
             });

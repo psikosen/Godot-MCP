@@ -22,6 +22,9 @@
 - [x] Provide CSG and GridMap manipulation helpers covering the `csg` and `gridmap` modules for rapid level prototyping.
 - [x] Integrate GLTF and FBX import automation to mirror workflows supported by the `gltf` and `fbx` modules.
 - [ ] Surface audio bus, interactive music, and audio stream configuration commands to match `interactive_music`, `ogg`, and `vorbis` module capabilities.
+  - [x] Deliver `configure_audio_bus` editing support via MCP project commands and tooling.
+  - [ ] Expose interactive music graph authoring helpers for layered playback.
+  - [ ] Provide audio stream player creation/configuration utilities.
 - [ ] Add shader and material editing pipelines that understand `glslang`, `lightmapper_rd`, and `meshoptimizer` module outputs.
 - [ ] Support XR platform setup commands for `openxr`, `mobile_vr`, and `webxr` modules.
 - [ ] Enable multiplayer session scaffolding and high-level networking helpers aligned with the `multiplayer`, `webrtc`, and `websocket` modules.
@@ -58,7 +61,7 @@
 
 ### Command expansions — Audio & Media
 - [x] `list_audio_buses` to enumerate audio routing, volume, and effect state for review.
-- [ ] `configure_audio_bus` to insert/remove effects and adjust sends on the AudioServer.
+- [x] `configure_audio_bus` to insert/remove effects and adjust sends on the AudioServer.
 - [ ] `author_audio_stream_player` to attach AudioStream resources with autoplay, 3D attenuation, and bus routing.
 - [ ] `generate_dynamic_music_layer` to build InteractiveMusic transition tables.
 - [ ] `analyze_waveform` to produce basic waveform/loudness summaries for preview.

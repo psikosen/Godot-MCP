@@ -267,7 +267,7 @@ To extend MCP coverage beyond the current node, script, and navigation flows, we
 - **Commands**: create `configure_audio_bus`, `author_audio_stream_player`, `generate_dynamic_music_layer`, `analyze_waveform`, and `batch_import_audio_assets`.
 - **Dependencies**: AudioServer, EditorImportPlugin hooks, InteractiveMusic classes.
 - **Notes**: ensure importer automation respects project preset files.
-- **Status**: Audio bus introspection resource delivered via `list_audio_buses` (read-only) to surface routing, levels, and effect chains.
+- **Status**: Audio bus introspection resource delivered via `list_audio_buses` and mutation command `configure_audio_bus` to surface and adjust routing, levels, and effect chains.
 
 ### 5. Rendering, Materials, & Assets
 - **Commands**: deliver `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, and `configure_environment`.

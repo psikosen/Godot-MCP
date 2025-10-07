@@ -40,6 +40,9 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
                 "list_audio_buses":
                         _list_audio_buses(client_id, params, command_id)
                         return true
+                "configure_audio_bus":
+                        _configure_audio_bus(client_id, params, command_id)
+                        return true
         return false  # Command not handled
 
 func _get_project_info(client_id: int, _params: Dictionary, command_id: String) -> void:
@@ -243,6 +246,139 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 
         _log("Enumerated audio buses", "_list_audio_buses", {"bus_count": bus_count})
         _send_success(client_id, layout, command_id)
+
+func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String) -> void:
+        var bus_name := String(params.get("bus_name", ""))
+        var bus_index := int(params.get("bus_index", -1))
+
+        if not bus_name.is_empty():
+                bus_index = AudioServer.get_bus_index(bus_name)
+        elif bus_index >= 0 and bus_index < AudioServer.get_bus_count():
+                bus_name = AudioServer.get_bus_name(bus_index)
+
+        if bus_index < 0 or bus_index >= AudioServer.get_bus_count():
+                var context := {
+                        "bus_name": bus_name,
+                        "bus_index": bus_index,
+                }
+                _log("Invalid audio bus reference", "_configure_audio_bus", context, true)
+                _send_error(client_id, "Invalid audio bus reference", command_id)
+                return
+
+        var applied_changes := {}
+        var change_count := 0
+
+        if params.has("new_name"):
+                var new_name := String(params["new_name"])
+                if new_name.is_empty():
+                        _log("New audio bus name cannot be empty", "_configure_audio_bus", {"bus_index": bus_index}, true)
+                        _send_error(client_id, "New audio bus name cannot be empty", command_id)
+                        return
+                AudioServer.set_bus_name(bus_index, new_name)
+                applied_changes["name"] = new_name
+                change_count += 1
+                bus_name = new_name
+
+        if params.has("volume_db"):
+                var volume_db := float(params["volume_db"])
+                AudioServer.set_bus_volume_db(bus_index, volume_db)
+                applied_changes["volume_db"] = volume_db
+                change_count += 1
+
+        if params.has("solo"):
+                var solo := bool(params["solo"])
+                AudioServer.set_bus_solo(bus_index, solo)
+                applied_changes["solo"] = solo
+                change_count += 1
+
+        if params.has("mute"):
+                var mute := bool(params["mute"])
+                AudioServer.set_bus_mute(bus_index, mute)
+                applied_changes["mute"] = mute
+                change_count += 1
+
+        if params.has("bypass_effects"):
+                var bypass_effects := bool(params["bypass_effects"])
+                AudioServer.set_bus_bypass_effects(bus_index, bypass_effects)
+                applied_changes["bypass_effects"] = bypass_effects
+                change_count += 1
+
+        if params.has("send"):
+                var target_send := String(params["send"])
+                AudioServer.set_bus_send(bus_index, target_send)
+                applied_changes["send"] = target_send
+                change_count += 1
+
+        if params.has("effects"):
+                var effects := params["effects"]
+                if typeof(effects) != TYPE_ARRAY:
+                        _log("effects parameter must be an array", "_configure_audio_bus", {"bus_index": bus_index}, true)
+                        _send_error(client_id, "effects parameter must be an array", command_id)
+                        return
+
+                var effect_updates: Array = []
+
+                for effect_dict in effects:
+                        if typeof(effect_dict) != TYPE_DICTIONARY:
+                                continue
+
+                        var effect_index := int(effect_dict.get("index", -1))
+                        if effect_index < 0 or effect_index >= AudioServer.get_bus_effect_count(bus_index):
+                                _log("Invalid effect index for audio bus", "_configure_audio_bus", {"bus_index": bus_index, "effect_index": effect_index}, true)
+                                _send_error(client_id, "Invalid effect index for audio bus", command_id)
+                                return
+
+                        var effect_change := {"index": effect_index}
+                        var effect_modified := false
+
+                        if effect_dict.has("enabled"):
+                                var enabled := bool(effect_dict["enabled"])
+                                AudioServer.set_bus_effect_enabled(bus_index, effect_index, enabled)
+                                effect_change["enabled"] = enabled
+                                effect_modified = true
+                                change_count += 1
+
+                        if effect_modified:
+                                effect_updates.append(effect_change)
+
+                if not effect_updates.is_empty():
+                        applied_changes["effects"] = effect_updates
+
+        if change_count == 0:
+                _log("No audio bus configuration changes were requested", "_configure_audio_bus", {"bus_index": bus_index}, true)
+                _send_error(client_id, "No audio bus configuration changes were requested", command_id)
+                return
+
+        var persist := bool(params.get("persist", false))
+        var persisted_path := ""
+
+        if persist:
+                var bus_layout := AudioServer.generate_bus_layout()
+                var layout_path := String(ProjectSettings.get_setting("audio/bus_layout/path", "res://default_bus_layout.tres"))
+                var save_error := ResourceSaver.save(bus_layout, layout_path)
+                if save_error != OK:
+                        _log("Failed to persist audio bus layout", "_configure_audio_bus", {
+                                "bus_index": bus_index,
+                                "layout_path": layout_path,
+                                "error_code": save_error
+                        }, true)
+                        _send_error(client_id, "Failed to persist audio bus layout", command_id)
+                        return
+                persisted_path = layout_path
+                applied_changes["persisted_path"] = persisted_path
+
+        var response := {
+                "bus_index": bus_index,
+                "bus_name": AudioServer.get_bus_name(bus_index),
+                "changes_applied": applied_changes,
+        }
+
+        _log("Configured audio bus", "_configure_audio_bus", {
+                "bus_index": bus_index,
+                "bus_name": response["bus_name"],
+                "change_count": change_count
+        })
+        _send_success(client_id, response, command_id)
 
 func _list_input_actions(client_id: int, _params: Dictionary, command_id: String) -> void:
         var actions := []

@@ -436,6 +436,36 @@ Remove a registered input event by index or by matching event fields.
 Remove the duplicate Spacebar binding from the "jump" action.
 ```
 
+### list_audio_buses
+Return the complete audio bus graph, capturing volume, routing, mute/solo state, and the enabled status of every effect.
+
+**Parameters:** None
+
+**Example:**
+```
+Show me the audio bus layout so I can review the reverb chain and send routing.
+```
+
+### configure_audio_bus
+Mutate a single audio bus by adjusting its volume, routing, and effect toggles. Changes can optionally be saved back to the
+project's default bus layout resource.
+
+**Parameters:**
+- `bus_name` or `bus_index` - Identify which bus to mutate.
+- `new_name` (optional) - Rename the bus.
+- `volume_db` (optional) - Set the bus volume in decibels.
+- `solo` (optional) - Enable or disable solo mode.
+- `mute` (optional) - Enable or disable mute.
+- `bypass_effects` (optional) - Toggle bypass on the bus effect chain.
+- `send` (optional) - Assign or clear the downstream send target.
+- `effects` (optional) - Array of effect toggle requests (`index`, optional `enabled`).
+- `persist` (optional) - Save the resulting layout to the configured default bus resource.
+
+**Example:**
+```
+Solo the "Music" bus, drop it by -6 dB, and persist the updated layout.
+```
+
 ## MCP Resources
 
 ### godot://physics/world
