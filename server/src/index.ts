@@ -7,6 +7,7 @@ import { patchTools } from './tools/patch_tools.js';
 import { projectTools } from './tools/project_tools.js';
 import { permissionTools } from './tools/permission_tools.js';
 import { navigationTools } from './tools/navigation_tools.js';
+import { audioTools } from './tools/audio_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
@@ -67,6 +68,7 @@ async function main() {
     ...projectTools,
     ...permissionTools,
     ...navigationTools,
+    ...audioTools,
   ].forEach(tool => {
     registerTool(tool);
   });

@@ -62,6 +62,13 @@ const PHYSICS_JOINT_PROPERTY_CANDIDATES := [
     "solver_position_iterations",
 ]
 
+const AUDIO_STREAM_PLAYER_TYPES := [
+    "AudioStreamPlayer",
+    "AudioStreamPlayer2D",
+    "AudioStreamPlayer3D",
+    "AudioStreamPlayerMicrophone",
+]
+
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 match command_type:
 "save_scene":
@@ -97,15 +104,21 @@ return true
 		"configure_physics_body":
 			_configure_physics_body(client_id, params, command_id)
 			return true
-		"configure_physics_area":
-			_configure_physics_area(client_id, params, command_id)
-			return true
-"configure_physics_joint":
-_configure_physics_joint(client_id, params, command_id)
-return true
-"configure_csg_shape":
-_configure_csg_shape(client_id, params, command_id)
-return true
+                "configure_physics_area":
+                        _configure_physics_area(client_id, params, command_id)
+                        return true
+                "configure_physics_joint":
+                        _configure_physics_joint(client_id, params, command_id)
+                        return true
+                "author_audio_stream_player":
+                        _author_audio_stream_player(client_id, params, command_id)
+                        return true
+                "author_interactive_music_graph":
+                        _author_interactive_music_graph(client_id, params, command_id)
+                        return true
+                "configure_csg_shape":
+                        _configure_csg_shape(client_id, params, command_id)
+                        return true
 "paint_gridmap_cells":
 _paint_gridmap_cells(client_id, params, command_id)
 return true
@@ -1160,6 +1173,1194 @@ func _configure_physics_node(
 		"status": status,
 	}, command_id)
 
+
+
+func _author_audio_stream_player(client_id: int, params: Dictionary, command_id: String) -> void:
+	var function_name := "_author_audio_stream_player"
+	var requested_node_path := String(params.get("node_path", ""))
+	var parent_path := String(params.get("parent_path", ""))
+	var player_name := String(params.get("player_name", ""))
+	var player_type := String(params.get("player_type", "AudioStreamPlayer"))
+	var transaction_id := String(params.get("transaction_id", ""))
+	var provided_stream_path := String(params.get("stream_path", ""))
+	var create_if_missing := bool(params.get("create_if_missing", requested_node_path.is_empty()))
+	var properties_param = params.get("properties", {})
+
+	if player_type.is_empty():
+		player_type = "AudioStreamPlayer"
+
+	if not ClassDB.class_exists(player_type):
+		var context := {
+			"command": "author_audio_stream_player",
+			"player_type": player_type,
+			"client_id": client_id,
+			"command_id": command_id,
+		}
+		_log("Requested audio stream player type does not exist", function_name, context, true)
+		return _send_error(client_id, "Unknown audio stream player type: %s" % player_type, command_id)
+
+	if not ClassDB.is_parent_class("Node", player_type):
+		var context := {
+			"command": "author_audio_stream_player",
+			"player_type": player_type,
+			"client_id": client_id,
+			"command_id": command_id,
+		}
+		_log("Audio stream player type does not inherit from Node", function_name, context, true)
+		return _send_error(client_id, "Audio stream player type must inherit from Node", command_id)
+
+	if not AUDIO_STREAM_PLAYER_TYPES.has(player_type) and not ClassDB.class_has_property(player_type, "stream"):
+		var context := {
+			"command": "author_audio_stream_player",
+			"player_type": player_type,
+			"client_id": client_id,
+		}
+		_log("Audio stream player type does not expose a stream property", function_name, context, true)
+		return _send_error(client_id, "Audio stream player type must expose a `stream` property", command_id)
+
+	var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+	if not plugin:
+		var context := {
+			"command": "author_audio_stream_player",
+			"client_id": client_id,
+		}
+		_log("GodotMCPPlugin not found in Engine metadata", function_name, context, true)
+		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
+
+	var editor_interface = plugin.get_editor_interface()
+	var edited_scene_root = editor_interface.get_edited_scene_root()
+	if not edited_scene_root:
+		var context := {
+			"command": "author_audio_stream_player",
+			"client_id": client_id,
+		}
+		_log("No scene is currently being edited", function_name, context, true)
+		return _send_error(client_id, "No scene is currently being edited", command_id)
+
+	var property_overrides: Dictionary = {}
+	if typeof(properties_param) == TYPE_DICTIONARY:
+		property_overrides = (properties_param as Dictionary).duplicate(true)
+	elif typeof(properties_param) != TYPE_NIL and properties_param != null:
+		var context := {
+			"command": "author_audio_stream_player",
+			"client_id": client_id,
+		}
+		_log("Audio stream player configuration expects a dictionary of properties", function_name, context, true)
+		return _send_error(client_id, "Audio stream player configuration expects a dictionary of properties", command_id)
+
+	var inline_property_keys := [
+		"autoplay",
+		"bus",
+		"volume_db",
+		"pitch_scale",
+		"max_polyphony",
+		"stream_paused",
+		"mix_target",
+		"doppler_tracking",
+		"unit_size",
+		"max_distance",
+		"attenuation",
+		"attenuation_filter_cutoff_hz",
+		"attenuation_filter_db",
+		"emission_angle",
+		"emission_angle_filter_attenuation_db",
+		"area_mask",
+	]
+	for property_key in inline_property_keys:
+		if params.has(property_key):
+			property_overrides[property_key] = params[property_key]
+
+	var inline_stream_requested := false
+	var inline_stream_null := false
+	var inline_stream_value = null
+	if property_overrides.has("stream"):
+		inline_stream_requested = true
+		inline_stream_value = property_overrides["stream"]
+		inline_stream_null = inline_stream_value == null
+		property_overrides.erase("stream")
+
+	var node: Node = null
+	var parent: Node = null
+	var was_created := false
+	var resolved_parent_path := parent_path
+	var node_lookup_path := requested_node_path
+
+	if not requested_node_path.is_empty():
+		node = _get_editor_node(requested_node_path)
+		if node:
+			if not _is_supported_audio_stream_player(node):
+				var context := {
+					"command": "author_audio_stream_player",
+					"client_id": client_id,
+					"node_path": requested_node_path,
+					"node_type": node.get_class(),
+				}
+				_log("Target node is not an AudioStreamPlayer", function_name, context, true)
+				return _send_error(client_id, "Node at path is not an audio stream player", command_id)
+			if resolved_parent_path.is_empty():
+				var parent_node := node.get_parent()
+				if parent_node:
+					resolved_parent_path = _node_path_to_string(parent_node, resolved_parent_path)
+		else:
+			if not create_if_missing:
+				var context := {
+					"command": "author_audio_stream_player",
+					"client_id": client_id,
+					"node_path": requested_node_path,
+				}
+				_log("Audio stream player not found and creation disabled", function_name, context, true)
+				return _send_error(client_id, "Audio stream player not found at path", command_id)
+			node_lookup_path = ""
+
+	if not node:
+		if resolved_parent_path.is_empty():
+			var context := {
+				"command": "author_audio_stream_player",
+				"client_id": client_id,
+			}
+			_log("Parent path is required when creating an audio stream player", function_name, context, true)
+			return _send_error(client_id, "Parent path is required when creating an audio stream player", command_id)
+
+		parent = _get_editor_node(resolved_parent_path)
+		if not parent:
+			var context := {
+				"command": "author_audio_stream_player",
+				"client_id": client_id,
+				"parent_path": resolved_parent_path,
+			}
+			_log("Parent node not found for audio stream player creation", function_name, context, true)
+			return _send_error(client_id, "Parent node not found: %s" % resolved_parent_path, command_id)
+
+		if not ClassDB.can_instantiate(player_type):
+			var context := {
+				"command": "author_audio_stream_player",
+				"player_type": player_type,
+				"client_id": client_id,
+			}
+			_log("Audio stream player type cannot be instantiated", function_name, context, true)
+			return _send_error(client_id, "Cannot instantiate audio stream player type: %s" % player_type, command_id)
+
+		node = ClassDB.instantiate(player_type)
+		if not node:
+			var context := {
+				"command": "author_audio_stream_player",
+				"player_type": player_type,
+				"client_id": client_id,
+			}
+			_log("Failed to instantiate audio stream player", function_name, context, true)
+			return _send_error(client_id, "Failed to instantiate audio stream player of type %s" % player_type, command_id)
+
+		if not _is_supported_audio_stream_player(node):
+			var context := {
+				"command": "author_audio_stream_player",
+				"player_type": player_type,
+				"client_id": client_id,
+			}
+			_log("Instantiated node is not an AudioStreamPlayer subtype", function_name, context, true)
+			return _send_error(client_id, "Audio stream player type must inherit from AudioStreamPlayer", command_id)
+
+		was_created = true
+		if player_name.is_empty():
+			player_name = player_type
+		node.name = player_name
+	else:
+		parent = node.get_parent()
+
+	var stream_requested := false
+	var stream_null_requested := false
+	var stream_resource: AudioStream = null
+	var stream_path_for_change := ""
+
+	if inline_stream_requested and provided_stream_path.is_empty():
+		stream_requested = true
+		stream_null_requested = inline_stream_null
+		match typeof(inline_stream_value):
+			TYPE_NIL:
+				stream_null_requested = true
+			TYPE_OBJECT:
+				if inline_stream_value is AudioStream:
+					stream_resource = inline_stream_value
+					stream_path_for_change = stream_resource.resource_path
+				else:
+					var context := {
+						"command": "author_audio_stream_player",
+						"client_id": client_id,
+					}
+					_log("Inline stream override must be an AudioStream resource", function_name, context, true)
+					return _send_error(client_id, "Inline stream override must be an AudioStream resource", command_id)
+			TYPE_STRING, TYPE_STRING_NAME:
+				provided_stream_path = String(inline_stream_value)
+				stream_null_requested = false
+			TYPE_DICTIONARY:
+				provided_stream_path = String(inline_stream_value.get("path", ""))
+				stream_null_requested = false
+			_:
+				stream_requested = false
+				stream_null_requested = false
+
+	if not provided_stream_path.is_empty():
+		var normalized_stream_path := _normalize_resource_path(provided_stream_path)
+		if not ResourceLoader.exists(normalized_stream_path):
+			var context := {
+				"command": "author_audio_stream_player",
+				"client_id": client_id,
+				"stream_path": normalized_stream_path,
+			}
+			_log("Audio stream resource does not exist", function_name, context, true)
+			return _send_error(client_id, "Audio stream resource not found: %s" % normalized_stream_path, command_id)
+
+		var loaded_stream := ResourceLoader.load(normalized_stream_path)
+		if not loaded_stream or not (loaded_stream is AudioStream):
+			var context := {
+				"command": "author_audio_stream_player",
+				"client_id": client_id,
+				"stream_path": normalized_stream_path,
+			}
+			_log("Resource is not an AudioStream", function_name, context, true)
+			return _send_error(client_id, "Resource is not an AudioStream: %s" % normalized_stream_path, command_id)
+
+		stream_resource = loaded_stream
+		stream_requested = true
+		stream_null_requested = false
+		stream_path_for_change = stream_resource.resource_path
+		if stream_path_for_change.is_empty():
+			stream_path_for_change = normalized_stream_path
+
+	var property_changes: Array = []
+	for property_name in property_overrides.keys():
+		if not property_name in node:
+			var context := {
+				"command": "author_audio_stream_player",
+				"client_id": client_id,
+				"property": property_name,
+				"node_path": requested_node_path,
+			}
+			_log("Audio stream player is missing requested property", function_name, context, true)
+			return _send_error(client_id, "Audio stream player does not have property: %s" % property_name, command_id)
+
+		var raw_value = property_overrides[property_name]
+		var parsed_value = _parse_property_value(raw_value)
+		var old_value = node.get(property_name)
+		var coerced_value = _coerce_property_value(old_value, parsed_value)
+		if old_value == coerced_value:
+			continue
+		property_changes.append({
+			"property": property_name,
+			"input_value": raw_value,
+			"parsed_value": parsed_value,
+			"old_value": old_value,
+			"new_value": coerced_value,
+		})
+
+	if stream_requested:
+		if not ("stream" in node):
+			var context := {
+				"command": "author_audio_stream_player",
+				"client_id": client_id,
+			}
+			_log("Audio stream player does not expose a stream property", function_name, context, true)
+			return _send_error(client_id, "Audio stream player does not expose a stream property", command_id)
+
+		var old_stream = node.get("stream")
+		var new_stream_value = stream_null_requested ? null : stream_resource
+		if old_stream != new_stream_value:
+			property_changes.append({
+				"property": "stream",
+				"input_value": stream_null_requested ? null : stream_path_for_change,
+				"parsed_value": stream_null_requested ? null : stream_path_for_change,
+				"old_value": old_stream,
+				"new_value": new_stream_value,
+				"stream_path": stream_null_requested ? "" : stream_path_for_change,
+			})
+		else:
+			stream_requested = false
+			stream_null_requested = false
+			stream_path_for_change = ""
+
+	if not was_created and property_changes.is_empty():
+		var log_payload := {
+			"command": "author_audio_stream_player",
+			"client_id": client_id,
+			"node_path": requested_node_path,
+			"player_type": node.get_class(),
+			"mode": "configure",
+			"change_count": 0,
+		}
+		if not resolved_parent_path.is_empty():
+			log_payload["parent_path"] = resolved_parent_path
+		_log("No audio stream player changes were required", function_name, log_payload)
+		return _send_success(client_id, {
+			"node_path": requested_node_path,
+			"requested_path": requested_node_path,
+			"node_type": node.get_class(),
+			"changes": [],
+			"transaction_id": transaction_id,
+			"status": "no_changes",
+			"was_created": false,
+		}, command_id)
+
+	var transaction_metadata := {
+		"command": "author_audio_stream_player",
+		"mode": was_created ? "create" : "configure",
+		"requested_path": requested_node_path,
+		"player_type": player_type,
+		"client_id": client_id,
+	}
+	if not command_id.is_empty():
+		transaction_metadata["command_id"] = command_id
+	if not resolved_parent_path.is_empty():
+		transaction_metadata["parent_path"] = resolved_parent_path
+
+	var transaction
+	if transaction_id.is_empty():
+		transaction = SceneTransactionManager.begin_inline("Author Audio Stream Player", transaction_metadata)
+	else:
+		transaction = SceneTransactionManager.get_transaction(transaction_id)
+		if not transaction:
+			transaction = SceneTransactionManager.begin_registered(transaction_id, "Author Audio Stream Player", transaction_metadata)
+
+	if not transaction:
+		var context := {
+			"command": "author_audio_stream_player",
+			"client_id": client_id,
+			"transaction_id": transaction_id,
+		}
+		_log("Failed to obtain scene transaction for audio stream player", function_name, context, true)
+		return _send_error(client_id, "Failed to obtain scene transaction for audio stream player", command_id)
+
+	if was_created:
+		transaction.add_do_method(parent, "add_child", [node])
+		transaction.add_do_method(node, "set_owner", [edited_scene_root])
+		transaction.add_undo_method(parent, "remove_child", [node])
+		transaction.add_undo_method(node, "queue_free")
+		transaction.add_do_reference(node)
+
+	for change in property_changes:
+		var property_name: String = change["property"]
+		var new_value = change["new_value"]
+		var old_value = change["old_value"]
+		if property_name == "stream" and new_value and new_value is AudioStream:
+			transaction.add_do_reference(new_value)
+		if was_created:
+			node.set(property_name, new_value)
+		else:
+			transaction.add_do_property(node, property_name, new_value)
+			transaction.add_undo_property(node, property_name, old_value)
+
+	var serialized_changes := _serialize_audio_player_changes(property_changes)
+	var commit_changes := serialized_changes.duplicate(true)
+	var log_payload := {
+		"command": "author_audio_stream_player",
+		"client_id": client_id,
+		"requested_path": requested_node_path,
+		"player_type": node.get_class(),
+		"mode": was_created ? "create" : "configure",
+		"transaction_id": transaction.transaction_id,
+		"change_count": serialized_changes.size(),
+	}
+	if not resolved_parent_path.is_empty():
+		log_payload["parent_path"] = resolved_parent_path
+	if stream_path_for_change != "":
+		log_payload["stream_path"] = stream_path_for_change
+	if was_created:
+		log_payload["created_name"] = node.name
+
+	transaction.register_on_commit(func():
+		_mark_scene_modified()
+		var payload = log_payload.duplicate(true)
+		payload["status"] = "committed"
+		payload["changes"] = commit_changes.duplicate(true)
+		_log("Committed audio stream player authoring", function_name, payload)
+	)
+
+	transaction.register_on_rollback(func():
+		var payload = log_payload.duplicate(true)
+		payload["status"] = "rolled_back"
+		payload["changes"] = commit_changes.duplicate(true)
+		_log("Rolled back audio stream player authoring", function_name, payload)
+	)
+
+	var status := "pending"
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			var error_payload := log_payload.duplicate(true)
+			error_payload["status"] = "failed_commit"
+			_log("Failed to commit audio stream player authoring", function_name, error_payload, true)
+			return _send_error(client_id, "Failed to commit audio stream player authoring", command_id)
+		status = "committed"
+
+	var fallback_node_path := node_lookup_path
+	if fallback_node_path.is_empty():
+		if resolved_parent_path.ends_with("/"):
+			fallback_node_path = resolved_parent_path + String(node.name)
+		else:
+			fallback_node_path = resolved_parent_path + "/" + String(node.name)
+
+	var resolved_node_path := fallback_node_path
+	if status == "committed":
+		resolved_node_path = _node_path_to_string(node, fallback_node_path)
+
+	var response := {
+		"node_path": resolved_node_path,
+		"requested_path": requested_node_path,
+		"node_type": node.get_class(),
+		"changes": serialized_changes,
+		"transaction_id": transaction.transaction_id,
+		"status": status,
+		"was_created": was_created,
+	}
+	if not resolved_parent_path.is_empty():
+		response["parent_path"] = resolved_parent_path
+	if stream_requested or stream_null_requested or stream_path_for_change != "":
+		response["stream_path"] = stream_null_requested ? "" : stream_path_for_change
+		response["stream_cleared"] = stream_null_requested
+
+        _send_success(client_id, response, command_id)
+
+func _author_interactive_music_graph(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_author_interactive_music_graph"
+        var context := {
+                "command": "author_interactive_music_graph",
+                "client_id": client_id,
+                "command_id": command_id,
+                "system_section": "interactive_music",
+        }
+
+        if not ClassDB.class_exists("AudioStreamInteractive"):
+                _log(
+                        "AudioStreamInteractive class is unavailable. Ensure the interactive_music module is enabled.",
+                        function_name,
+                        context,
+                        true
+                )
+                return _send_error(client_id, "Interactive music module is not available in this project", command_id)
+
+        var resource_path := String(params.get("resource_path", ""))
+        if resource_path.is_empty():
+                _log("Interactive music resource path is required", function_name, context, true)
+                return _send_error(client_id, "Interactive music resource path is required", command_id)
+
+        var normalized_path := _normalize_resource_path(resource_path)
+        context["resource_path"] = normalized_path
+
+        var clips_param = params.get("clips", [])
+        if typeof(clips_param) != TYPE_ARRAY:
+                _log("Interactive music clips must be provided as an array", function_name, context, true)
+                return _send_error(client_id, "Interactive music clips must be provided as an array", command_id)
+
+        var clip_entries: Array = (clips_param as Array).duplicate(true)
+        if clip_entries.is_empty():
+                _log("At least one clip definition is required for interactive music authoring", function_name, context, true)
+                return _send_error(client_id, "At least one clip definition is required", command_id)
+
+        var transitions_param = params.get("transitions", [])
+        if typeof(transitions_param) != TYPE_ARRAY and typeof(transitions_param) != TYPE_NIL:
+                _log("Interactive music transitions must be an array if provided", function_name, context, true)
+                return _send_error(client_id, "Interactive music transitions must be an array if provided", command_id)
+
+        var interactive_stream: AudioStreamInteractive = null
+        var was_created := false
+
+        if ResourceLoader.exists(normalized_path):
+                var loaded_resource = ResourceLoader.load(normalized_path)
+                if loaded_resource is AudioStreamInteractive:
+                        interactive_stream = loaded_resource
+                else:
+                        context["loaded_type"] = loaded_resource.get_class() if loaded_resource else "null"
+                        _log("Existing resource is not an AudioStreamInteractive", function_name, context, true)
+                        return _send_error(client_id, "Resource is not an AudioStreamInteractive: %s" % normalized_path, command_id)
+        else:
+                interactive_stream = AudioStreamInteractive.new()
+                was_created = true
+
+        if not interactive_stream:
+                _log("Failed to initialize AudioStreamInteractive resource", function_name, context, true)
+                return _send_error(client_id, "Failed to initialize AudioStreamInteractive resource", command_id)
+
+        var auto_advance_maps := _get_interactive_auto_advance_maps()
+        var transition_from_maps := _get_interactive_transition_from_time_maps()
+        var transition_to_maps := _get_interactive_transition_to_time_maps()
+        var fade_mode_maps := _get_interactive_fade_mode_maps()
+        var clip_any_constant := _get_interactive_clip_any_constant()
+
+        var clip_name_map: Dictionary = {}
+        for i in clip_entries.size():
+                var entry = clip_entries[i]
+                if typeof(entry) != TYPE_DICTIONARY:
+                        context["clip_index"] = i
+                        context["clip_type"] = typeof(entry)
+                        _log("Interactive music clip definitions must be dictionaries", function_name, context, true)
+                        return _send_error(client_id, "Interactive music clip definitions must be dictionaries", command_id)
+                var clip_dict: Dictionary = (entry as Dictionary).duplicate(true)
+                clip_entries[i] = clip_dict
+                var clip_name := String(clip_dict.get("name", ""))
+                if not clip_name.is_empty():
+                        clip_name_map[clip_name] = i
+                        var trimmed_name := clip_name.strip_edges()
+                        if not trimmed_name.is_empty():
+                                clip_name_map[trimmed_name] = i
+                                clip_name_map[trimmed_name.to_lower()] = i
+
+        var previous_clip_count := interactive_stream.get_clip_count()
+        var requested_clip_count := clip_entries.size()
+        if requested_clip_count != previous_clip_count:
+                interactive_stream.set_clip_count(requested_clip_count)
+
+        var clip_summaries: Array = []
+        var clip_display_names: Array = []
+
+        for i in clip_entries.size():
+                var clip_config: Dictionary = clip_entries[i]
+                var clip_summary := {
+                        "index": i,
+                }
+
+                var clip_name := String(clip_config.get("name", ""))
+                if not clip_name.is_empty():
+                        interactive_stream.set_clip_name(i, clip_name)
+                        clip_summary["name"] = clip_name
+                        clip_display_names.append(clip_name)
+                else:
+                        var existing_name := String(interactive_stream.get_clip_name(i))
+                        if not existing_name.is_empty():
+                                clip_display_names.append(existing_name)
+                                clip_summary["name"] = existing_name
+                                clip_name_map[existing_name] = i
+                                var trimmed_existing := existing_name.strip_edges()
+                                if not trimmed_existing.is_empty():
+                                        clip_name_map[trimmed_existing] = i
+                                        clip_name_map[trimmed_existing.to_lower()] = i
+                        else:
+                                clip_display_names.append(str(i))
+                                clip_summary["name"] = str(i)
+
+                if clip_config.has("stream_path"):
+                        var stream_request = clip_config["stream_path"]
+                        var stream_result := _load_audio_stream_for_interactive_clip(stream_request, normalized_path)
+                        if not stream_result["ok"]:
+                                var stream_error_context := context.duplicate(true)
+                                stream_error_context["clip_index"] = i
+                                stream_error_context["stream_error"] = stream_result.duplicate(true)
+                                _log(
+                                        "Failed to load interactive music clip stream",
+                                        function_name,
+                                        stream_error_context,
+                                        true
+                                )
+                                return _send_error(client_id, stream_result.get("error_message", "Failed to load audio stream"), command_id)
+
+                        interactive_stream.set_clip_stream(i, stream_result["stream"])
+                        clip_summary["stream_path"] = stream_result.get("path", "")
+                        clip_summary["stream_cleared"] = stream_result.get("cleared", false)
+                        if stream_result.get("cleared", false):
+                                clip_summary["stream_path"] = ""
+
+                if clip_config.has("auto_advance_mode"):
+                        var auto_mode_value = clip_config["auto_advance_mode"]
+                        var auto_mode_result := _parse_interactive_enum_value(auto_mode_value, auto_advance_maps, "auto_advance_mode")
+                        if not auto_mode_result["ok"]:
+                                var auto_error_context := context.duplicate(true)
+                                auto_error_context["clip_index"] = i
+                                auto_error_context["resource_path"] = normalized_path
+                                auto_error_context["auto_advance_mode"] = auto_mode_value
+                                auto_error_context["error_detail"] = auto_mode_result.duplicate(true)
+                                _log("Invalid interactive music auto advance mode", function_name, auto_error_context, true)
+                                return _send_error(client_id, auto_mode_result.get("error_message", "Invalid auto advance mode"), command_id)
+                        interactive_stream.set_clip_auto_advance(i, auto_mode_result["value"])
+                        clip_summary["auto_advance_mode"] = auto_mode_result["label"]
+
+                        if clip_config.has("auto_advance_next_clip"):
+                                var next_reference = clip_config["auto_advance_next_clip"]
+                                var next_result := _resolve_interactive_clip_reference(
+                                        next_reference,
+                                        clip_name_map,
+                                        clip_entries.size(),
+                                        false,
+                                        clip_any_constant
+                                )
+                                if not next_result["ok"]:
+                                        var next_error_context := context.duplicate(true)
+                                        next_error_context["clip_index"] = i
+                                        next_error_context["resource_path"] = normalized_path
+                                        next_error_context["auto_advance_next_clip"] = next_reference
+                                        next_error_context["error_detail"] = next_result.duplicate(true)
+                                        _log("Invalid interactive music auto advance target clip", function_name, next_error_context, true)
+                                        return _send_error(client_id, next_result.get("error_message", "Invalid auto advance next clip"), command_id)
+                                interactive_stream.set_clip_auto_advance_next_clip(i, next_result["index"])
+                                clip_summary["auto_advance_next_clip"] = _interactive_clip_label(next_result["index"], clip_display_names, clip_any_constant)
+
+                clip_summaries.append(clip_summary)
+
+        var initial_clip_reference = params.get("initial_clip", null)
+        if initial_clip_reference != null:
+                var initial_result := _resolve_interactive_clip_reference(
+                        initial_clip_reference,
+                        clip_name_map,
+                        clip_entries.size(),
+                        false,
+                        clip_any_constant
+                )
+                if not initial_result["ok"]:
+                        var initial_error_context := context.duplicate(true)
+                        initial_error_context["resource_path"] = normalized_path
+                        initial_error_context["initial_clip"] = initial_clip_reference
+                        initial_error_context["error_detail"] = initial_result.duplicate(true)
+                        _log("Invalid interactive music initial clip reference", function_name, initial_error_context, true)
+                        return _send_error(client_id, initial_result.get("error_message", "Invalid initial clip reference"), command_id)
+                interactive_stream.set_initial_clip(initial_result["index"])
+                context["initial_clip"] = initial_result["label"]
+
+        var transition_entries: Array = []
+        if typeof(transitions_param) == TYPE_ARRAY:
+                transition_entries = (transitions_param as Array).duplicate(true)
+
+        var clear_missing_transitions := bool(params.get("clear_missing_transitions", false))
+        var existing_transition_pairs: Array = []
+        var existing_transition_lookup: Dictionary = {}
+
+        var transition_list := interactive_stream.get_transition_list()
+        for i in range(0, transition_list.size(), 2):
+                var from_index := transition_list[i]
+                var to_index := transition_list[i + 1]
+                existing_transition_pairs.append({
+                        "from": from_index,
+                        "to": to_index,
+                })
+                existing_transition_lookup["%d->%d" % [from_index, to_index]] = true
+
+        var transition_summaries: Array = []
+        var transition_keep_lookup: Dictionary = {}
+
+        for i in transition_entries.size():
+                var transition_config = transition_entries[i]
+                if typeof(transition_config) != TYPE_DICTIONARY:
+                        context["transition_index"] = i
+                        context["transition_type"] = typeof(transition_config)
+                        _log("Interactive music transitions must be dictionaries", function_name, context, true)
+                        return _send_error(client_id, "Interactive music transitions must be dictionaries", command_id)
+
+                var transition_dict: Dictionary = (transition_config as Dictionary).duplicate(true)
+                transition_entries[i] = transition_dict
+
+                var from_reference = transition_dict.get("from_clip", transition_dict.get("from", null))
+                var to_reference = transition_dict.get("to_clip", transition_dict.get("to", null))
+
+                var from_result := _resolve_interactive_clip_reference(
+                        from_reference,
+                        clip_name_map,
+                        clip_entries.size(),
+                        true,
+                        clip_any_constant
+                )
+                if not from_result["ok"]:
+                        var from_error_context := context.duplicate(true)
+                        from_error_context["transition_index"] = i
+                        from_error_context["resource_path"] = normalized_path
+                        from_error_context["from_reference"] = from_reference
+                        from_error_context["error_detail"] = from_result.duplicate(true)
+                        _log("Invalid interactive music transition source clip", function_name, from_error_context, true)
+                        return _send_error(client_id, from_result.get("error_message", "Invalid transition source clip"), command_id)
+
+                var to_result := _resolve_interactive_clip_reference(
+                        to_reference,
+                        clip_name_map,
+                        clip_entries.size(),
+                        true,
+                        clip_any_constant
+                )
+                if not to_result["ok"]:
+                        var to_error_context := context.duplicate(true)
+                        to_error_context["transition_index"] = i
+                        to_error_context["resource_path"] = normalized_path
+                        to_error_context["to_reference"] = to_reference
+                        to_error_context["error_detail"] = to_result.duplicate(true)
+                        _log("Invalid interactive music transition destination clip", function_name, to_error_context, true)
+                        return _send_error(client_id, to_result.get("error_message", "Invalid transition destination clip"), command_id)
+
+                var from_time_value = transition_dict.get("from_time", "immediate")
+                var from_time_result := _parse_interactive_enum_value(from_time_value, transition_from_maps, "from_time")
+                if not from_time_result["ok"]:
+                        var from_time_context := context.duplicate(true)
+                        from_time_context["transition_index"] = i
+                        from_time_context["from_time"] = from_time_value
+                        from_time_context["error_detail"] = from_time_result.duplicate(true)
+                        _log("Invalid interactive music transition from_time", function_name, from_time_context, true)
+                        return _send_error(client_id, from_time_result.get("error_message", "Invalid from_time value"), command_id)
+
+                var to_time_value = transition_dict.get("to_time", "same_position")
+                var to_time_result := _parse_interactive_enum_value(to_time_value, transition_to_maps, "to_time")
+                if not to_time_result["ok"]:
+                        var to_time_context := context.duplicate(true)
+                        to_time_context["transition_index"] = i
+                        to_time_context["to_time"] = to_time_value
+                        to_time_context["error_detail"] = to_time_result.duplicate(true)
+                        _log("Invalid interactive music transition to_time", function_name, to_time_context, true)
+                        return _send_error(client_id, to_time_result.get("error_message", "Invalid to_time value"), command_id)
+
+                var fade_mode_value = transition_dict.get("fade_mode", "automatic")
+                var fade_mode_result := _parse_interactive_enum_value(fade_mode_value, fade_mode_maps, "fade_mode")
+                if not fade_mode_result["ok"]:
+                        var fade_mode_context := context.duplicate(true)
+                        fade_mode_context["transition_index"] = i
+                        fade_mode_context["fade_mode"] = fade_mode_value
+                        fade_mode_context["error_detail"] = fade_mode_result.duplicate(true)
+                        _log("Invalid interactive music transition fade_mode", function_name, fade_mode_context, true)
+                        return _send_error(client_id, fade_mode_result.get("error_message", "Invalid fade_mode value"), command_id)
+
+                var fade_beats := float(transition_dict.get("fade_beats", 0.0))
+                var use_filler_clip := bool(transition_dict.get("use_filler_clip", false))
+                var hold_previous := bool(transition_dict.get("hold_previous", false))
+
+                var filler_clip_index := clip_any_constant
+                var filler_label := ""
+                if use_filler_clip and not transition_dict.has("filler_clip"):
+                        var filler_missing_context := context.duplicate(true)
+                        filler_missing_context["transition_index"] = i
+                        filler_missing_context["use_filler_clip"] = use_filler_clip
+                        _log("Filler clip reference is required when use_filler_clip is true", function_name, filler_missing_context, true)
+                        return _send_error(client_id, "Filler clip reference is required when use_filler_clip is true", command_id)
+
+                if use_filler_clip and transition_dict.has("filler_clip"):
+                        var filler_result := _resolve_interactive_clip_reference(
+                                transition_dict["filler_clip"],
+                                clip_name_map,
+                                clip_entries.size(),
+                                false,
+                                clip_any_constant
+                        )
+                        if not filler_result["ok"]:
+                                var filler_context := context.duplicate(true)
+                                filler_context["transition_index"] = i
+                                filler_context["filler_clip"] = transition_dict["filler_clip"]
+                                filler_context["error_detail"] = filler_result.duplicate(true)
+                                _log("Invalid interactive music transition filler clip", function_name, filler_context, true)
+                                return _send_error(client_id, filler_result.get("error_message", "Invalid filler clip reference"), command_id)
+                        filler_clip_index = filler_result["index"]
+                        filler_label = filler_result["label"]
+
+                var transition_key := "%d->%d" % [from_result["index"], to_result["index"]]
+                transition_keep_lookup[transition_key] = true
+
+                if interactive_stream.has_transition(from_result["index"], to_result["index"]):
+                        interactive_stream.erase_transition(from_result["index"], to_result["index"])
+
+                interactive_stream.add_transition(
+                        from_result["index"],
+                        to_result["index"],
+                        from_time_result["value"],
+                        to_time_result["value"],
+                        fade_mode_result["value"],
+                        fade_beats,
+                        use_filler_clip,
+                        filler_clip_index,
+                        hold_previous
+                )
+
+                var transition_summary := {
+                        "from_index": from_result["index"],
+                        "to_index": to_result["index"],
+                        "from_label": _interactive_clip_label(from_result["index"], clip_display_names, clip_any_constant),
+                        "to_label": _interactive_clip_label(to_result["index"], clip_display_names, clip_any_constant),
+                        "from_time": from_time_result["label"],
+                        "to_time": to_time_result["label"],
+                        "fade_mode": fade_mode_result["label"],
+                        "fade_beats": fade_beats,
+                        "use_filler_clip": use_filler_clip,
+                        "hold_previous": hold_previous,
+                        "status": existing_transition_lookup.has(transition_key) ? "updated" : "added",
+                }
+                if use_filler_clip:
+                        transition_summary["filler_clip"] = filler_label if filler_label != "" else _interactive_clip_label(filler_clip_index, clip_display_names, clip_any_constant)
+
+                transition_summaries.append(transition_summary)
+
+        if clear_missing_transitions:
+                var removed_transitions: Array = []
+                for transition_pair in existing_transition_pairs:
+                        var key := "%d->%d" % [transition_pair["from"], transition_pair["to"]]
+                        if transition_keep_lookup.has(key):
+                                continue
+                        interactive_stream.erase_transition(transition_pair["from"], transition_pair["to"])
+                        removed_transitions.append({
+                                "from_index": transition_pair["from"],
+                                "to_index": transition_pair["to"],
+                                "from_label": _interactive_clip_label(transition_pair["from"], clip_display_names, clip_any_constant),
+                                "to_label": _interactive_clip_label(transition_pair["to"], clip_display_names, clip_any_constant),
+                                "status": "removed",
+                        })
+
+                for removed_transition in removed_transitions:
+                        transition_summaries.append(removed_transition)
+
+        var save_result := ResourceSaver.save(interactive_stream, normalized_path)
+        if save_result != OK:
+                context["save_error"] = save_result
+                _log("Failed to save AudioStreamInteractive resource", function_name, context, true)
+                return _send_error(client_id, "Failed to save interactive music resource: %s" % normalized_path, command_id)
+
+        var response := {
+                "resource_path": normalized_path,
+                "clip_count": requested_clip_count,
+                "clips": clip_summaries,
+                "transitions": transition_summaries,
+                "status": was_created ? "created" : "updated",
+        }
+
+        context["clip_count"] = requested_clip_count
+        context["transition_count"] = transition_summaries.size()
+        context["clear_missing_transitions"] = clear_missing_transitions
+        context["status"] = response["status"]
+
+        _log("Authored interactive music graph", function_name, context)
+        _send_success(client_id, response, command_id)
+func _serialize_audio_player_changes(changes: Array) -> Array:
+        var serialized: Array = []
+        for change in changes:
+                var property_name := change.get("property", "")
+                var new_value = change.get("new_value")
+                var old_value = change.get("old_value")
+                var entry := {
+                        "property": property_name,
+                        "input_value": change.get("input_value"),
+                        "parsed_value": _stringify_audio_variant(change.get("parsed_value")),
+                        "new_value": _stringify_audio_variant(new_value),
+                        "new_type": Variant.get_type_name(typeof(new_value)),
+                        "old_value": _stringify_audio_variant(old_value),
+                        "old_type": Variant.get_type_name(typeof(old_value)),
+                }
+                if change.has("stream_path"):
+                        entry["stream_path"] = change["stream_path"]
+                serialized.append(entry)
+        return serialized
+
+func _stringify_audio_variant(value) -> String:
+        if value == null:
+                return "null"
+        if value is Resource:
+                var resource := value as Resource
+                var path := resource.resource_path
+                if path.is_empty():
+                        return "%s (unsaved)" % resource.get_class()
+                return "%s (%s)" % [resource.get_class(), path]
+        return str(value)
+
+func _load_audio_stream_for_interactive_clip(stream_request, _resource_path: String) -> Dictionary:
+        if stream_request == null:
+                return {
+                        "ok": true,
+                        "stream": null,
+                        "path": "",
+                        "cleared": true,
+                }
+
+        match typeof(stream_request):
+                TYPE_STRING, TYPE_STRING_NAME:
+                        var stream_path := String(stream_request)
+                        if stream_path.is_empty():
+                                return {
+                                        "ok": false,
+                                        "error_message": "Audio stream path cannot be empty",
+                                        "path": stream_path,
+                                }
+                        var normalized_path := _normalize_resource_path(stream_path)
+                        if not ResourceLoader.exists(normalized_path):
+                                return {
+                                        "ok": false,
+                                        "error_message": "Audio stream resource not found: %s" % normalized_path,
+                                        "path": normalized_path,
+                                }
+                        var loaded_stream := ResourceLoader.load(normalized_path)
+                        if not loaded_stream or not (loaded_stream is AudioStream):
+                                return {
+                                        "ok": false,
+                                        "error_message": "Resource is not an AudioStream: %s" % normalized_path,
+                                        "path": normalized_path,
+                                }
+                        return {
+                                "ok": true,
+                                "stream": loaded_stream,
+                                "path": normalized_path,
+                                "cleared": false,
+                        }
+                TYPE_OBJECT:
+                        if stream_request is AudioStream:
+                                var audio_stream := stream_request as AudioStream
+                                var resolved_path := audio_stream.resource_path
+                                return {
+                                        "ok": true,
+                                        "stream": audio_stream,
+                                        "path": resolved_path,
+                                        "cleared": false,
+                                }
+                        return {
+                                "ok": false,
+                                "error_message": "Interactive music stream override must be an AudioStream resource",
+                                "path": "",
+                        }
+                TYPE_DICTIONARY:
+                        var dict_request: Dictionary = stream_request
+                        if dict_request.has("path"):
+                                return _load_audio_stream_for_interactive_clip(dict_request["path"], resource_path)
+                        if dict_request.has("stream") and dict_request["stream"] is AudioStream:
+                                return _load_audio_stream_for_interactive_clip(dict_request["stream"], resource_path)
+                        if dict_request.has("resource") and dict_request["resource"] is AudioStream:
+                                return _load_audio_stream_for_interactive_clip(dict_request["resource"], resource_path)
+                        return {
+                                "ok": false,
+                                "error_message": "Interactive music stream dictionary must include a path or AudioStream resource",
+                                "path": "",
+                        }
+                TYPE_INT, TYPE_FLOAT:
+                        return {
+                                "ok": false,
+                                "error_message": "Audio stream descriptor must not be numeric",
+                                "path": "",
+                        }
+                _:
+                        return {
+                                "ok": false,
+                                "error_message": "Unsupported audio stream descriptor",
+                                "path": "",
+                        }
+
+func _parse_interactive_enum_value(value, enum_maps: Dictionary, field_name: String) -> Dictionary:
+        var forward: Dictionary = enum_maps.get("forward", {})
+        var reverse: Dictionary = enum_maps.get("reverse", {})
+        if forward.is_empty() and reverse.is_empty():
+                return {
+                        "ok": false,
+                        "error_message": "Interactive music enums are unavailable for %s" % field_name,
+                }
+
+        if value == null:
+                return {
+                        "ok": false,
+                        "error_message": "%s value cannot be null" % field_name,
+                }
+
+        match typeof(value):
+                TYPE_STRING, TYPE_STRING_NAME:
+                        var normalized_key := String(value).strip_edges().to_lower()
+                        if forward.has(normalized_key):
+                                return {
+                                        "ok": true,
+                                        "value": forward[normalized_key],
+                                        "label": normalized_key,
+                                }
+                        return {
+                                "ok": false,
+                                "error_message": "Unknown %s: %s" % [field_name, value],
+                        }
+                TYPE_INT:
+                        var int_value := int(value)
+                        if reverse.has(int_value):
+                                return {
+                                        "ok": true,
+                                        "value": int_value,
+                                        "label": reverse[int_value],
+                                }
+                        return {
+                                "ok": false,
+                                "error_message": "Unsupported %s value: %d" % [field_name, int_value],
+                        }
+                TYPE_FLOAT:
+                        var float_value := float(value)
+                        var rounded := int(float_value)
+                        if float_value != float(rounded):
+                                return {
+                                        "ok": false,
+                                        "error_message": "%s must be an integer" % field_name,
+                                }
+                        return _parse_interactive_enum_value(rounded, enum_maps, field_name)
+                TYPE_DICTIONARY:
+                        var dict_value: Dictionary = value
+                        if dict_value.has("value"):
+                                return _parse_interactive_enum_value(dict_value["value"], enum_maps, field_name)
+                        if dict_value.has("name"):
+                                return _parse_interactive_enum_value(dict_value["name"], enum_maps, field_name)
+                        return {
+                                "ok": false,
+                                "error_message": "Dictionary enum descriptor for %s must include `value` or `name`" % field_name,
+                        }
+                _:
+                        return {
+                                "ok": false,
+                                "error_message": "Unsupported %s descriptor" % field_name,
+                        }
+
+func _resolve_interactive_clip_reference(reference, clip_name_map: Dictionary, clip_count: int, allow_any: bool, clip_any_constant: int) -> Dictionary:
+        if reference == null:
+                return {
+                        "ok": false,
+                        "error_message": "Clip reference is required",
+                }
+
+        match typeof(reference):
+                TYPE_INT:
+                        var int_index := int(reference)
+                        if allow_any and int_index == clip_any_constant:
+                                return {
+                                        "ok": true,
+                                        "index": clip_any_constant,
+                                        "label": "any",
+                                }
+                        if int_index >= 0 and int_index < clip_count:
+                                return {
+                                        "ok": true,
+                                        "index": int_index,
+                                        "label": str(int_index),
+                                }
+                        return {
+                                "ok": false,
+                                "error_message": "Clip index %d is out of range" % int_index,
+                        }
+                TYPE_FLOAT:
+                        var float_index := float(reference)
+                        var rounded := int(float_index)
+                        if float_index != float(rounded):
+                                return {
+                                        "ok": false,
+                                        "error_message": "Clip index must be an integer",
+                                }
+                        return _resolve_interactive_clip_reference(rounded, clip_name_map, clip_count, allow_any, clip_any_constant)
+                TYPE_STRING, TYPE_STRING_NAME:
+                        var clip_name := String(reference)
+                        var normalized := clip_name.strip_edges()
+                        if allow_any and normalized.to_lower() == "any":
+                                return {
+                                        "ok": true,
+                                        "index": clip_any_constant,
+                                        "label": "any",
+                                }
+                        if clip_name_map.has(normalized):
+                                return {
+                                        "ok": true,
+                                        "index": clip_name_map[normalized],
+                                        "label": normalized,
+                                }
+                        var lower_name := normalized.to_lower()
+                        if clip_name_map.has(lower_name):
+                                return {
+                                        "ok": true,
+                                        "index": clip_name_map[lower_name],
+                                        "label": normalized,
+                                }
+                        if clip_name_map.has(clip_name):
+                                return {
+                                        "ok": true,
+                                        "index": clip_name_map[clip_name],
+                                        "label": clip_name,
+                                }
+                        return {
+                                "ok": false,
+                                "error_message": "Unknown clip name: %s" % clip_name,
+                        }
+                TYPE_DICTIONARY:
+                        var dict_ref: Dictionary = reference
+                        if dict_ref.has("index"):
+                                return _resolve_interactive_clip_reference(dict_ref["index"], clip_name_map, clip_count, allow_any, clip_any_constant)
+                        if dict_ref.has("name"):
+                                return _resolve_interactive_clip_reference(dict_ref["name"], clip_name_map, clip_count, allow_any, clip_any_constant)
+                        return {
+                                "ok": false,
+                                "error_message": "Clip dictionary reference must include `index` or `name`",
+                        }
+                _:
+                        return {
+                                "ok": false,
+                                "error_message": "Unsupported clip reference",
+                        }
+
+func _interactive_clip_label(index: int, clip_display_names: Array, clip_any_constant: int) -> String:
+        if index == clip_any_constant:
+                return "any"
+        if index >= 0 and index < clip_display_names.size():
+                return String(clip_display_names[index])
+        return str(index)
+
+func _get_interactive_auto_advance_maps() -> Dictionary:
+        return _build_interactive_enum_map([
+                {"constant": "AUTO_ADVANCE_DISABLED", "labels": ["disabled", "off"]},
+                {"constant": "AUTO_ADVANCE_ENABLED", "labels": ["enabled", "on"]},
+                {"constant": "AUTO_ADVANCE_RETURN_TO_HOLD", "labels": ["return_to_hold", "return", "hold"]},
+        ])
+
+func _get_interactive_transition_from_time_maps() -> Dictionary:
+        return _build_interactive_enum_map([
+                {"constant": "TRANSITION_FROM_TIME_IMMEDIATE", "labels": ["immediate"]},
+                {"constant": "TRANSITION_FROM_TIME_NEXT_BEAT", "labels": ["next_beat", "beat"]},
+                {"constant": "TRANSITION_FROM_TIME_NEXT_BAR", "labels": ["next_bar", "bar"]},
+                {"constant": "TRANSITION_FROM_TIME_END", "labels": ["end"]},
+        ])
+
+func _get_interactive_transition_to_time_maps() -> Dictionary:
+        return _build_interactive_enum_map([
+                {"constant": "TRANSITION_TO_TIME_SAME_POSITION", "labels": ["same_position", "position"]},
+                {"constant": "TRANSITION_TO_TIME_START", "labels": ["start"]},
+        ])
+
+func _get_interactive_fade_mode_maps() -> Dictionary:
+        return _build_interactive_enum_map([
+                {"constant": "FADE_DISABLED", "labels": ["disabled", "none"]},
+                {"constant": "FADE_IN", "labels": ["fade_in", "in"]},
+                {"constant": "FADE_OUT", "labels": ["fade_out", "out"]},
+                {"constant": "FADE_CROSS", "labels": ["cross", "crossfade"]},
+                {"constant": "FADE_AUTOMATIC", "labels": ["automatic", "auto"]},
+        ])
+
+func _get_interactive_clip_any_constant() -> int:
+        if not ClassDB.class_exists("AudioStreamInteractive"):
+                return -1
+        return ClassDB.get_integer_constant("AudioStreamInteractive", "CLIP_ANY")
+
+func _build_interactive_enum_map(entries: Array) -> Dictionary:
+        var forward: Dictionary = {}
+        var reverse: Dictionary = {}
+        if not ClassDB.class_exists("AudioStreamInteractive"):
+                return {
+                        "forward": forward,
+                        "reverse": reverse,
+                }
+
+        for entry in entries:
+                if typeof(entry) != TYPE_DICTIONARY:
+                        continue
+                var constant_name := String(entry.get("constant", ""))
+                if constant_name.is_empty():
+                        continue
+                var labels := entry.get("labels", [])
+                if typeof(labels) != TYPE_ARRAY:
+                        continue
+                var constant_value := ClassDB.get_integer_constant("AudioStreamInteractive", constant_name)
+                var primary_label := ""
+                for label in labels:
+                        var normalized_label := String(label).strip_edges().to_lower()
+                        if normalized_label.is_empty():
+                                continue
+                        forward[normalized_label] = constant_value
+                        if primary_label == "":
+                                primary_label = normalized_label
+                if primary_label != "":
+                        reverse[constant_value] = primary_label
+
+        return {
+                "forward": forward,
+                "reverse": reverse,
+        }
+
+func _normalize_resource_path(path: String) -> String:
+        if path.is_empty():
+                return path
+        if path.begins_with("res://") or path.begins_with("user://"):
+                return path
+        return "res://" + path
+
+func _is_supported_audio_stream_player(node: Node) -> bool:
+        if node is AudioStreamPlayer:
+                return true
+        var class_name := node.get_class()
+        return class_name == "AudioStreamPlayer2D" or class_name == "AudioStreamPlayer3D" or class_name == "AudioStreamPlayerMicrophone"
 
 func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String) -> void:
         var node_path := String(params.get("node_path", ""))

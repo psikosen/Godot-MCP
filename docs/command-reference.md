@@ -466,6 +466,52 @@ project's default bus layout resource.
 Solo the "Music" bus, drop it by -6 dB, and persist the updated layout.
 ```
 
+### author_audio_stream_player
+Create or configure an AudioStreamPlayer node, wiring in a stream resource and playback properties without leaving the MCP flow.
+
+**Parameters:**
+- `node_path` (optional) - Existing AudioStreamPlayer to configure.
+- `parent_path` (optional) - Parent node to attach a new AudioStreamPlayer when `node_path` is omitted.
+- `player_name` (optional) - Name assigned to a newly created player.
+- `player_type` (optional) - AudioStreamPlayer class to instantiate (`AudioStreamPlayer`, `AudioStreamPlayer2D`, `AudioStreamPlayer3D`, or `AudioStreamPlayerMicrophone`).
+- `stream_path` (optional) - AudioStream resource path (e.g. `res://audio/theme.ogg`).
+- `properties` (optional) - Dictionary of additional properties (`volume_db`, `mix_target`, `unit_size`, etc.).
+- `autoplay`, `bus`, `volume_db`, `pitch_scale`, `max_polyphony`, `stream_paused` (optional) - Convenience fields merged into `properties`.
+- `create_if_missing` (optional) - Create the player when `node_path` is missing.
+- `transaction_id` (optional) - Scene transaction identifier to batch edits.
+
+**Example:**
+```
+Create an AudioStreamPlayer2D under /root/Main named Music, assign res://audio/theme.ogg, enable autoplay, and set volume to -6 dB.
+```
+
+### author_interactive_music_graph
+Author or update an `AudioStreamInteractive` resource, wiring layered clip metadata and transition rules suitable for interactive music systems.
+
+**Parameters:**
+- `resource_path` (required) - Destination resource path for the `.tres` interactive music asset.
+- `clips` (required) - Array of clip definitions. Each entry accepts:
+  - `name` (optional) - Friendly clip name used for logging and transition references.
+  - `stream_path` (optional) - AudioStream descriptor (`"res://music/intro.ogg"`, `{ "path": "res://..." }`, or `null` to clear).
+  - `auto_advance_mode` (optional) - One of `disabled`, `enabled`, or `return_to_hold`.
+  - `auto_advance_next_clip` (optional) - Clip reference (`index`, `name`, or `{ "name": "Loop" }`) used when auto-advance is enabled.
+- `transitions` (optional) - Array of transition rules. Each rule accepts:
+  - `from_clip` / `to_clip` (required) - Clip references (index, name, or `{ index/name }`).
+  - `from_time` (optional) - Transition trigger (`immediate`, `next_beat`, `next_bar`, or `end`).
+  - `to_time` (optional) - Destination start mode (`same_position` or `start`).
+  - `fade_mode` (optional) - Fade behavior (`disabled`, `fade_in`, `fade_out`, `cross`, `automatic`).
+  - `fade_beats` (optional) - Length of the fade in beats.
+  - `use_filler_clip` (optional) - Whether to insert a filler clip mid-transition (requires `filler_clip`).
+  - `filler_clip` (optional) - Clip reference for the filler segment.
+  - `hold_previous` (optional) - Keep the origin clip active for return-to-hold flows.
+- `initial_clip` (optional) - Clip reference used when playback begins.
+- `clear_missing_transitions` (optional) - Remove any previously authored transitions that are not included in the current request.
+
+**Example:**
+```
+Create res://audio/dynamic_theme.interactive with Intro and Loop clips plus a beat-aligned crossfade between them.
+```
+
 ## MCP Resources
 
 ### godot://physics/world
