@@ -63,6 +63,7 @@ import { patchTools } from './tools/patch_tools.js';
 import { projectTools } from './tools/project_tools.js';
 import { permissionTools } from './tools/permission_tools.js';
 import { navigationTools } from './tools/navigation_tools.js';
+import { audioTools } from './tools/audio_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 // Import resources
@@ -100,7 +101,7 @@ function main() {
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true).forEach(function (tool) {
                         registerTool(tool);
                     });
                     // Register all resources
