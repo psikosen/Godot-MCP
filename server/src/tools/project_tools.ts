@@ -107,6 +107,141 @@ export const projectTools: MCPTool[] = [
     },
   },
   {
+    name: 'configure_audio_bus',
+    description: 'Modify a Godot audio bus, toggling volume, routing, and effect state with optional persistence.',
+    parameters: z
+      .object({
+        bus_name: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Name of the audio bus to configure.'),
+        bus_index: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe('Index of the audio bus to configure.'),
+        new_name: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Optional new name for the bus.'),
+        volume_db: z
+          .number()
+          .optional()
+          .describe('Set the bus volume in decibels.'),
+        solo: z
+          .boolean()
+          .optional()
+          .describe('Toggle solo state.'),
+        mute: z
+          .boolean()
+          .optional()
+          .describe('Toggle mute state.'),
+        bypass_effects: z
+          .boolean()
+          .optional()
+          .describe('Toggle bypass on the entire effect chain.'),
+        send: z
+          .string()
+          .optional()
+          .describe('Set the downstream send target bus (empty string clears).'),
+        effects: z
+          .array(
+            z
+              .object({
+                index: z
+                  .number()
+                  .int()
+                  .nonnegative()
+                  .describe('Effect index on the target bus.'),
+                enabled: z
+                  .boolean()
+                  .optional()
+                  .describe('Enable or disable the effect at the provided index.'),
+              })
+              .strict()
+          )
+          .optional()
+          .describe('Batch toggle effect state for the bus.'),
+        persist: z
+          .boolean()
+          .optional()
+          .describe('Persist the mutated bus layout to the project default layout resource.'),
+      })
+      .refine(data => data.bus_name !== undefined || data.bus_index !== undefined, {
+        message: 'Either bus_name or bus_index must be provided.',
+        path: ['bus_name'],
+      }),
+    execute: async ({
+      bus_name,
+      bus_index,
+      new_name,
+      volume_db,
+      solo,
+      mute,
+      bypass_effects,
+      send,
+      effects,
+      persist,
+    }): Promise<string> => {
+      const godot = getGodotConnection();
+
+      const payload: Record<string, unknown> = {};
+
+      if (bus_name !== undefined) {
+        payload.bus_name = bus_name;
+      }
+
+      if (bus_index !== undefined) {
+        payload.bus_index = bus_index;
+      }
+
+      if (new_name !== undefined) {
+        payload.new_name = new_name;
+      }
+
+      if (volume_db !== undefined) {
+        payload.volume_db = volume_db;
+      }
+
+      if (solo !== undefined) {
+        payload.solo = solo;
+      }
+
+      if (mute !== undefined) {
+        payload.mute = mute;
+      }
+
+      if (bypass_effects !== undefined) {
+        payload.bypass_effects = bypass_effects;
+      }
+
+      if (send !== undefined) {
+        payload.send = send;
+      }
+
+      if (effects !== undefined) {
+        payload.effects = effects;
+      }
+
+      if (persist !== undefined) {
+        payload.persist = persist;
+      }
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('configure_audio_bus', payload);
+        return JSON.stringify(result, null, 2);
+      } catch (error) {
+        throw new Error(`Failed to configure audio bus: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
     name: 'add_input_action',
     description: 'Create or overwrite a Godot input action with optional default events.',
     parameters: z.object({

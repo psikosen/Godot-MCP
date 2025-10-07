@@ -175,6 +175,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `add_input_event_to_action` - Register an additional event on an existing input action
 - `remove_input_event_from_action` - Remove an input event by index or matching fields
 - `list_audio_buses` - Enumerate the audio bus graph with volume, routing, and effect status
+- `configure_audio_bus` - Adjust audio bus volume, routing, and effect enablement with optional persistence
 
 #### Patch Commands
 - `preview_patch` - Preview a diff before it is applied
