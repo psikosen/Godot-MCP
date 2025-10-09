@@ -63,7 +63,7 @@
 - [x] `list_audio_buses` to enumerate audio routing, volume, and effect state for review.
 - [x] `configure_audio_bus` to insert/remove effects and adjust sends on the AudioServer.
 - [ ] `author_audio_stream_player` to attach AudioStream resources with autoplay, 3D attenuation, and bus routing.
-- [ ] `generate_dynamic_music_layer` to build InteractiveMusic transition tables.
+- [x] `generate_dynamic_music_layer` to build InteractiveMusic transition tables.
 - [ ] `analyze_waveform` to produce basic waveform/loudness summaries for preview.
 - [ ] `batch_import_audio_assets` to drive import presets for WAV/OGG via the editor importer.
 

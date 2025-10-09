@@ -27,9 +27,11 @@ interface AuthorAudioStreamPlayerParams {
 
 type ClipReference = number | string | { index?: number; name?: string };
 
+type StreamDescriptor = string | { path?: string; stream?: unknown; resource?: unknown } | null;
+
 interface InteractiveClipConfig {
   name?: string;
-  stream_path?: string | { path?: string; stream?: unknown; resource?: unknown } | null;
+  stream_path?: StreamDescriptor;
   auto_advance_mode?: 'disabled' | 'enabled' | 'return_to_hold';
   auto_advance_next_clip?: ClipReference;
 }
@@ -52,6 +54,32 @@ interface AuthorInteractiveMusicGraphParams {
   transitions?: InteractiveTransitionConfig[];
   initial_clip?: ClipReference;
   clear_missing_transitions?: boolean;
+}
+
+interface DynamicLayerClipConfig {
+  name?: string;
+  reference?: ClipReference;
+  stream_path?: StreamDescriptor;
+}
+
+interface DynamicLayerTransitionConfig {
+  from_time?: 'immediate' | 'next_beat' | 'next_bar' | 'end';
+  to_time?: 'same_position' | 'start';
+  fade_mode?: 'disabled' | 'fade_in' | 'in' | 'fade_out' | 'out' | 'cross' | 'crossfade' | 'automatic' | 'auto';
+  fade_beats?: number;
+  use_filler_clip?: boolean;
+  filler_clip?: ClipReference;
+  hold_previous?: boolean;
+}
+
+interface GenerateDynamicMusicLayerParams {
+  resource_path: string;
+  base_clip: ClipReference;
+  layer_clip?: DynamicLayerClipConfig;
+  layer?: DynamicLayerClipConfig;
+  entry_transition?: DynamicLayerTransitionConfig;
+  exit_transition?: DynamicLayerTransitionConfig;
+  make_initial?: boolean;
 }
 
 const audioPlayerTypeSchema = z.enum([
@@ -221,6 +249,71 @@ const authorInteractiveMusicGraphSchema = z.object({
     .describe('Remove transitions not present in the current request'),
 });
 
+const dynamicLayerClipSchema = z
+  .object({
+    name: z.string().optional(),
+    reference: clipReferenceSchema.optional(),
+    stream_path: streamDescriptorSchema.optional(),
+  })
+  .describe('Dynamic music layer clip descriptor (name, reference, or stream override)');
+
+const dynamicLayerTransitionSchema = z
+  .object({
+    from_time: z.enum(['immediate', 'next_beat', 'next_bar', 'end']).optional(),
+    to_time: z.enum(['same_position', 'start']).optional(),
+    fade_mode: z
+      .enum(['disabled', 'fade_in', 'in', 'fade_out', 'out', 'cross', 'crossfade', 'automatic', 'auto'])
+      .optional(),
+    fade_beats: z.number().optional(),
+    use_filler_clip: z.boolean().optional(),
+    filler_clip: clipReferenceSchema.optional(),
+    hold_previous: z.boolean().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.use_filler_clip && value.filler_clip === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'filler_clip is required when use_filler_clip is true',
+        path: ['filler_clip'],
+      });
+    }
+  })
+  .describe('Entry/exit transition settings for dynamic music layers');
+
+const generateDynamicMusicLayerSchema = z
+  .object({
+    resource_path: z
+      .string()
+      .min(1)
+      .describe('AudioStreamInteractive resource path to update (e.g. "res://audio/music.interactive")'),
+    base_clip: clipReferenceSchema.describe('Base clip that the dynamic layer extends'),
+    layer_clip: dynamicLayerClipSchema
+      .optional()
+      .describe('Layer clip configuration; omit to reuse defaults when creating a new layer'),
+    layer: dynamicLayerClipSchema
+      .optional()
+      .describe('Alias for layer_clip maintained for backwards compatibility'),
+    entry_transition: dynamicLayerTransitionSchema
+      .optional()
+      .describe('Entry transition overrides from the base clip into the new layer'),
+    exit_transition: dynamicLayerTransitionSchema
+      .optional()
+      .describe('Exit transition overrides when returning to the base clip'),
+    make_initial: z
+      .boolean()
+      .optional()
+      .describe('Set the generated layer as the interactive stream initial clip'),
+  })
+  .superRefine((value, ctx) => {
+    if (value.layer_clip && value.layer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide either layer_clip or layer, not both',
+        path: ['layer'],
+      });
+    }
+  });
+
 const formatAudioPlayerResponse = (result: CommandResult): string => {
   const nodePath = (result.node_path as string) ?? 'unknown node';
   const nodeType = (result.node_type as string) ?? 'AudioStreamPlayer';
@@ -324,6 +417,71 @@ const formatInteractiveMusicResponse = (result: CommandResult): string => {
   }
 
   return sections.join('\n');
+};
+
+const formatDynamicLayerResponse = (result: CommandResult): string => {
+  const resourcePath = (result.resource_path as string) ?? 'res://resource.interactive';
+  const baseClip = (result.base_clip as Record<string, unknown>) ?? {};
+  const layerClip = (result.layer_clip as Record<string, unknown>) ?? {};
+  const transitions = Array.isArray(result.transitions) ? (result.transitions as any[]) : [];
+
+  const baseLabel = (baseClip.label as string) ?? (typeof baseClip.index === 'number' ? `clip ${baseClip.index}` : 'base');
+  const baseIndex = typeof baseClip.index === 'number' ? (baseClip.index as number) : '?';
+  const layerLabel = (layerClip.label as string) ?? (typeof layerClip.index === 'number' ? `clip ${layerClip.index}` : 'layer');
+  const layerIndex = typeof layerClip.index === 'number' ? (layerClip.index as number) : '?';
+  const layerStatus = (layerClip.status as string) ?? (layerClip.was_created ? 'created' : 'updated');
+  const header = `Linked ${layerLabel} ↔ ${baseLabel} in ${resourcePath}`;
+
+  const baseLine = `Base clip: ${baseLabel} (index ${baseIndex})`;
+
+  const layerParts: string[] = [`Layer ${layerLabel} (index ${layerIndex}) [${layerStatus}]`];
+  if (typeof layerClip.name === 'string' && layerClip.name.length > 0) {
+    layerParts.push(`name "${layerClip.name as string}"`);
+  }
+  if (layerClip.made_initial) {
+    layerParts.push('set as initial');
+  }
+  if (layerClip.stream_cleared) {
+    layerParts.push('stream cleared');
+  } else if (typeof layerClip.stream_path === 'string' && layerClip.stream_path.length > 0) {
+    layerParts.push(`stream ${layerClip.stream_path as string}`);
+  }
+
+  const transitionLines = transitions.map((transition) => {
+    const fromLabel = transition.from ?? transition.from_label ?? transition.from_index ?? '?';
+    const toLabel = transition.to ?? transition.to_label ?? transition.to_index ?? '?';
+    const fromTime = transition.from_time ?? 'next_bar';
+    const toTime = transition.to_time ?? 'same_position';
+    const fadeMode = transition.fade_mode ?? 'cross';
+    const fadeBeats = typeof transition.fade_beats === 'number' ? `${transition.fade_beats} beats` : '';
+    const filler = transition.use_filler_clip ? transition.filler_clip ?? 'filler' : '';
+    const hold = transition.hold_previous ? 'hold previous' : '';
+
+    const parts = [`${fromTime} → ${toTime}`, `fade ${fadeMode}`];
+    if (fadeBeats) {
+      parts.push(fadeBeats);
+    }
+    if (filler) {
+      parts.push(`filler ${filler}`);
+    }
+    if (hold) {
+      parts.push(hold);
+    }
+
+    return `- ${fromLabel} -> ${toLabel}: ${parts.join(', ')}`;
+  });
+
+  const lines: string[] = [header, baseLine, layerParts.join(' · ')];
+  if (typeof result.initial_clip === 'string' && result.initial_clip.length > 0) {
+    lines.push(`Initial clip set to ${result.initial_clip}`);
+  }
+
+  if (transitionLines.length > 0) {
+    lines.push('Transitions:');
+    lines.push(transitionLines.join('\n'));
+  }
+
+  return lines.join('\n');
 };
 
 export const audioTools: MCPTool[] = [
@@ -451,6 +609,90 @@ export const audioTools: MCPTool[] = [
         return formatInteractiveMusicResponse(result);
       } catch (error) {
         throw new Error(`Failed to author interactive music graph: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'generate_dynamic_music_layer',
+    description:
+      'Add or update a clip layer on an AudioStreamInteractive resource with symmetric entry/exit transitions and optional stream overrides.',
+    parameters: generateDynamicMusicLayerSchema,
+    execute: async (args: GenerateDynamicMusicLayerParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      const payload: Record<string, unknown> = {
+        resource_path: args.resource_path,
+        base_clip: args.base_clip,
+      };
+
+      const layerOptions = args.layer_clip ?? args.layer;
+      if (layerOptions) {
+        const layerPayload: Record<string, unknown> = {};
+        if (layerOptions.name !== undefined) {
+          layerPayload.name = layerOptions.name;
+        }
+        if (layerOptions.reference !== undefined) {
+          layerPayload.reference = layerOptions.reference;
+        }
+        if (layerOptions.stream_path !== undefined) {
+          layerPayload.stream_path = layerOptions.stream_path;
+        }
+        payload.layer_clip = layerPayload;
+      }
+
+      const buildTransitionPayload = (transition?: DynamicLayerTransitionConfig) => {
+        if (!transition) {
+          return undefined;
+        }
+
+        const transitionPayload: Record<string, unknown> = {};
+        if (transition.from_time !== undefined) {
+          transitionPayload.from_time = transition.from_time;
+        }
+        if (transition.to_time !== undefined) {
+          transitionPayload.to_time = transition.to_time;
+        }
+        if (transition.fade_mode !== undefined) {
+          transitionPayload.fade_mode = transition.fade_mode;
+        }
+        if (transition.fade_beats !== undefined) {
+          transitionPayload.fade_beats = transition.fade_beats;
+        }
+        if (transition.use_filler_clip !== undefined) {
+          transitionPayload.use_filler_clip = transition.use_filler_clip;
+        }
+        if (transition.filler_clip !== undefined) {
+          transitionPayload.filler_clip = transition.filler_clip;
+        }
+        if (transition.hold_previous !== undefined) {
+          transitionPayload.hold_previous = transition.hold_previous;
+        }
+
+        return transitionPayload;
+      };
+
+      const entryPayload = buildTransitionPayload(args.entry_transition);
+      if (entryPayload) {
+        payload.entry_transition = entryPayload;
+      }
+
+      const exitPayload = buildTransitionPayload(args.exit_transition);
+      if (exitPayload) {
+        payload.exit_transition = exitPayload;
+      }
+
+      if (args.make_initial !== undefined) {
+        payload.make_initial = args.make_initial;
+      }
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('generate_dynamic_music_layer', payload);
+        return formatDynamicLayerResponse(result);
+      } catch (error) {
+        throw new Error(`Failed to generate dynamic music layer: ${(error as Error).message}`);
       }
     },
     metadata: {

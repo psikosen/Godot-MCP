@@ -512,6 +512,25 @@ Author or update an `AudioStreamInteractive` resource, wiring layered clip metad
 Create res://audio/dynamic_theme.interactive with Intro and Loop clips plus a beat-aligned crossfade between them.
 ```
 
+### generate_dynamic_music_layer
+Add a new clip layer to an existing `AudioStreamInteractive` resource (or update an existing clip) while authoring entry and exit transitions between the base clip and the new layer.
+
+**Parameters:**
+- `resource_path` (required) - Interactive music resource to modify.
+- `base_clip` (required) - Clip reference (index, name, or `{ index/name }`) used as the foundation layer.
+- `layer_clip` or `layer` (optional) - Layer descriptor accepting:
+  - `name` (optional) - Clip name to assign or reuse.
+  - `reference` (optional) - Clip reference when updating an existing layer instead of creating a new clip.
+  - `stream_path` (optional) - AudioStream descriptor (`"res://audio/layer.ogg"`, `{ "path": ... }`, or `null` to clear).
+- `entry_transition` (optional) - Dictionary controlling the transition from the base clip into the layer. Supports `from_time`, `to_time`, `fade_mode`, `fade_beats`, `use_filler_clip`, `filler_clip`, and `hold_previous`.
+- `exit_transition` (optional) - Dictionary configuring the return transition from the layer back to the base clip with the same fields as `entry_transition`.
+- `make_initial` (optional) - When true, set the generated layer as the interactive stream's initial clip.
+
+**Example:**
+```
+Add a "Drums" layer to res://audio/dynamic_theme.interactive using clip "Loop" as the base, crossfading on the next bar when entering and fading out over 2 beats when exiting.
+```
+
 ## MCP Resources
 
 ### godot://physics/world

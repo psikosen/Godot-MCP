@@ -116,6 +116,9 @@ return true
                 "author_interactive_music_graph":
                         _author_interactive_music_graph(client_id, params, command_id)
                         return true
+                "generate_dynamic_music_layer":
+                        _generate_dynamic_music_layer(client_id, params, command_id)
+                        return true
                 "configure_csg_shape":
                         _configure_csg_shape(client_id, params, command_id)
                         return true
@@ -2013,6 +2016,391 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
         context["status"] = response["status"]
 
         _log("Authored interactive music graph", function_name, context)
+        _send_success(client_id, response, command_id)
+
+func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_generate_dynamic_music_layer"
+        var context := {
+                "command": "generate_dynamic_music_layer",
+                "client_id": client_id,
+                "command_id": command_id,
+                "system_section": "interactive_music",
+        }
+
+        if not ClassDB.class_exists("AudioStreamInteractive"):
+                _log(
+                        "AudioStreamInteractive class is unavailable. Ensure the interactive_music module is enabled.",
+                        function_name,
+                        context,
+                        true
+                )
+                return _send_error(client_id, "Interactive music module is not available in this project", command_id)
+
+        var resource_path := String(params.get("resource_path", ""))
+        if resource_path.is_empty():
+                _log("Interactive music resource path is required", function_name, context, true)
+                return _send_error(client_id, "Interactive music resource path is required", command_id)
+
+        var normalized_path := _normalize_resource_path(resource_path)
+        context["resource_path"] = normalized_path
+
+        if not ResourceLoader.exists(normalized_path):
+                _log("Interactive music resource was not found", function_name, context, true)
+                return _send_error(client_id, "Interactive music resource not found: %s" % normalized_path, command_id)
+
+        var loaded_resource = ResourceLoader.load(normalized_path)
+        if not (loaded_resource is AudioStreamInteractive):
+                context["loaded_type"] = loaded_resource.get_class() if loaded_resource else "null"
+                _log("Resource is not an AudioStreamInteractive", function_name, context, true)
+                return _send_error(client_id, "Resource is not an AudioStreamInteractive: %s" % normalized_path, command_id)
+
+        var interactive_stream: AudioStreamInteractive = loaded_resource
+        var clip_count := interactive_stream.get_clip_count()
+        var clip_name_map: Dictionary = {}
+        var clip_display_names: Array = []
+
+        for i in clip_count:
+                var clip_name := String(interactive_stream.get_clip_name(i))
+                if clip_name.is_empty():
+                        clip_display_names.append(str(i))
+                else:
+                        clip_display_names.append(clip_name)
+                        clip_name_map[clip_name] = i
+                        var trimmed := clip_name.strip_edges()
+                        if not trimmed.is_empty():
+                                clip_name_map[trimmed] = i
+                                clip_name_map[trimmed.to_lower()] = i
+
+        var clip_any_constant := _get_interactive_clip_any_constant()
+        if clip_any_constant == -1:
+                _log("Interactive music clip constants are unavailable", function_name, context, true)
+                return _send_error(client_id, "Interactive music clip metadata is unavailable", command_id)
+
+        var base_reference = params.get("base_clip")
+        var base_result := _resolve_interactive_clip_reference(
+                base_reference,
+                clip_name_map,
+                clip_count,
+                false,
+                clip_any_constant
+        )
+        if not base_result["ok"]:
+                var base_context := context.duplicate(true)
+                base_context["base_clip"] = base_reference
+                base_context["error_detail"] = base_result.duplicate(true)
+                _log("Invalid base clip reference for dynamic layer", function_name, base_context, true)
+                return _send_error(client_id, base_result.get("error_message", "Invalid base clip reference"), command_id)
+
+        var base_summary := {
+                "index": base_result["index"],
+                "label": base_result.get(
+                        "label",
+                        _interactive_clip_label(base_result["index"], clip_display_names, clip_any_constant)
+                ),
+        }
+        context["base_clip"] = base_summary.duplicate(true)
+
+        var layer_options := params.get("layer_clip", params.get("layer", {}))
+        if typeof(layer_options) != TYPE_DICTIONARY:
+                var layer_type_context := context.duplicate(true)
+                layer_type_context["layer_clip_type"] = typeof(layer_options)
+                _log("Layer clip configuration must be a dictionary", function_name, layer_type_context, true)
+                return _send_error(client_id, "Layer clip configuration must be a dictionary", command_id)
+
+        var layer_dict: Dictionary = (layer_options as Dictionary).duplicate(true)
+        var layer_name := String(layer_dict.get("name", ""))
+        var layer_index := -1
+
+        if layer_dict.has("reference"):
+                var layer_reference := layer_dict["reference"]
+                var layer_result := _resolve_interactive_clip_reference(
+                        layer_reference,
+                        clip_name_map,
+                        clip_count,
+                        false,
+                        clip_any_constant
+                )
+                if not layer_result["ok"]:
+                        var layer_context := context.duplicate(true)
+                        layer_context["layer_reference"] = layer_reference
+                        layer_context["error_detail"] = layer_result.duplicate(true)
+                        _log("Invalid layer clip reference", function_name, layer_context, true)
+                        return _send_error(client_id, layer_result.get("error_message", "Invalid layer clip reference"), command_id)
+                layer_index = layer_result["index"]
+                if layer_name.is_empty():
+                        layer_name = String(layer_result.get("label", ""))
+
+        if layer_index == -1 and not layer_name.is_empty():
+                var normalized_name := layer_name.strip_edges()
+                if clip_name_map.has(normalized_name):
+                        layer_index = int(clip_name_map[normalized_name])
+                elif clip_name_map.has(normalized_name.to_lower()):
+                        layer_index = int(clip_name_map[normalized_name.to_lower()])
+
+        var created_layer := false
+        if layer_index == -1:
+                layer_index = clip_count
+                clip_count += 1
+                interactive_stream.set_clip_count(clip_count)
+                var provisional_label := layer_name.strip_edges()
+                if provisional_label.is_empty():
+                        provisional_label = str(layer_index)
+                clip_display_names.append(provisional_label)
+                created_layer = true
+
+        if layer_index >= clip_display_names.size():
+                clip_display_names.resize(layer_index + 1)
+                clip_display_names[layer_index] = layer_name.is_empty() ? str(layer_index) : layer_name
+
+        if not layer_name.is_empty():
+                interactive_stream.set_clip_name(layer_index, layer_name)
+                clip_display_names[layer_index] = layer_name
+                clip_name_map[layer_name] = layer_index
+                var trimmed_layer := layer_name.strip_edges()
+                if not trimmed_layer.is_empty():
+                        clip_name_map[trimmed_layer] = layer_index
+                        clip_name_map[trimmed_layer.to_lower()] = layer_index
+
+        var layer_label := _interactive_clip_label(layer_index, clip_display_names, clip_any_constant)
+        var layer_summary := {
+                "index": layer_index,
+                "label": layer_label,
+                "was_created": created_layer,
+                "status": created_layer ? "created" : "updated",
+        }
+        if not layer_name.is_empty():
+                layer_summary["name"] = layer_name
+
+        if layer_dict.has("stream_path"):
+                var stream_result := _load_audio_stream_for_interactive_clip(layer_dict["stream_path"], normalized_path)
+                if not stream_result["ok"]:
+                        var stream_context := context.duplicate(true)
+                        stream_context["layer_index"] = layer_index
+                        stream_context["stream_error"] = stream_result.duplicate(true)
+                        _log("Failed to load audio stream for dynamic layer", function_name, stream_context, true)
+                        return _send_error(client_id, stream_result.get("error_message", "Failed to load audio stream"), command_id)
+                interactive_stream.set_clip_stream(layer_index, stream_result["stream"])
+                layer_summary["stream_path"] = stream_result.get("path", "")
+                layer_summary["stream_cleared"] = stream_result.get("cleared", false)
+
+        context["layer_clip"] = layer_summary.duplicate(true)
+
+        var entry_transition_param = params.get("entry_transition", {})
+        if typeof(entry_transition_param) != TYPE_DICTIONARY and typeof(entry_transition_param) != TYPE_NIL:
+                var entry_type_context := context.duplicate(true)
+                entry_type_context["entry_transition_type"] = typeof(entry_transition_param)
+                _log("Entry transition configuration must be a dictionary", function_name, entry_type_context, true)
+                return _send_error(client_id, "Entry transition configuration must be a dictionary", command_id)
+        var entry_config: Dictionary = typeof(entry_transition_param) == TYPE_DICTIONARY ? (entry_transition_param as Dictionary) : {}
+
+        var exit_transition_param = params.get("exit_transition", {})
+        if typeof(exit_transition_param) != TYPE_DICTIONARY and typeof(exit_transition_param) != TYPE_NIL:
+                var exit_type_context := context.duplicate(true)
+                exit_type_context["exit_transition_type"] = typeof(exit_transition_param)
+                _log("Exit transition configuration must be a dictionary", function_name, exit_type_context, true)
+                return _send_error(client_id, "Exit transition configuration must be a dictionary", command_id)
+        var exit_config: Dictionary = typeof(exit_transition_param) == TYPE_DICTIONARY ? (exit_transition_param as Dictionary) : {}
+
+        context["entry_transition"] = entry_config.duplicate(true)
+        context["exit_transition"] = exit_config.duplicate(true)
+
+        var transition_from_maps := _get_interactive_transition_from_time_maps()
+        var transition_to_maps := _get_interactive_transition_to_time_maps()
+        var fade_mode_maps := _get_interactive_fade_mode_maps()
+
+        var entry_from_value = entry_config.get("from_time", "next_bar")
+        var entry_from := _parse_interactive_enum_value(entry_from_value, transition_from_maps, "from_time")
+        if not entry_from["ok"]:
+                var entry_from_context := context.duplicate(true)
+                entry_from_context["entry_from_time"] = entry_from_value
+                entry_from_context["error_detail"] = entry_from.duplicate(true)
+                _log("Invalid entry transition from_time", function_name, entry_from_context, true)
+                return _send_error(client_id, entry_from.get("error_message", "Invalid entry transition from_time"), command_id)
+
+        var entry_to_value = entry_config.get("to_time", "same_position")
+        var entry_to := _parse_interactive_enum_value(entry_to_value, transition_to_maps, "to_time")
+        if not entry_to["ok"]:
+                var entry_to_context := context.duplicate(true)
+                entry_to_context["entry_to_time"] = entry_to_value
+                entry_to_context["error_detail"] = entry_to.duplicate(true)
+                _log("Invalid entry transition to_time", function_name, entry_to_context, true)
+                return _send_error(client_id, entry_to.get("error_message", "Invalid entry transition to_time"), command_id)
+
+        var entry_fade_value = entry_config.get("fade_mode", "cross")
+        var entry_fade := _parse_interactive_enum_value(entry_fade_value, fade_mode_maps, "fade_mode")
+        if not entry_fade["ok"]:
+                var entry_fade_context := context.duplicate(true)
+                entry_fade_context["entry_fade_mode"] = entry_fade_value
+                entry_fade_context["error_detail"] = entry_fade.duplicate(true)
+                _log("Invalid entry transition fade_mode", function_name, entry_fade_context, true)
+                return _send_error(client_id, entry_fade.get("error_message", "Invalid entry transition fade_mode"), command_id)
+
+        var entry_beats := float(entry_config.get("fade_beats", 4.0))
+        var entry_use_filler := bool(entry_config.get("use_filler_clip", false))
+        var entry_hold_previous := bool(entry_config.get("hold_previous", false))
+        var entry_filler_index := clip_any_constant
+        var entry_filler_label := ""
+        if entry_use_filler:
+                if not entry_config.has("filler_clip"):
+                        var entry_missing_context := context.duplicate(true)
+                        entry_missing_context["entry_transition"] = entry_config.duplicate(true)
+                        _log("Entry transition filler clip is required when use_filler_clip is true", function_name, entry_missing_context, true)
+                        return _send_error(client_id, "Entry transition requires a filler_clip when use_filler_clip is true", command_id)
+                var entry_filler_result := _resolve_interactive_clip_reference(
+                        entry_config["filler_clip"],
+                        clip_name_map,
+                        clip_count,
+                        false,
+                        clip_any_constant
+                )
+                if not entry_filler_result["ok"]:
+                        var entry_filler_context := context.duplicate(true)
+                        entry_filler_context["entry_filler_clip"] = entry_config["filler_clip"]
+                        entry_filler_context["error_detail"] = entry_filler_result.duplicate(true)
+                        _log("Invalid entry transition filler clip", function_name, entry_filler_context, true)
+                        return _send_error(client_id, entry_filler_result.get("error_message", "Invalid entry filler clip"), command_id)
+                entry_filler_index = entry_filler_result["index"]
+                entry_filler_label = entry_filler_result.get(
+                        "label",
+                        _interactive_clip_label(entry_filler_index, clip_display_names, clip_any_constant)
+                )
+
+        if interactive_stream.has_transition(base_result["index"], layer_index):
+                interactive_stream.erase_transition(base_result["index"], layer_index)
+        interactive_stream.add_transition(
+                base_result["index"],
+                layer_index,
+                entry_from["value"],
+                entry_to["value"],
+                entry_fade["value"],
+                entry_beats,
+                entry_use_filler,
+                entry_filler_index,
+                entry_hold_previous
+        )
+
+        var exit_from_value = exit_config.get("from_time", "immediate")
+        var exit_from := _parse_interactive_enum_value(exit_from_value, transition_from_maps, "from_time")
+        if not exit_from["ok"]:
+                var exit_from_context := context.duplicate(true)
+                exit_from_context["exit_from_time"] = exit_from_value
+                exit_from_context["error_detail"] = exit_from.duplicate(true)
+                _log("Invalid exit transition from_time", function_name, exit_from_context, true)
+                return _send_error(client_id, exit_from.get("error_message", "Invalid exit transition from_time"), command_id)
+
+        var exit_to_value = exit_config.get("to_time", "same_position")
+        var exit_to := _parse_interactive_enum_value(exit_to_value, transition_to_maps, "to_time")
+        if not exit_to["ok"]:
+                var exit_to_context := context.duplicate(true)
+                exit_to_context["exit_to_time"] = exit_to_value
+                exit_to_context["error_detail"] = exit_to.duplicate(true)
+                _log("Invalid exit transition to_time", function_name, exit_to_context, true)
+                return _send_error(client_id, exit_to.get("error_message", "Invalid exit transition to_time"), command_id)
+
+        var exit_fade_value = exit_config.get("fade_mode", "cross")
+        var exit_fade := _parse_interactive_enum_value(exit_fade_value, fade_mode_maps, "fade_mode")
+        if not exit_fade["ok"]:
+                var exit_fade_context := context.duplicate(true)
+                exit_fade_context["exit_fade_mode"] = exit_fade_value
+                exit_fade_context["error_detail"] = exit_fade.duplicate(true)
+                _log("Invalid exit transition fade_mode", function_name, exit_fade_context, true)
+                return _send_error(client_id, exit_fade.get("error_message", "Invalid exit transition fade_mode"), command_id)
+
+        var exit_beats := float(exit_config.get("fade_beats", 2.0))
+        var exit_use_filler := bool(exit_config.get("use_filler_clip", false))
+        var exit_hold_previous := bool(exit_config.get("hold_previous", false))
+        var exit_filler_index := clip_any_constant
+        var exit_filler_label := ""
+        if exit_use_filler:
+                if not exit_config.has("filler_clip"):
+                        var exit_missing_context := context.duplicate(true)
+                        exit_missing_context["exit_transition"] = exit_config.duplicate(true)
+                        _log("Exit transition filler clip is required when use_filler_clip is true", function_name, exit_missing_context, true)
+                        return _send_error(client_id, "Exit transition requires a filler_clip when use_filler_clip is true", command_id)
+                var exit_filler_result := _resolve_interactive_clip_reference(
+                        exit_config["filler_clip"],
+                        clip_name_map,
+                        clip_count,
+                        false,
+                        clip_any_constant
+                )
+                if not exit_filler_result["ok"]:
+                        var exit_filler_context := context.duplicate(true)
+                        exit_filler_context["exit_filler_clip"] = exit_config["filler_clip"]
+                        exit_filler_context["error_detail"] = exit_filler_result.duplicate(true)
+                        _log("Invalid exit transition filler clip", function_name, exit_filler_context, true)
+                        return _send_error(client_id, exit_filler_result.get("error_message", "Invalid exit filler clip"), command_id)
+                exit_filler_index = exit_filler_result["index"]
+                exit_filler_label = exit_filler_result.get(
+                        "label",
+                        _interactive_clip_label(exit_filler_index, clip_display_names, clip_any_constant)
+                )
+
+        if interactive_stream.has_transition(layer_index, base_result["index"]):
+                interactive_stream.erase_transition(layer_index, base_result["index"])
+        interactive_stream.add_transition(
+                layer_index,
+                base_result["index"],
+                exit_from["value"],
+                exit_to["value"],
+                exit_fade["value"],
+                exit_beats,
+                exit_use_filler,
+                exit_filler_index,
+                exit_hold_previous
+        )
+
+        if bool(params.get("make_initial", false)):
+                interactive_stream.set_initial_clip(layer_index)
+                context["initial_clip"] = layer_label
+                layer_summary["made_initial"] = true
+
+        var save_status := ResourceSaver.save(interactive_stream, normalized_path)
+        if save_status != OK:
+                context["save_error"] = save_status
+                _log("Failed to persist dynamic music layer", function_name, context, true)
+                return _send_error(client_id, "Failed to save interactive music resource: %s" % normalized_path, command_id)
+
+        var entry_summary := {
+                "from": base_summary["label"],
+                "to": layer_label,
+                "from_time": entry_from.get("label", entry_from_value),
+                "to_time": entry_to.get("label", entry_to_value),
+                "fade_mode": entry_fade.get("label", entry_fade_value),
+                "fade_beats": entry_beats,
+                "use_filler_clip": entry_use_filler,
+                "hold_previous": entry_hold_previous,
+        }
+        if entry_use_filler:
+                entry_summary["filler_clip"] = entry_filler_label
+
+        var exit_summary := {
+                "from": layer_label,
+                "to": base_summary["label"],
+                "from_time": exit_from.get("label", exit_from_value),
+                "to_time": exit_to.get("label", exit_to_value),
+                "fade_mode": exit_fade.get("label", exit_fade_value),
+                "fade_beats": exit_beats,
+                "use_filler_clip": exit_use_filler,
+                "hold_previous": exit_hold_previous,
+        }
+        if exit_use_filler:
+                exit_summary["filler_clip"] = exit_filler_label
+
+        var response := {
+                "resource_path": normalized_path,
+                "base_clip": base_summary,
+                "layer_clip": layer_summary,
+                "transitions": [entry_summary, exit_summary],
+        }
+        if layer_summary.get("made_initial", false):
+                response["initial_clip"] = layer_label
+
+        context["layer_clip"] = layer_summary.duplicate(true)
+        context["transitions"] = response["transitions"].duplicate(true)
+        context["make_initial"] = bool(params.get("make_initial", false))
+
+        _log("Generated dynamic music layer", function_name, context)
         _send_success(client_id, response, command_id)
 func _serialize_audio_player_changes(changes: Array) -> Array:
         var serialized: Array = []

@@ -200,6 +200,68 @@ var authorInteractiveMusicGraphSchema = z.object({
         .optional()
         .describe('Remove transitions not present in the current request'),
 });
+var dynamicLayerClipSchema = z
+    .object({
+    name: z.string().optional(),
+    reference: clipReferenceSchema.optional(),
+    stream_path: streamDescriptorSchema.optional(),
+})
+    .describe('Dynamic music layer clip descriptor (name, reference, or stream override)');
+var dynamicLayerTransitionSchema = z
+    .object({
+    from_time: z.enum(['immediate', 'next_beat', 'next_bar', 'end']).optional(),
+    to_time: z.enum(['same_position', 'start']).optional(),
+    fade_mode: z
+        .enum(['disabled', 'fade_in', 'in', 'fade_out', 'out', 'cross', 'crossfade', 'automatic', 'auto'])
+        .optional(),
+    fade_beats: z.number().optional(),
+    use_filler_clip: z.boolean().optional(),
+    filler_clip: clipReferenceSchema.optional(),
+    hold_previous: z.boolean().optional(),
+})
+    .superRefine(function (value, ctx) {
+    if (value.use_filler_clip && value.filler_clip === undefined) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'filler_clip is required when use_filler_clip is true',
+            path: ['filler_clip'],
+        });
+    }
+})
+    .describe('Entry/exit transition settings for dynamic music layers');
+var generateDynamicMusicLayerSchema = z
+    .object({
+    resource_path: z
+        .string()
+        .min(1)
+        .describe('AudioStreamInteractive resource path to update (e.g. "res://audio/music.interactive")'),
+    base_clip: clipReferenceSchema.describe('Base clip that the dynamic layer extends'),
+    layer_clip: dynamicLayerClipSchema
+        .optional()
+        .describe('Layer clip configuration; omit to reuse defaults when creating a new layer'),
+    layer: dynamicLayerClipSchema
+        .optional()
+        .describe('Alias for layer_clip maintained for backwards compatibility'),
+    entry_transition: dynamicLayerTransitionSchema
+        .optional()
+        .describe('Entry transition overrides from the base clip into the new layer'),
+    exit_transition: dynamicLayerTransitionSchema
+        .optional()
+        .describe('Exit transition overrides when returning to the base clip'),
+    make_initial: z
+        .boolean()
+        .optional()
+        .describe('Set the generated layer as the interactive stream initial clip'),
+})
+    .superRefine(function (value, ctx) {
+    if (value.layer_clip && value.layer) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Provide either layer_clip or layer, not both',
+            path: ['layer'],
+        });
+    }
+});
 var formatAudioPlayerResponse = function (result) {
     var _a, _b, _c;
     var nodePath = (_a = result.node_path) !== null && _a !== void 0 ? _a : 'unknown node';
@@ -293,6 +355,64 @@ var formatInteractiveMusicResponse = function (result) {
         sections.push(transitionLines.join('\n'));
     }
     return sections.join('\n');
+};
+var formatDynamicLayerResponse = function (result) {
+    var _a, _b, _c, _d, _e, _f;
+    var resourcePath = (_a = result.resource_path) !== null && _a !== void 0 ? _a : 'res://resource.interactive';
+    var baseClip = (_b = result.base_clip) !== null && _b !== void 0 ? _b : {};
+    var layerClip = (_c = result.layer_clip) !== null && _c !== void 0 ? _c : {};
+    var transitions = Array.isArray(result.transitions) ? result.transitions : [];
+    var baseLabel = (_d = baseClip.label) !== null && _d !== void 0 ? _d : (typeof baseClip.index === 'number' ? "clip ".concat(baseClip.index) : 'base');
+    var baseIndex = typeof baseClip.index === 'number' ? baseClip.index : '?';
+    var layerLabel = (_e = layerClip.label) !== null && _e !== void 0 ? _e : (typeof layerClip.index === 'number' ? "clip ".concat(layerClip.index) : 'layer');
+    var layerIndex = typeof layerClip.index === 'number' ? layerClip.index : '?';
+    var layerStatus = (_f = layerClip.status) !== null && _f !== void 0 ? _f : (layerClip.was_created ? 'created' : 'updated');
+    var header = "Linked ".concat(layerLabel, " \u2194 ").concat(baseLabel, " in ").concat(resourcePath);
+    var baseLine = "Base clip: ".concat(baseLabel, " (index ").concat(baseIndex, ")");
+    var layerParts = ["Layer ".concat(layerLabel, " (index ").concat(layerIndex, ") [").concat(layerStatus, "]")];
+    if (typeof layerClip.name === 'string' && layerClip.name.length > 0) {
+        layerParts.push("name \"".concat(layerClip.name, "\""));
+    }
+    if (layerClip.made_initial) {
+        layerParts.push('set as initial');
+    }
+    if (layerClip.stream_cleared) {
+        layerParts.push('stream cleared');
+    }
+    else if (typeof layerClip.stream_path === 'string' && layerClip.stream_path.length > 0) {
+        layerParts.push("stream ".concat(layerClip.stream_path));
+    }
+    var transitionLines = transitions.map(function (transition) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+        var fromLabel = (_c = (_b = (_a = transition.from) !== null && _a !== void 0 ? _a : transition.from_label) !== null && _b !== void 0 ? _b : transition.from_index) !== null && _c !== void 0 ? _c : '?';
+        var toLabel = (_f = (_e = (_d = transition.to) !== null && _d !== void 0 ? _d : transition.to_label) !== null && _e !== void 0 ? _e : transition.to_index) !== null && _f !== void 0 ? _f : '?';
+        var fromTime = (_g = transition.from_time) !== null && _g !== void 0 ? _g : 'next_bar';
+        var toTime = (_h = transition.to_time) !== null && _h !== void 0 ? _h : 'same_position';
+        var fadeMode = (_j = transition.fade_mode) !== null && _j !== void 0 ? _j : 'cross';
+        var fadeBeats = typeof transition.fade_beats === 'number' ? "".concat(transition.fade_beats, " beats") : '';
+        var filler = transition.use_filler_clip ? (_k = transition.filler_clip) !== null && _k !== void 0 ? _k : 'filler' : '';
+        var hold = transition.hold_previous ? 'hold previous' : '';
+        var parts = ["".concat(fromTime, " \u2192 ").concat(toTime), "fade ".concat(fadeMode)];
+        if (fadeBeats) {
+            parts.push(fadeBeats);
+        }
+        if (filler) {
+            parts.push("filler ".concat(filler));
+        }
+        if (hold) {
+            parts.push(hold);
+        }
+        return "- ".concat(fromLabel, " -> ").concat(toLabel, ": ").concat(parts.join(', '));
+    });
+    var lines = [header, baseLine, layerParts.join(' · ')];
+    if (typeof result.initial_clip === 'string' && result.initial_clip.length > 0) {
+        lines.push("Initial clip set to ".concat(result.initial_clip));
+    }
+    if (transitionLines.length > 0) {
+        lines.push('Transitions:');
+        lines.push(transitionLines.join('\n'));
+    }
+    return lines.join('\n');
 };
 export var audioTools = [
     {
@@ -425,6 +545,92 @@ export var audioTools = [
                     case 3:
                         error_2 = _a.sent();
                         throw new Error("Failed to author interactive music graph: ".concat(error_2.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'generate_dynamic_music_layer',
+        description: 'Add or update a clip layer on an AudioStreamInteractive resource with symmetric entry/exit transitions and optional stream overrides.',
+        parameters: generateDynamicMusicLayerSchema,
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, payload, layerOptions, layerPayload, buildTransitionPayload, entryPayload, exitPayload, result, error_3;
+            var _a;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {
+                            resource_path: args.resource_path,
+                            base_clip: args.base_clip,
+                        };
+                        layerOptions = (_a = args.layer_clip) !== null && _a !== void 0 ? _a : args.layer;
+                        if (layerOptions) {
+                            layerPayload = {};
+                            if (layerOptions.name !== undefined) {
+                                layerPayload.name = layerOptions.name;
+                            }
+                            if (layerOptions.reference !== undefined) {
+                                layerPayload.reference = layerOptions.reference;
+                            }
+                            if (layerOptions.stream_path !== undefined) {
+                                layerPayload.stream_path = layerOptions.stream_path;
+                            }
+                            payload.layer_clip = layerPayload;
+                        }
+                        buildTransitionPayload = function (transition) {
+                            if (!transition) {
+                                return undefined;
+                            }
+                            var transitionPayload = {};
+                            if (transition.from_time !== undefined) {
+                                transitionPayload.from_time = transition.from_time;
+                            }
+                            if (transition.to_time !== undefined) {
+                                transitionPayload.to_time = transition.to_time;
+                            }
+                            if (transition.fade_mode !== undefined) {
+                                transitionPayload.fade_mode = transition.fade_mode;
+                            }
+                            if (transition.fade_beats !== undefined) {
+                                transitionPayload.fade_beats = transition.fade_beats;
+                            }
+                            if (transition.use_filler_clip !== undefined) {
+                                transitionPayload.use_filler_clip = transition.use_filler_clip;
+                            }
+                            if (transition.filler_clip !== undefined) {
+                                transitionPayload.filler_clip = transition.filler_clip;
+                            }
+                            if (transition.hold_previous !== undefined) {
+                                transitionPayload.hold_previous = transition.hold_previous;
+                            }
+                            return transitionPayload;
+                        };
+                        entryPayload = buildTransitionPayload(args.entry_transition);
+                        if (entryPayload) {
+                            payload.entry_transition = entryPayload;
+                        }
+                        exitPayload = buildTransitionPayload(args.exit_transition);
+                        if (exitPayload) {
+                            payload.exit_transition = exitPayload;
+                        }
+                        if (args.make_initial !== undefined) {
+                            payload.make_initial = args.make_initial;
+                        }
+                        _b.label = 1;
+                    case 1:
+                        _b.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('generate_dynamic_music_layer', payload)];
+                    case 2:
+                        result = _b.sent();
+                        return [2 /*return*/, formatDynamicLayerResponse(result)];
+                    case 3:
+                        error_3 = _b.sent();
+                        throw new Error("Failed to generate dynamic music layer: ".concat(error_3.message));
                     case 4: return [2 /*return*/];
                 }
             });
