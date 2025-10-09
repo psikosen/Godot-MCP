@@ -159,6 +159,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `clear_gridmap_cells` - Remove items from GridMap cells while preserving undo history
 - `author_audio_stream_player` - Create or configure AudioStreamPlayer nodes with stream assignments and playback settings
 - `author_interactive_music_graph` - Build or update AudioStreamInteractive resources with layered clips and transition logic
+- `generate_dynamic_music_layer` - Layer a new clip onto an interactive music resource with configurable entry/exit transitions
 
 #### Navigation Commands
 - `list_navigation_maps` - Summarize NavigationRegion2D/3D nodes and their resources
@@ -195,7 +196,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - **Animation & VFX**: `list_animation_players`, `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
 - **Physics & Navigation**: `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, `synchronize_navmesh_with_tilemap`.
 - **UI & Interaction**: `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, `validate_accessibility`.
-- **Audio & Media**: `configure_audio_bus`, `generate_dynamic_music_layer`, `analyze_waveform`, `batch_import_audio_assets`.
+- **Audio & Media**: `configure_audio_bus`, `analyze_waveform`, `batch_import_audio_assets`.
 - **Rendering & Assets**: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`.
 - **Project & Editor Automation**: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
 
