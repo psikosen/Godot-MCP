@@ -114,10 +114,10 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `godot://project/index` - Cached project file and directory index snapshot
 - `godot://audio/buses` - Project audio bus layout, routing metadata, and effect stacks
 - `godot://physics/world` - Live snapshot of 2D/3D physics spaces with per-space gravity, body/area/joint inventories, and configuration metadata.
+- `godot://animation/state-machines` - Inspect AnimationTree graphs, blend spaces, and transitions for the active scene.
+- `godot://animation/tracks` - Read AnimationPlayer timelines, tracks, and keyframes with keyframe metadata.
 
 #### Upcoming Resource Endpoints (sourced from godotengine/godot)
-- `godot://animation/state-machines` - Inspect AnimationTree graphs, blend spaces, and transitions for the active scene.
-- `godot://animation/tracks` - Read and edit AnimationPlayer timelines, tracks, and keyframes.
 - `godot://ui/theme` - Surface the currently applied UI Theme resources, styles, and fonts for audit.
 
 ### Command Categories:
@@ -161,6 +161,11 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `author_interactive_music_graph` - Build or update AudioStreamInteractive resources with layered clips and transition logic
 - `generate_dynamic_music_layer` - Layer a new clip onto an interactive music resource with configurable entry/exit transitions
 
+#### Animation Commands
+- `list_animation_players` - Enumerate AnimationPlayer nodes, active playback settings, and contained animations.
+- `describe_animation_tracks` - Inspect AnimationPlayer track configurations with optional keyframe timing and values.
+- `describe_animation_state_machines` - Summarize AnimationTree state machines, nested graphs, and transition metadata.
+
 #### Navigation Commands
 - `list_navigation_maps` - Summarize NavigationRegion2D/3D nodes and their resources
 - `list_navigation_agents` - Inspect NavigationAgent2D/3D avoidance and target settings
@@ -193,7 +198,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
 
 #### Planned Command Expansions (roadmap)
-- **Animation & VFX**: `list_animation_players`, `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
+- **Animation & VFX**: `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
 - **Physics & Navigation**: `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, `synchronize_navmesh_with_tilemap`.
 - **UI & Interaction**: `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, `validate_accessibility`.
 - **Audio & Media**: `configure_audio_bus`, `analyze_waveform`, `batch_import_audio_assets`.

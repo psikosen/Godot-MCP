@@ -21,7 +21,7 @@
 - [x] Extend scene commands to support physics body, area, and joint configuration in line with `godot_physics_2d` and `godot_physics_3d` modules.
 - [x] Provide CSG and GridMap manipulation helpers covering the `csg` and `gridmap` modules for rapid level prototyping.
 - [x] Integrate GLTF and FBX import automation to mirror workflows supported by the `gltf` and `fbx` modules.
-- [ ] Surface audio bus, interactive music, and audio stream configuration commands to match `interactive_music`, `ogg`, and `vorbis` module capabilities.
+- [x] Surface audio bus, interactive music, and audio stream configuration commands to match `interactive_music`, `ogg`, and `vorbis` module capabilities.
   - [x] Deliver `configure_audio_bus` editing support via MCP project commands and tooling.
   - [x] Expose interactive music graph authoring helpers for layered playback.
   - [x] Provide audio stream player creation/configuration utilities.
@@ -32,14 +32,15 @@
 
 ## New MCP Capability Roadmap — Derived from Godot upstream modules
 ### High-priority resource endpoints
-- [ ] `godot://animation/state-machines` — surface AnimationTree graphs, state transitions, and blend spaces for inspection.
-- [ ] `godot://animation/tracks` — expose timeline tracks from AnimationPlayer resources for read/write editing.
+- [x] `godot://animation/state-machines` — surface AnimationTree graphs, state transitions, and blend spaces for inspection.
+- [x] `godot://animation/tracks` — expose timeline tracks from AnimationPlayer resources for read/write editing.
 - [x] `godot://physics/world` — provide a structured snapshot of physics bodies, areas, and joints per space.
 - [ ] `godot://ui/theme` — fetch active theme metadata, styles, and font resources for UI audits.
 - [x] `godot://audio/buses` — return audio bus layout, effects stack, and mute/solo state for project mixes.
 
 ### Command expansions — Animation & VFX
-- [ ] `list_animation_players` / `edit_animation` to enumerate and author AnimationPlayer content.
+- [x] `list_animation_players` to enumerate AnimationPlayer content across the edited scene.
+- [ ] `edit_animation` to author AnimationPlayer content.
 - [ ] `configure_animation_tree` to adjust AnimationTree nodes, blend amounts, and parameters.
 - [ ] `bake_skeleton_pose` to capture Skeleton3D poses into an animation resource.
 - [ ] `generate_tween_sequence` for programmatic Tween node timelines.
@@ -62,7 +63,7 @@
 ### Command expansions — Audio & Media
 - [x] `list_audio_buses` to enumerate audio routing, volume, and effect state for review.
 - [x] `configure_audio_bus` to insert/remove effects and adjust sends on the AudioServer.
-- [ ] `author_audio_stream_player` to attach AudioStream resources with autoplay, 3D attenuation, and bus routing.
+- [x] `author_audio_stream_player` to attach AudioStream resources with autoplay, 3D attenuation, and bus routing.
 - [x] `generate_dynamic_music_layer` to build InteractiveMusic transition tables.
 - [ ] `analyze_waveform` to produce basic waveform/loudness summaries for preview.
 - [ ] `batch_import_audio_assets` to drive import presets for WAV/OGG via the editor importer.
