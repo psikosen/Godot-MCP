@@ -8,6 +8,7 @@ import { projectTools } from './tools/project_tools.js';
 import { permissionTools } from './tools/permission_tools.js';
 import { navigationTools } from './tools/navigation_tools.js';
 import { audioTools } from './tools/audio_tools.js';
+import { animationTools } from './tools/animation_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
@@ -30,6 +31,10 @@ import {
 } from './resources/project_resources.js';
 import { audioBusResource } from './resources/audio_resources.js';
 import { physicsWorldResource } from './resources/physics_resources.js';
+import {
+  animationStateMachinesResource,
+  animationTracksResource,
+} from './resources/animation_resources.js';
 import {
   editorStateResource,
   selectedNodeResource,
@@ -69,6 +74,7 @@ async function main() {
     ...permissionTools,
     ...navigationTools,
     ...audioTools,
+    ...animationTools,
   ].forEach(tool => {
     registerTool(tool);
   });
@@ -83,6 +89,8 @@ async function main() {
   server.addResource(projectIndexResource);
   server.addResource(audioBusResource);
   server.addResource(physicsWorldResource);
+  server.addResource(animationStateMachinesResource);
+  server.addResource(animationTracksResource);
   server.addResource(editorStateResource);
   server.addResource(selectedNodeResource);
   server.addResource(currentScriptResource);

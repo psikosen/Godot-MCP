@@ -531,6 +531,47 @@ Add a new clip layer to an existing `AudioStreamInteractive` resource (or update
 Add a "Drums" layer to res://audio/dynamic_theme.interactive using clip "Loop" as the base, crossfading on the next bar when entering and fading out over 2 beats when exiting.
 ```
 
+## Animation Commands
+
+### list_animation_players
+Enumerate AnimationPlayer nodes in the active scene along with playback metadata and contained animations.
+
+**Parameters:**
+- `node_path` (optional) - Limit the search to a specific node and its descendants.
+- `include_tracks` (optional, default `false`) - Include per-animation track metadata.
+- `include_keys` (optional, default `false`) - Include keyframe timing, values, and transitions when `include_tracks` is enabled.
+
+**Example:**
+```
+List every AnimationPlayer in the main scene and include their animation names.
+```
+
+### describe_animation_tracks
+Inspect AnimationPlayer track configuration with optional keyframe dumps to audit interpolation and value changes.
+
+**Parameters:**
+- `node_path` (optional) - Target a single AnimationPlayer. When omitted the command inspects all players.
+- `include_keys` (optional, default `true`) - Include arrays of keyframe timing, value, and transition metadata per track.
+
+**Example:**
+```
+Show detailed track and keyframe data for the AnimationPlayer at "/root/Characters/Player/AnimationPlayer".
+```
+
+### describe_animation_state_machines
+Summarise AnimationTree state machine graphs, nested machines, and transition properties for review or documentation.
+
+**Parameters:**
+- `node_path` (optional) - Focus on a specific AnimationTree node.
+- `include_nested` (optional, default `true`) - Recursively include child state machines encountered within states.
+- `include_graph` (optional, default `true`) - Include editor graph metadata such as node positions.
+- `include_transitions` (optional, default `true`) - Include transition arrays with switch/advance metadata.
+
+**Example:**
+```
+Describe the AnimationTree state machine graph for the Player AnimationTree so I can review transitions and nested states.
+```
+
 ## MCP Resources
 
 ### godot://physics/world

@@ -249,6 +249,7 @@ To extend MCP coverage beyond the current node, script, and navigation flows, we
 - **Commands**: add `list_animation_players`, `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, and `sync_particles_with_animation`.
 - **Dependencies**: AnimationServer, AnimationTree, Skeleton3D APIs.
 - **Notes**: ensure UndoRedo coverage for blend parameter edits and timeline modifications.
+- **Status**: Delivered read-focused coverage via `list_animation_players`, `describe_animation_tracks`, and `describe_animation_state_machines` alongside the `godot://animation/state-machines` and `godot://animation/tracks` resources.
 
 ### 2. Physics, Navigation, & Profiling
 - **Resources**: provide `godot://physics/world` snapshots and extend navigation data with TileMap rebake metadata.
