@@ -5,6 +5,7 @@
 - [x] Expose the snapshot via a new `godot://physics/world` MCP resource and ensure the server registers it.
 - [x] Document the resource, update roadmap tracking, and keep existing task records accurate.
 - [x] Run full lint, test, and build suites for the MCP server before shipping.
+- [x] Add automated tests covering every MCP tool and resource endpoint to verify command wiring.
 
 ## Completed
 - [x] Research additional Godot editor features that expand MCP automation options
@@ -35,7 +36,7 @@
 - [x] `godot://animation/state-machines` — surface AnimationTree graphs, state transitions, and blend spaces for inspection.
 - [x] `godot://animation/tracks` — expose timeline tracks from AnimationPlayer resources for read/write editing.
 - [x] `godot://physics/world` — provide a structured snapshot of physics bodies, areas, and joints per space.
-- [ ] `godot://ui/theme` — fetch active theme metadata, styles, and font resources for UI audits.
+- [x] `godot://ui/theme` — fetch active theme metadata, styles, and font resources for UI audits.
 - [x] `godot://audio/buses` — return audio bus layout, effects stack, and mute/solo state for project mixes.
 
 ### Command expansions — Animation & VFX
