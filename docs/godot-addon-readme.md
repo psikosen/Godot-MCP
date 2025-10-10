@@ -162,6 +162,39 @@ The addon supports the following commands:
   }
   ```
 
+- **configure_material_resource**: Create or update a Material resource with shader code, lightmapper textures, and meshoptimizer metadata
+  ```json
+  {
+    "type": "configure_material_resource",
+    "params": {
+      "resource_path": "res://materials/hero.tres",
+      "material_type": "ShaderMaterial",
+      "glslang_shader": {
+        "code": "shader_type spatial;\nrender_mode blend_mix;\n...",
+        "metadata": {
+          "compiler": "glslang",
+          "targets": ["forward_plus", "mobile"]
+        }
+      },
+      "lightmapper_rd": {
+        "texture_slots": {
+          "shader_parameter/lightmap_texture": {
+            "resource_path": "res://lightmaps/hero_lightmap.exr"
+          }
+        }
+      },
+      "meshoptimizer": {
+        "lod_meshes": [
+          {
+            "mesh_path": "res://meshes/hero_lod1.mesh",
+            "screen_ratio": 0.5
+          }
+        ]
+      }
+    }
+  }
+  ```
+
 ### Scene Commands
 
 - **save_scene**: Save the current scene

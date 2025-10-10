@@ -122,9 +122,12 @@ return true
                 "configure_csg_shape":
                         _configure_csg_shape(client_id, params, command_id)
                         return true
-"paint_gridmap_cells":
-_paint_gridmap_cells(client_id, params, command_id)
-return true
+                "configure_material_resource":
+                        _configure_material_resource(client_id, params, command_id)
+                        return true
+                "paint_gridmap_cells":
+                        _paint_gridmap_cells(client_id, params, command_id)
+                        return true
 "clear_gridmap_cells":
 _clear_gridmap_cells(client_id, params, command_id)
 return true
@@ -2744,6 +2747,102 @@ func _normalize_resource_path(path: String) -> String:
                 return path
         return "res://" + path
 
+func _material_has_property(material: Object, property_name: String) -> bool:
+        if material == null:
+                return false
+        var property_list: Array = material.get_property_list()
+        for property_info in property_list:
+                if typeof(property_info) != TYPE_DICTIONARY:
+                        continue
+                if String(property_info.get("name", "")) == property_name:
+                        return true
+        return false
+
+func _resolve_material_input_value(raw_value) -> Dictionary:
+        var result := {"ok": true, "value": raw_value}
+        var value_type := typeof(raw_value)
+        match value_type:
+                TYPE_DICTIONARY:
+                        var dict_value: Dictionary = raw_value
+                        if dict_value.has("resource_path") or dict_value.has("path"):
+                                var resource_path := String(dict_value.get("resource_path", dict_value.get("path", "")))
+                                resource_path = _normalize_resource_path(resource_path)
+                                if resource_path.is_empty():
+                                        return {"ok": false, "error_message": "Resource path cannot be empty"}
+                                var resource := ResourceLoader.load(resource_path)
+                                if resource == null:
+                                        return {"ok": false, "error_message": "Resource not found: %s" % resource_path}
+                                var expected_class := String(dict_value.get("expected_class", "")).strip_edges()
+                                if not expected_class.is_empty() and not resource.is_class(expected_class):
+                                        return {
+                                                "ok": false,
+                                                "error_message": "Resource at %s is not of type %s" % [resource_path, expected_class],
+                                        }
+                                result["value"] = resource
+                                result["resource_path"] = resource_path
+                                result["resource_class"] = resource.get_class()
+                                return result
+                        if dict_value.has("value") and dict_value.size() == 1:
+                                return _resolve_material_input_value(dict_value["value"])
+                        result["value"] = dict_value.duplicate(true)
+                        return result
+                TYPE_ARRAY:
+                        result["value"] = raw_value.duplicate(true)
+                        return result
+                TYPE_STRING, TYPE_STRING_NAME:
+                        result["value"] = _parse_property_value(raw_value)
+                        return result
+                TYPE_OBJECT:
+                        result["value"] = raw_value
+                        return result
+                _:
+                        result["value"] = _parse_property_value(raw_value)
+                        return result
+
+func _stringify_variant(value) -> String:
+        var value_type := typeof(value)
+        match value_type:
+                TYPE_NIL:
+                        return "null"
+                TYPE_BOOL:
+                        return value ? "true" : "false"
+                TYPE_DICTIONARY, TYPE_ARRAY:
+                        return JSON.stringify(value)
+                TYPE_OBJECT:
+                        if value == null:
+                                return "null"
+                        if value is Resource:
+                                var resource: Resource = value
+                                if not resource.resource_path.is_empty():
+                                        return "%s(%s)" % [resource.get_class(), resource.resource_path]
+                                return resource.get_class()
+                        return value.get_class()
+                _:
+                        return str(value)
+
+func _sanitize_metadata_dictionary(data) -> Variant:
+        var data_type := typeof(data)
+        match data_type:
+                TYPE_DICTIONARY:
+                        var sanitized := {}
+                        for key in data.keys():
+                                sanitized[key] = _sanitize_metadata_dictionary(data[key])
+                        return sanitized
+                TYPE_ARRAY:
+                        var sanitized_array: Array = []
+                        for element in data:
+                                sanitized_array.append(_sanitize_metadata_dictionary(element))
+                        return sanitized_array
+                TYPE_OBJECT:
+                        if data is Resource:
+                                var resource: Resource = data
+                                if not resource.resource_path.is_empty():
+                                        return resource.resource_path
+                                return resource.get_class()
+                        return data.get_class()
+                _:
+                        return data
+
 func _is_supported_audio_stream_player(node: Node) -> bool:
         if node is AudioStreamPlayer:
                 return true
@@ -2978,6 +3077,563 @@ func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String
                 "changes": serialized_changes,
                 "transaction_id": transaction.transaction_id,
                 "status": status,
+        }, command_id)
+
+func _configure_material_resource(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_configure_material_resource"
+        var command_identifier := "configure_material_resource"
+        var materials_section := "%s.materials" % DEFAULT_SYSTEM_SECTION
+        var log_context := {
+                "command": command_identifier,
+                "client_id": client_id,
+                "command_id": command_id,
+                "system_section": materials_section,
+        }
+
+        var resource_path := String(params.get("resource_path", ""))
+        if resource_path.is_empty():
+                _log("Material resource path is required", function_name, log_context, true)
+                return _send_error(client_id, "Material resource path is required", command_id)
+
+        resource_path = _normalize_resource_path(resource_path)
+        if not resource_path.ends_with(".tres") and not resource_path.ends_with(".res"):
+                resource_path += ".tres"
+
+        var directory_path := ""
+        var slash_index := resource_path.rfind("/")
+        if slash_index != -1:
+                directory_path = resource_path.substr(0, slash_index)
+        if not directory_path.is_empty():
+                var make_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(directory_path))
+                if make_error != OK and make_error != ERR_ALREADY_EXISTS:
+                        var dir_payload := log_context.duplicate(true)
+                        dir_payload["resource_path"] = resource_path
+                        dir_payload["directory_path"] = directory_path
+                        dir_payload["error_code"] = make_error
+                        _log("Failed to ensure directory for material resource", function_name, dir_payload, true)
+                        return _send_error(client_id, "Failed to prepare directory for material resource", command_id)
+
+        var existing_resource: Resource = null
+        if ResourceLoader.exists(resource_path):
+                existing_resource = ResourceLoader.load(resource_path)
+                if existing_resource == null:
+                        var load_payload := log_context.duplicate(true)
+                        load_payload["resource_path"] = resource_path
+                        _log("Failed to load existing material resource", function_name, load_payload, true)
+                        return _send_error(client_id, "Failed to load existing material resource", command_id)
+
+        var material_type := String(params.get("material_type", ""))
+        var material: Material = null
+        var created_new := false
+
+        if existing_resource:
+                if not (existing_resource is Material):
+                        var type_payload := log_context.duplicate(true)
+                        type_payload["resource_path"] = resource_path
+                        type_payload["resource_class"] = existing_resource.get_class()
+                        _log("Existing resource is not a Material", function_name, type_payload, true)
+                        return _send_error(client_id, "Existing resource is not a Material", command_id)
+                material = existing_resource
+                material_type = material.get_class()
+        else:
+                if material_type.is_empty():
+                        material_type = "StandardMaterial3D"
+                if not ClassDB.class_exists(material_type):
+                        var type_payload := log_context.duplicate(true)
+                        type_payload["resource_path"] = resource_path
+                        type_payload["requested_type"] = material_type
+                        _log("Requested material type does not exist", function_name, type_payload, true)
+                        return _send_error(client_id, "Material type does not exist: %s" % material_type, command_id)
+                var instance = ClassDB.instantiate(material_type)
+                if instance == null:
+                        var type_payload := log_context.duplicate(true)
+                        type_payload["resource_path"] = resource_path
+                        type_payload["requested_type"] = material_type
+                        _log("Failed to instantiate requested material type", function_name, type_payload, true)
+                        return _send_error(client_id, "Failed to instantiate material type: %s" % material_type, command_id)
+                if not (instance is Material):
+                        var type_payload := log_context.duplicate(true)
+                        type_payload["resource_path"] = resource_path
+                        type_payload["requested_type"] = material_type
+                        _log("Requested class does not inherit from Material", function_name, type_payload, true)
+                        return _send_error(client_id, "Requested class does not inherit from Material", command_id)
+                material = instance
+                created_new = true
+
+        var change_records: Array = []
+        if created_new:
+                change_records.append({
+                        "type": "material_created",
+                        "material_type": material.get_class(),
+                        "new_value": material.get_class(),
+                        "old_value": "",
+                        "new_type": material.get_class(),
+                        "old_type": "",
+                })
+
+        var requested_name = params.get("resource_name", null)
+        if requested_name != null:
+                var resolved_name := String(requested_name)
+                if material.resource_name != resolved_name:
+                        var old_name := material.resource_name
+                        material.resource_name = resolved_name
+                        change_records.append({
+                                "type": "resource_name",
+                                "property": "resource_name",
+                                "input_value": resolved_name,
+                                "new_value": resolved_name,
+                                "old_value": old_name,
+                                "new_type": "String",
+                                "old_type": "String",
+                        })
+
+        var metadata_param = params.get("metadata", null)
+        if metadata_param != null:
+                if typeof(metadata_param) != TYPE_DICTIONARY:
+                        var metadata_payload := log_context.duplicate(true)
+                        metadata_payload["resource_path"] = resource_path
+                        _log("Material metadata must be a dictionary", function_name, metadata_payload, true)
+                        return _send_error(client_id, "Material metadata must be a dictionary", command_id)
+                var metadata_dict: Dictionary = metadata_param
+                for meta_key in metadata_dict.keys():
+                        var meta_value = metadata_dict[meta_key]
+                        var existing_meta := material.has_meta(meta_key) ? material.get_meta(meta_key) : null
+                        if existing_meta == meta_value:
+                                continue
+                        material.set_meta(meta_key, meta_value)
+                        change_records.append({
+                                "type": "metadata",
+                                "property": String(meta_key),
+                                "input_value": _stringify_variant(meta_value),
+                                "new_value": _stringify_variant(meta_value),
+                                "old_value": _stringify_variant(existing_meta),
+                                "new_type": Variant.get_type_name(typeof(meta_value)),
+                                "old_type": Variant.get_type_name(typeof(existing_meta)),
+                        })
+
+        var material_properties_param = params.get("material_properties", null)
+        if material_properties_param != null:
+                if typeof(material_properties_param) != TYPE_DICTIONARY:
+                        var properties_payload := log_context.duplicate(true)
+                        properties_payload["resource_path"] = resource_path
+                        _log("Material properties must be provided as a dictionary", function_name, properties_payload, true)
+                        return _send_error(client_id, "Material properties must be provided as a dictionary", command_id)
+                var properties_dict: Dictionary = material_properties_param
+                for property_name in properties_dict.keys():
+                        var normalized_property := String(property_name)
+                        if not _material_has_property(material, normalized_property):
+                                var missing_payload := log_context.duplicate(true)
+                                missing_payload["resource_path"] = resource_path
+                                missing_payload["property"] = normalized_property
+                                _log("Material does not expose requested property", function_name, missing_payload, true)
+                                return _send_error(client_id, "Material missing property: %s" % normalized_property, command_id)
+                        var raw_value = properties_dict[property_name]
+                        var resolved_value := _resolve_material_input_value(raw_value)
+                        if not resolved_value.get("ok", false):
+                                var resolution_payload := log_context.duplicate(true)
+                                resolution_payload["resource_path"] = resource_path
+                                resolution_payload["property"] = normalized_property
+                                resolution_payload["error_message"] = resolved_value.get("error_message", "resolution_failed")
+                                _log("Failed to resolve material property value", function_name, resolution_payload, true)
+                                return _send_error(client_id, String(resolution_payload["error_message"]), command_id)
+                        var parsed_value = resolved_value.get("value", null)
+                        var old_value = material.get(normalized_property)
+                        var coerced_value = _coerce_property_value(old_value, parsed_value)
+                        if old_value == coerced_value:
+                                continue
+                        material.set(normalized_property, coerced_value)
+                        var change := {
+                                "type": "property",
+                                "property": normalized_property,
+                                "input_value": _stringify_variant(raw_value),
+                                "parsed_value": _stringify_variant(parsed_value),
+                                "new_value": _stringify_variant(coerced_value),
+                                "old_value": _stringify_variant(old_value),
+                                "new_type": Variant.get_type_name(typeof(coerced_value)),
+                                "old_type": Variant.get_type_name(typeof(old_value)),
+                        }
+                        if resolved_value.has("resource_path"):
+                                change["resource_path"] = resolved_value["resource_path"]
+                        if resolved_value.has("resource_class"):
+                                change["resource_class"] = resolved_value["resource_class"]
+                        change_records.append(change)
+
+        var glslang_config = params.get("glslang_shader", {})
+        if typeof(glslang_config) != TYPE_DICTIONARY:
+                glslang_config = {}
+        var shader_code := String(glslang_config.get("code", params.get("shader_code", "")))
+        var shader_path := String(glslang_config.get("path", params.get("shader_path", "")))
+        var shader_resource: Shader = null
+
+        if not shader_path.is_empty():
+                shader_path = _normalize_resource_path(shader_path)
+                var shader_loaded = ResourceLoader.load(shader_path)
+                if shader_loaded == null or not (shader_loaded is Shader):
+                        var shader_payload := log_context.duplicate(true)
+                        shader_payload["resource_path"] = resource_path
+                        shader_payload["shader_path"] = shader_path
+                        _log("Shader resource was not found or is not a Shader", function_name, shader_payload, true)
+                        return _send_error(client_id, "Shader resource not found or invalid", command_id)
+                shader_resource = shader_loaded
+        elif not shader_code.is_empty():
+                if not (material is ShaderMaterial):
+                        var shader_payload := log_context.duplicate(true)
+                        shader_payload["resource_path"] = resource_path
+                        shader_payload["material_type"] = material.get_class()
+                        _log("Shader code can only be applied to ShaderMaterial resources", function_name, shader_payload, true)
+                        return _send_error(client_id, "Shader code requires a ShaderMaterial", command_id)
+                shader_resource = (material as ShaderMaterial).shader
+                if shader_resource == null:
+                        shader_resource = Shader.new()
+                var previous_code := String(shader_resource.code)
+                if previous_code != shader_code:
+                        shader_resource.code = shader_code
+                        change_records.append({
+                                "type": "shader_code",
+                                "property": "shader.code",
+                                "input_value": str(shader_code.length()),
+                                "parsed_value": str(shader_code.length()),
+                                "new_value": str(shader_code.length()),
+                                "old_value": str(previous_code.length()),
+                                "new_type": "String",
+                                "old_type": "String",
+                        })
+        
+        if shader_resource != null:
+                if not (material is ShaderMaterial):
+                        var shader_payload := log_context.duplicate(true)
+                        shader_payload["resource_path"] = resource_path
+                        shader_payload["material_type"] = material.get_class()
+                        _log("Shader assignment requires a ShaderMaterial", function_name, shader_payload, true)
+                        return _send_error(client_id, "Shader assignment requires a ShaderMaterial", command_id)
+                var shader_material := material as ShaderMaterial
+                var previous_shader := shader_material.shader
+                if previous_shader != shader_resource:
+                        var previous_path := ""
+                        if previous_shader != null:
+                                previous_path = previous_shader.resource_path
+                                if previous_path.is_empty():
+                                        previous_path = "inline"
+                        var new_shader_path := shader_resource.resource_path
+                        if new_shader_path.is_empty():
+                                new_shader_path = "inline"
+                        shader_material.shader = shader_resource
+                        change_records.append({
+                                "type": "shader_reference",
+                                "property": "shader",
+                                "input_value": shader_path.is_empty() ? "inline" : shader_path,
+                                "parsed_value": shader_path.is_empty() ? "inline" : shader_path,
+                                "new_value": new_shader_path,
+                                "old_value": previous_path,
+                                "new_type": shader_resource.get_class(),
+                                "old_type": previous_shader and previous_shader.get_class() or "",
+                        })
+
+        var glslang_metadata = glslang_config.get("metadata", {})
+        if typeof(glslang_metadata) == TYPE_DICTIONARY and not glslang_metadata.is_empty():
+                var previous_metadata := material.has_meta("glslang_metadata") ? material.get_meta("glslang_metadata") : {}
+                if previous_metadata != glslang_metadata:
+                        material.set_meta("glslang_metadata", glslang_metadata.duplicate(true))
+                        change_records.append({
+                                "type": "metadata",
+                                "property": "glslang_metadata",
+                                "input_value": JSON.stringify(glslang_metadata),
+                                "new_value": JSON.stringify(glslang_metadata),
+                                "old_value": JSON.stringify(previous_metadata),
+                                "new_type": "Dictionary",
+                                "old_type": "Dictionary",
+                        })
+
+        var shader_parameter_sources: Dictionary = {}
+        var shader_parameters_param = params.get("shader_parameters", null)
+        if typeof(shader_parameters_param) == TYPE_DICTIONARY:
+                shader_parameter_sources = shader_parameters_param.duplicate(true)
+        if glslang_config.has("parameters") and typeof(glslang_config["parameters"]) == TYPE_DICTIONARY:
+                var glslang_parameters: Dictionary = glslang_config["parameters"]
+                for key in glslang_parameters.keys():
+                                shader_parameter_sources[key] = glslang_parameters[key]
+
+        if not shader_parameter_sources.is_empty():
+                if not (material is ShaderMaterial):
+                        var shader_payload := log_context.duplicate(true)
+                        shader_payload["resource_path"] = resource_path
+                        shader_payload["material_type"] = material.get_class()
+                        _log("Shader parameters are only supported on ShaderMaterial resources", function_name, shader_payload, true)
+                        return _send_error(client_id, "Shader parameters require a ShaderMaterial", command_id)
+                var shader_material := material as ShaderMaterial
+                if shader_material.shader == null:
+                        var shader_payload := log_context.duplicate(true)
+                        shader_payload["resource_path"] = resource_path
+                        _log("Shader parameters cannot be applied without an assigned shader", function_name, shader_payload, true)
+                        return _send_error(client_id, "Assign a shader before configuring shader parameters", command_id)
+                for parameter_name in shader_parameter_sources.keys():
+                        var raw_value = shader_parameter_sources[parameter_name]
+                        var resolved := _resolve_material_input_value(raw_value)
+                        if not resolved.get("ok", false):
+                                var resolution_payload := log_context.duplicate(true)
+                                resolution_payload["resource_path"] = resource_path
+                                resolution_payload["parameter"] = String(parameter_name)
+                                resolution_payload["error_message"] = resolved.get("error_message", "resolution_failed")
+                                _log("Failed to resolve shader parameter value", function_name, resolution_payload, true)
+                                return _send_error(client_id, String(resolution_payload["error_message"]), command_id)
+                        var parsed_value = resolved.get("value", null)
+                        if not shader_material.shader.has_param(parameter_name):
+                                var missing_payload := log_context.duplicate(true)
+                                missing_payload["resource_path"] = resource_path
+                                missing_payload["parameter"] = String(parameter_name)
+                                _log("Shader does not expose requested parameter", function_name, missing_payload, true)
+                                return _send_error(client_id, "Shader does not expose parameter: %s" % String(parameter_name), command_id)
+                        var old_value = shader_material.get_shader_parameter(parameter_name)
+                        if old_value == parsed_value:
+                                continue
+                        shader_material.set_shader_parameter(parameter_name, parsed_value)
+                        var change := {
+                                "type": "shader_parameter",
+                                "parameter": String(parameter_name),
+                                "input_value": _stringify_variant(raw_value),
+                                "parsed_value": _stringify_variant(parsed_value),
+                                "new_value": _stringify_variant(parsed_value),
+                                "old_value": _stringify_variant(old_value),
+                                "new_type": Variant.get_type_name(typeof(parsed_value)),
+                                "old_type": Variant.get_type_name(typeof(old_value)),
+                        }
+                        if resolved.has("resource_path"):
+                                change["resource_path"] = resolved["resource_path"]
+                        if resolved.has("resource_class"):
+                                change["resource_class"] = resolved["resource_class"]
+                        change_records.append(change)
+
+        var lightmapper_config = params.get("lightmapper_rd", {})
+        if typeof(lightmapper_config) == TYPE_DICTIONARY:
+                var lightmapper_textures = lightmapper_config.get("texture_slots", {})
+                if typeof(lightmapper_textures) == TYPE_DICTIONARY:
+                        for slot_name in lightmapper_textures.keys():
+                                var raw_value = lightmapper_textures[slot_name]
+                                var resolved := _resolve_material_input_value(raw_value)
+                                if not resolved.get("ok", false):
+                                        var texture_payload := log_context.duplicate(true)
+                                        texture_payload["resource_path"] = resource_path
+                                        texture_payload["slot"] = String(slot_name)
+                                        texture_payload["error_message"] = resolved.get("error_message", "resolution_failed")
+                                        _log("Failed to resolve lightmapper texture", function_name, texture_payload, true)
+                                        return _send_error(client_id, String(texture_payload["error_message"]), command_id)
+                                var texture_value = resolved.get("value", null)
+                                var applied := false
+                                if material is ShaderMaterial:
+                                        var shader_material := material as ShaderMaterial
+                                        if not shader_material.shader.has_param(slot_name):
+                                                var shader_slot_payload := log_context.duplicate(true)
+                                                shader_slot_payload["resource_path"] = resource_path
+                                                shader_slot_payload["slot"] = String(slot_name)
+                                                _log("Shader does not expose requested lightmapper texture parameter", function_name, shader_slot_payload, true)
+                                                return _send_error(client_id, "Shader missing texture parameter: %s" % String(slot_name), command_id)
+                                        var previous_texture := shader_material.get_shader_parameter(slot_name)
+                                        if previous_texture == texture_value:
+                                                continue
+                                        shader_material.set_shader_parameter(slot_name, texture_value)
+                                        applied = true
+                                        change_records.append({
+                                                "type": "lightmapper_texture",
+                                                "parameter": String(slot_name),
+                                                "input_value": _stringify_variant(raw_value),
+                                                "parsed_value": _stringify_variant(texture_value),
+                                                "new_value": _stringify_variant(texture_value),
+                                                "old_value": _stringify_variant(previous_texture),
+                                                "new_type": Variant.get_type_name(typeof(texture_value)),
+                                                "old_type": Variant.get_type_name(typeof(previous_texture)),
+                                                "resource_path": resolved.get("resource_path", ""),
+                                                "resource_class": resolved.get("resource_class", ""),
+                                        })
+                                elif _material_has_property(material, String(slot_name)):
+                                        var old_value = material.get(String(slot_name))
+                                        if old_value == texture_value:
+                                                continue
+                                        material.set(String(slot_name), texture_value)
+                                        applied = true
+                                        var change := {
+                                                "type": "lightmapper_texture",
+                                                "property": String(slot_name),
+                                                "input_value": _stringify_variant(raw_value),
+                                                "parsed_value": _stringify_variant(texture_value),
+                                                "new_value": _stringify_variant(texture_value),
+                                                "old_value": _stringify_variant(old_value),
+                                                "new_type": Variant.get_type_name(typeof(texture_value)),
+                                                "old_type": Variant.get_type_name(typeof(old_value)),
+                                        }
+                                        if resolved.has("resource_path"):
+                                                change["resource_path"] = resolved["resource_path"]
+                                        if resolved.has("resource_class"):
+                                                change["resource_class"] = resolved["resource_class"]
+                                        change_records.append(change)
+                                else:
+                                        var texture_payload := log_context.duplicate(true)
+                                        texture_payload["resource_path"] = resource_path
+                                        texture_payload["slot"] = String(slot_name)
+                                        _log("Material cannot accept requested lightmapper texture slot", function_name, texture_payload, true)
+                                        return _send_error(client_id, "Material cannot accept lightmapper texture slot: %s" % String(slot_name), command_id)
+                                if applied:
+                                        continue
+
+                var lightmapper_scalars = lightmapper_config.get("scalar_parameters", {})
+                if typeof(lightmapper_scalars) == TYPE_DICTIONARY:
+                        for scalar_name in lightmapper_scalars.keys():
+                                var raw_scalar = lightmapper_scalars[scalar_name]
+                                var resolved_scalar := _resolve_material_input_value(raw_scalar)
+                                if not resolved_scalar.get("ok", false):
+                                        var scalar_payload := log_context.duplicate(true)
+                                        scalar_payload["resource_path"] = resource_path
+                                        scalar_payload["parameter"] = String(scalar_name)
+                                        scalar_payload["error_message"] = resolved_scalar.get("error_message", "resolution_failed")
+                                        _log("Failed to resolve lightmapper scalar", function_name, scalar_payload, true)
+                                        return _send_error(client_id, String(scalar_payload["error_message"]), command_id)
+                                var scalar_value = resolved_scalar.get("value", null)
+                                var handled := false
+                                if material is ShaderMaterial:
+                                        var shader_material := material as ShaderMaterial
+                                        if not shader_material.shader.has_param(scalar_name):
+                                                var scalar_slot_payload := log_context.duplicate(true)
+                                                scalar_slot_payload["resource_path"] = resource_path
+                                                scalar_slot_payload["parameter"] = String(scalar_name)
+                                                _log("Shader does not expose requested lightmapper scalar parameter", function_name, scalar_slot_payload, true)
+                                                return _send_error(client_id, "Shader missing scalar parameter: %s" % String(scalar_name), command_id)
+                                        var previous_value := shader_material.get_shader_parameter(scalar_name)
+                                        if previous_value == scalar_value:
+                                                continue
+                                        shader_material.set_shader_parameter(scalar_name, scalar_value)
+                                        handled = true
+                                        change_records.append({
+                                                "type": "lightmapper_scalar",
+                                                "parameter": String(scalar_name),
+                                                "input_value": _stringify_variant(raw_scalar),
+                                                "parsed_value": _stringify_variant(scalar_value),
+                                                "new_value": _stringify_variant(scalar_value),
+                                                "old_value": _stringify_variant(previous_value),
+                                                "new_type": Variant.get_type_name(typeof(scalar_value)),
+                                                "old_type": Variant.get_type_name(typeof(previous_value)),
+                                        })
+                                elif _material_has_property(material, String(scalar_name)):
+                                        var previous_value = material.get(String(scalar_name))
+                                        if previous_value == scalar_value:
+                                                continue
+                                        material.set(String(scalar_name), scalar_value)
+                                        handled = true
+                                        change_records.append({
+                                                "type": "lightmapper_scalar",
+                                                "property": String(scalar_name),
+                                                "input_value": _stringify_variant(raw_scalar),
+                                                "parsed_value": _stringify_variant(scalar_value),
+                                                "new_value": _stringify_variant(scalar_value),
+                                                "old_value": _stringify_variant(previous_value),
+                                                "new_type": Variant.get_type_name(typeof(scalar_value)),
+                                                "old_type": Variant.get_type_name(typeof(previous_value)),
+                                        })
+                                else:
+                                        var scalar_payload := log_context.duplicate(true)
+                                        scalar_payload["resource_path"] = resource_path
+                                        scalar_payload["parameter"] = String(scalar_name)
+                                        _log("Material cannot accept requested lightmapper scalar", function_name, scalar_payload, true)
+                                        return _send_error(client_id, "Material cannot accept lightmapper scalar: %s" % String(scalar_name), command_id)
+
+                var previous_lightmapper_meta := material.has_meta("lightmapper_rd") ? material.get_meta("lightmapper_rd") : {}
+                var sanitized_lightmapper_meta := _sanitize_metadata_dictionary(lightmapper_config)
+                if previous_lightmapper_meta != sanitized_lightmapper_meta:
+                        material.set_meta("lightmapper_rd", sanitized_lightmapper_meta)
+                        change_records.append({
+                                "type": "metadata",
+                                "property": "lightmapper_rd",
+                                "input_value": JSON.stringify(sanitized_lightmapper_meta),
+                                "new_value": JSON.stringify(sanitized_lightmapper_meta),
+                                "old_value": JSON.stringify(previous_lightmapper_meta),
+                                "new_type": "Dictionary",
+                                "old_type": "Dictionary",
+                        })
+
+        var meshoptimizer_config = params.get("meshoptimizer", {})
+        if typeof(meshoptimizer_config) == TYPE_DICTIONARY:
+                var lod_array_param = meshoptimizer_config.get("lod_meshes", [])
+                if typeof(lod_array_param) == TYPE_ARRAY:
+                        var lod_summaries: Array = []
+                        for lod_entry in lod_array_param:
+                                if typeof(lod_entry) != TYPE_DICTIONARY:
+                                        continue
+                                var lod_dict: Dictionary = lod_entry
+                                var mesh_path := String(lod_dict.get("mesh_path", lod_dict.get("resource_path", lod_dict.get("path", ""))))
+                                mesh_path = _normalize_resource_path(mesh_path)
+                                if mesh_path.is_empty():
+                                        continue
+                                var mesh_resource = ResourceLoader.load(mesh_path)
+                                if mesh_resource == null:
+                                        var lod_payload := log_context.duplicate(true)
+                                        lod_payload["resource_path"] = resource_path
+                                        lod_payload["lod_mesh_path"] = mesh_path
+                                        _log("Failed to load meshoptimizer LOD mesh", function_name, lod_payload, true)
+                                        return _send_error(client_id, "Failed to load meshoptimizer LOD mesh: %s" % mesh_path, command_id)
+                                lod_summaries.append({
+                                        "path": mesh_path,
+                                        "class": mesh_resource.get_class(),
+                                        "screen_ratio": float(lod_dict.get("screen_ratio", lod_dict.get("ratio", 0.0))),
+                                })
+                        if not lod_summaries.is_empty():
+                                var previous_lods := material.has_meta("meshoptimizer_lods") ? material.get_meta("meshoptimizer_lods") : []
+                                if previous_lods != lod_summaries:
+                                        material.set_meta("meshoptimizer_lods", lod_summaries)
+                                        change_records.append({
+                                                "type": "metadata",
+                                                "property": "meshoptimizer_lods",
+                                                "input_value": JSON.stringify(lod_summaries),
+                                                "new_value": JSON.stringify(lod_summaries),
+                                                "old_value": JSON.stringify(previous_lods),
+                                                "new_type": "Array",
+                                                "old_type": "Array",
+                                        })
+                var previous_meshoptimizer_meta := material.has_meta("meshoptimizer_metadata") ? material.get_meta("meshoptimizer_metadata") : {}
+                var sanitized_meshoptimizer_meta := _sanitize_metadata_dictionary(meshoptimizer_config)
+                if previous_meshoptimizer_meta != sanitized_meshoptimizer_meta:
+                        material.set_meta("meshoptimizer_metadata", sanitized_meshoptimizer_meta)
+                        change_records.append({
+                                "type": "metadata",
+                                "property": "meshoptimizer_metadata",
+                                "input_value": JSON.stringify(sanitized_meshoptimizer_meta),
+                                "new_value": JSON.stringify(sanitized_meshoptimizer_meta),
+                                "old_value": JSON.stringify(previous_meshoptimizer_meta),
+                                "new_type": "Dictionary",
+                                "old_type": "Dictionary",
+                        })
+
+        if change_records.is_empty():
+                var noop_payload := log_context.duplicate(true)
+                noop_payload["resource_path"] = resource_path
+                noop_payload["material_type"] = material.get_class()
+                _log("No material updates were required", function_name, noop_payload)
+                return _send_success(client_id, {
+                        "resource_path": resource_path,
+                        "material_type": material.get_class(),
+                        "changes": [],
+                        "status": "no_changes",
+                }, command_id)
+
+        var save_error := ResourceSaver.save(material, resource_path)
+        if save_error != OK:
+                var save_payload := log_context.duplicate(true)
+                save_payload["resource_path"] = resource_path
+                save_payload["error_code"] = save_error
+                _log("Failed to save material resource", function_name, save_payload, true)
+                return _send_error(client_id, "Failed to save material resource", command_id)
+
+        var log_payload := log_context.duplicate(true)
+        log_payload["resource_path"] = resource_path
+        log_payload["material_type"] = material.get_class()
+        log_payload["created_new"] = created_new
+        log_payload["change_count"] = change_records.size()
+        log_payload["changes"] = change_records
+        _log("Configured material resource", function_name, log_payload)
+
+        _send_success(client_id, {
+                "resource_path": resource_path,
+                "material_type": material.get_class(),
+                "created_new": created_new,
+                "changes": change_records,
+                "status": created_new ? "created" : "updated",
         }, command_id)
 
 func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String) -> void:

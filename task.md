@@ -25,7 +25,7 @@
   - [x] Deliver `configure_audio_bus` editing support via MCP project commands and tooling.
   - [x] Expose interactive music graph authoring helpers for layered playback.
   - [x] Provide audio stream player creation/configuration utilities.
-- [ ] Add shader and material editing pipelines that understand `glslang`, `lightmapper_rd`, and `meshoptimizer` module outputs.
+- [x] Add shader and material editing pipelines that understand `glslang`, `lightmapper_rd`, and `meshoptimizer` module outputs.
 - [ ] Support XR platform setup commands for `openxr`, `mobile_vr`, and `webxr` modules.
 - [ ] Enable multiplayer session scaffolding and high-level networking helpers aligned with the `multiplayer`, `webrtc`, and `websocket` modules.
 - [ ] Provide compression and texture pipeline automation for `astcenc`, `ktx`, and `webp` module workflows.

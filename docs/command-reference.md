@@ -321,6 +321,27 @@ Configure CSGCombiner3D, CSGBox3D, and other CSG nodes with undo/redo aware prop
 Hollow out the hallway CSG combiner and flip its boolean operation to subtraction.
 ```
 
+### configure_material_resource
+Create or update a Material resource on disk while wiring glslang shader code, lightmapper_rd textures, and meshoptimizer LOD metadata.
+
+**Parameters:**
+- `resource_path` - Path to the `.tres` or `.res` file to create/update (e.g., `"res://materials/brick.tres"`)
+- `material_type` (optional) - Material class to instantiate when creating a new resource (e.g., `"ShaderMaterial"`, `"StandardMaterial3D"`)
+- `resource_name` (optional) - Value to assign to `Resource.resource_name`
+- `metadata` (optional) - Dictionary of metadata keys to persist on the resource
+- `material_properties` (optional) - Dictionary of material property overrides to apply (e.g., `{"albedo_color": "Color(0.8, 0.7, 0.6, 1)"}`)
+- `shader_code` (optional) - Inline shader code to assign when targeting a `ShaderMaterial`
+- `shader_path` (optional) - Path to an existing `Shader` resource to reuse
+- `shader_parameters` (optional) - Dictionary of shader parameter overrides (values may reference resources via `{ "resource_path": "res://textures/lightmap.png" }`)
+- `glslang_shader` (optional) - Structured payload from the glslang pipeline including `code`, `path`, `metadata`, and `parameters`
+- `lightmapper_rd` (optional) - Dictionary describing baked lightmapper textures (`texture_slots`) and scalar overrides (`scalar_parameters`)
+- `meshoptimizer` (optional) - Dictionary describing meshoptimizer outputs such as `lod_meshes` and additional metadata
+
+**Example:**
+```
+Compile the latest glslang shader for the hero material, assign the baked lightmap texture, and record meshoptimizer LOD metadata under res://materials/hero.tres.
+```
+
 ### paint_gridmap_cells
 Stamp MeshLibrary items into GridMap coordinates to block out level geometry quickly.
 
