@@ -155,6 +155,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `configure_physics_area` - Update Area2D/Area3D monitoring, gravity, and masks
 - `configure_physics_joint` - Rewire Joint2D/3D connections and constraint limits
 - `configure_csg_shape` - Tweak CSG combiners and primitives with undo/redo support
+- `configure_material_resource` - Create/update Material resources, apply glslang shader code, bind lightmapper textures, and persist meshoptimizer metadata
 - `paint_gridmap_cells` - Stamp MeshLibrary items into GridMap coordinates in batches
 - `clear_gridmap_cells` - Remove items from GridMap cells while preserving undo history
 - `author_audio_stream_player` - Create or configure AudioStreamPlayer nodes with stream assignments and playback settings
