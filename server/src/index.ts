@@ -40,6 +40,7 @@ import {
   selectedNodeResource,
   currentScriptResource
 } from './resources/editor_resources.js';
+import { uiThemeResource } from './resources/ui_resources.js';
 
 /**
  * Main entry point for the Godot MCP server
@@ -92,6 +93,7 @@ async function main() {
   server.addResource(animationStateMachinesResource);
   server.addResource(animationTracksResource);
   server.addResource(editorStateResource);
+  server.addResource(uiThemeResource);
   server.addResource(selectedNodeResource);
   server.addResource(currentScriptResource);
   server.addResource(sceneStructureResource);

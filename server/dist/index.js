@@ -75,6 +75,7 @@ import { audioBusResource } from './resources/audio_resources.js';
 import { physicsWorldResource } from './resources/physics_resources.js';
 import { animationStateMachinesResource, animationTracksResource, } from './resources/animation_resources.js';
 import { editorStateResource, selectedNodeResource, currentScriptResource } from './resources/editor_resources.js';
+import { uiThemeResource } from './resources/ui_resources.js';
 /**
  * Main entry point for the Godot MCP server
  */
@@ -119,6 +120,7 @@ function main() {
                     server.addResource(animationStateMachinesResource);
                     server.addResource(animationTracksResource);
                     server.addResource(editorStateResource);
+                    server.addResource(uiThemeResource);
                     server.addResource(selectedNodeResource);
                     server.addResource(currentScriptResource);
                     server.addResource(sceneStructureResource);
