@@ -52,6 +52,8 @@
 - [ ] Prompted code actions in editor.
 - [ ] Crash repro harness.
 - [ ] On-device prompt budgeter & context diet.
+- [x] Camera2D limit configuration helper aligned with the dedicated editor workflow.
+- [ ] Environment sun preview automation with undo-aware adjustments.
 
 ## P1 — Scripting
 - [ ] Performance hints & micro-profiler hooks.

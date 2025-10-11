@@ -32,6 +32,9 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
                 "remove_node_from_group":
                         _remove_node_from_group(client_id, params, command_id)
                         return true
+                "configure_camera2d_limits":
+                        _configure_camera2d_limits(client_id, params, command_id)
+                        return true
                 "list_node_groups":
                         _list_node_groups(client_id, params, command_id)
                         return true
@@ -274,6 +277,175 @@ func _remove_node_from_group(client_id: int, params: Dictionary, command_id: Str
                         "node_path": node_path,
                         "group_name": group_name,
                         "transaction_id": transaction.transaction_id,
+                        "status": "pending"
+                }, command_id)
+
+func _configure_camera2d_limits(client_id: int, params: Dictionary, command_id: String) -> void:
+        var node_path := params.get("node_path", "")
+        var transaction_id := params.get("transaction_id", "")
+
+        if node_path.is_empty():
+                return _send_error(client_id, "Camera2D node path cannot be empty", command_id)
+
+        var node := _get_editor_node(node_path)
+        if not node:
+                return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+        if not (node is Camera2D):
+                return _send_error(client_id, "Node at %s is not a Camera2D" % node_path, command_id)
+
+        var limits_input = params.get("limits", null)
+        if limits_input != null and typeof(limits_input) != TYPE_DICTIONARY:
+                _log("limits must be provided as a dictionary", "_configure_camera2d_limits", {
+                        "node_path": node_path,
+                        "system_section": "camera2d",
+                        "line_num": __LINE__,
+                }, true)
+                return _send_error(client_id, "limits must be a dictionary of Camera2D properties", command_id)
+
+        var smoothing_input = params.get("smoothing", null)
+        if smoothing_input != null and typeof(smoothing_input) != TYPE_DICTIONARY:
+                _log("smoothing must be provided as a dictionary", "_configure_camera2d_limits", {
+                        "node_path": node_path,
+                        "system_section": "camera2d",
+                        "line_num": __LINE__,
+                }, true)
+                return _send_error(client_id, "smoothing must be a dictionary of Camera2D properties", command_id)
+
+        var limit_config: Dictionary = {}
+        if typeof(limits_input) == TYPE_DICTIONARY:
+                limit_config = (limits_input as Dictionary).duplicate(true)
+
+        var smoothing_config: Dictionary = {}
+        if typeof(smoothing_input) == TYPE_DICTIONARY:
+                smoothing_config = (smoothing_input as Dictionary).duplicate(true)
+
+        if limit_config.is_empty() and smoothing_config.is_empty():
+                _log("No Camera2D configuration changes were provided", "_configure_camera2d_limits", {
+                        "node_path": node_path,
+                        "system_section": "camera2d",
+                        "line_num": __LINE__,
+                }, true)
+                return _send_error(client_id, "Provide at least one limit or smoothing property to update", command_id)
+
+        var pending_changes: Array = []
+        var limit_property_map := {
+                "enabled": "limit_enabled",
+                "smoothed": "limit_smoothed",
+                "draw_limits": "editor_draw_limits",
+                "left": "limit_left",
+                "right": "limit_right",
+                "top": "limit_top",
+                "bottom": "limit_bottom",
+        }
+
+        for key in limit_property_map.keys():
+                if limit_config.has(key):
+                        var property_name: String = limit_property_map[key]
+                        var new_value = limit_config[key]
+                        var current_value = node.get(property_name)
+                        if current_value != new_value:
+                                pending_changes.append({
+                                        "property": property_name,
+                                        "previous": current_value,
+                                        "value": new_value,
+                                })
+
+        var smoothing_property_map := {
+                "position_enabled": "position_smoothing_enabled",
+                "position_speed": "position_smoothing_speed",
+                "rotation_enabled": "rotation_smoothing_enabled",
+                "rotation_speed": "rotation_smoothing_speed",
+        }
+
+        for key in smoothing_property_map.keys():
+                if smoothing_config.has(key):
+                        var property_name: String = smoothing_property_map[key]
+                        var new_value = smoothing_config[key]
+                        var current_value = node.get(property_name)
+                        if current_value != new_value:
+                                pending_changes.append({
+                                        "property": property_name,
+                                        "previous": current_value,
+                                        "value": new_value,
+                                })
+
+        if pending_changes.is_empty():
+                _log("Camera2D already matches requested configuration", "_configure_camera2d_limits", {
+                        "node_path": node_path,
+                        "system_section": "camera2d",
+                        "changes": pending_changes,
+                        "line_num": __LINE__,
+                })
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "changes": [],
+                        "status": "no_change"
+                }, command_id)
+                return
+
+        var transaction_metadata := {
+                "command": "configure_camera2d_limits",
+                "node_path": node_path,
+                "client_id": client_id,
+                "command_id": command_id,
+        }
+
+        var transaction
+        if transaction_id.is_empty():
+                transaction = SceneTransactionManager.begin_inline("Configure Camera2D Limits", transaction_metadata)
+        else:
+                transaction = SceneTransactionManager.get_transaction(transaction_id)
+                if not transaction:
+                        transaction = SceneTransactionManager.begin_registered(transaction_id, "Configure Camera2D Limits", transaction_metadata)
+
+        if not transaction:
+                _log("Failed to acquire scene transaction for Camera2D limits", "_configure_camera2d_limits", {
+                        "node_path": node_path,
+                        "system_section": "camera2d",
+                        "transaction_id": transaction_id,
+                        "line_num": __LINE__,
+                }, true)
+                return _send_error(client_id, "Failed to obtain scene transaction for Camera2D limits", command_id)
+
+        for change in pending_changes:
+                transaction.add_do_property(node, change.property, change.value)
+                transaction.add_undo_property(node, change.property, change.previous)
+
+        var committed_changes := pending_changes.duplicate(true)
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                _log("Configured Camera2D limits", "_configure_camera2d_limits", {
+                        "node_path": node_path,
+                        "transaction_id": transaction.transaction_id,
+                        "system_section": "camera2d",
+                        "changes": committed_changes,
+                })
+        )
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        _log("Failed to commit Camera2D limit configuration", "_configure_camera2d_limits", {
+                                "node_path": node_path,
+                                "system_section": "camera2d",
+                                "line_num": __LINE__,
+                        }, true)
+                        return _send_error(client_id, "Failed to commit Camera2D limit configuration", command_id)
+
+                var updated_path = node.get_path()
+                var path_string = updated_path if typeof(updated_path) == TYPE_STRING else updated_path.to_string()
+                _send_success(client_id, {
+                        "node_path": path_string,
+                        "transaction_id": transaction.transaction_id,
+                        "changes": committed_changes,
+                        "status": "committed"
+                }, command_id)
+        else:
+                _send_success(client_id, {
+                        "node_path": node_path,
+                        "transaction_id": transaction.transaction_id,
+                        "changes": committed_changes,
                         "status": "pending"
                 }, command_id)
 

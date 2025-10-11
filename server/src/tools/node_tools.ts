@@ -57,6 +57,62 @@ interface ListNodesInGroupParams {
   group_name: string;
 }
 
+interface ConfigureCamera2DLimitsParams {
+  node_path: string;
+  transaction_id?: string;
+  limits?: {
+    enabled?: boolean;
+    draw_limits?: boolean;
+    smoothed?: boolean;
+    left?: number;
+    right?: number;
+    top?: number;
+    bottom?: number;
+  };
+  smoothing?: {
+    position_enabled?: boolean;
+    position_speed?: number;
+    rotation_enabled?: boolean;
+    rotation_speed?: number;
+  };
+}
+
+const hasConfigurationEntries = (value: Record<string, unknown> | undefined): value is Record<string, unknown> =>
+  !!value && Object.values(value).some(entry => entry !== undefined);
+
+const camera2DLimitsSchema = z
+  .object({
+    enabled: z.boolean().optional().describe('Enable or disable Camera2D limits.'),
+    draw_limits: z.boolean().optional().describe('Toggle visualization of Camera2D limits in the editor.'),
+    smoothed: z.boolean().optional().describe('Enable smoothing when the camera hits configured limits.'),
+    left: z.number().int().optional().describe('Left boundary in pixels.'),
+    right: z.number().int().optional().describe('Right boundary in pixels.'),
+    top: z.number().int().optional().describe('Top boundary in pixels.'),
+    bottom: z.number().int().optional().describe('Bottom boundary in pixels.'),
+  })
+  .refine(value => Object.values(value).some(entry => entry !== undefined), {
+    message: 'Provide at least one limit property to update.',
+  });
+
+const camera2DSmoothingSchema = z
+  .object({
+    position_enabled: z.boolean().optional().describe('Enable position smoothing for Camera2D.'),
+    position_speed: z
+      .number()
+      .nonnegative()
+      .optional()
+      .describe('Smoothing speed used when moving towards the target position.'),
+    rotation_enabled: z.boolean().optional().describe('Enable rotation smoothing for Camera2D.'),
+    rotation_speed: z
+      .number()
+      .nonnegative()
+      .optional()
+      .describe('Smoothing speed used when rotating towards the target angle.'),
+  })
+  .refine(value => Object.values(value).some(entry => entry !== undefined), {
+    message: 'Provide at least one smoothing property to update.',
+  });
+
 /**
  * Definition for node tools - operations that manipulate nodes in the scene tree
  */
@@ -328,6 +384,73 @@ export const nodeTools: MCPTool[] = [
     },
     metadata: {
       requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'configure_camera2d_limits',
+    description:
+      'Adjust Camera2D limit bounds, smoothing, and editor visualization using undo-aware transactions.',
+    parameters: z
+      .object({
+        node_path: z
+          .string()
+          .describe('Path to the Camera2D node that should be configured (e.g. "/root/MainScene/Camera2D")'),
+        transaction_id: z
+          .string()
+          .optional()
+          .describe('Optional scene transaction identifier used to batch operations before committing.'),
+        limits: camera2DLimitsSchema.optional(),
+        smoothing: camera2DSmoothingSchema.optional(),
+      })
+      .superRefine((value, ctx) => {
+        const hasLimits = value.limits !== undefined;
+        const hasSmoothing = value.smoothing !== undefined;
+        if (!hasLimits && !hasSmoothing) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Provide limits or smoothing properties to update.',
+            path: ['limits'],
+          });
+        }
+      }),
+    execute: async ({ node_path, transaction_id, limits, smoothing }: ConfigureCamera2DLimitsParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const payload: Record<string, unknown> = { node_path };
+        if (transaction_id) {
+          payload.transaction_id = transaction_id;
+        }
+        if (hasConfigurationEntries(limits)) {
+          payload.limits = limits;
+        }
+        if (hasConfigurationEntries(smoothing)) {
+          payload.smoothing = smoothing;
+        }
+
+        const result = await godot.sendCommand<CommandResult>('configure_camera2d_limits', payload);
+
+        const status = (result.status as string) ?? 'committed';
+        if (status === 'no_change') {
+          return `Camera2D at ${node_path} already matches the requested configuration.`;
+        }
+
+        const changeSummary = Array.isArray(result.changes)
+          ? (result.changes as Array<Record<string, unknown>>)
+              .map(change => `${change.property}: ${JSON.stringify(change.value)}`)
+              .join(', ')
+          : undefined;
+
+        const suffix = changeSummary && changeSummary.length > 0 ? ` (${changeSummary})` : '';
+        return `Configured Camera2D limits for ${result.node_path ?? node_path} [${status}]${suffix}`;
+      } catch (error) {
+        throw new Error(`Failed to configure Camera2D limits: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+      escalationPrompt:
+        'The assistant is requesting to modify Camera2D boundaries and smoothing. Approve if the scene should adopt these camera constraints.',
     },
   },
   {

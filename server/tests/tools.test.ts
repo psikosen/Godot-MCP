@@ -149,6 +149,16 @@ const godotCommandCases: Array<{
   { collection: nodeTools, name: 'rename_node', command: 'rename_node', args: { node_path: '/root/Generated', new_name: 'Renamed' } },
   { collection: nodeTools, name: 'add_node_to_group', command: 'add_node_to_group', args: { node_path: '/root/Generated', group_name: 'GroupA' } },
   { collection: nodeTools, name: 'remove_node_from_group', command: 'remove_node_from_group', args: { node_path: '/root/Generated', group_name: 'GroupA' } },
+  {
+    collection: nodeTools,
+    name: 'configure_camera2d_limits',
+    command: 'configure_camera2d_limits',
+    args: {
+      node_path: '/root/Camera2D',
+      limits: { enabled: true, left: -256, right: 256, top: -128, bottom: 128, smoothed: true },
+      smoothing: { position_enabled: true, position_speed: 6, rotation_enabled: false },
+    },
+  },
   { collection: nodeTools, name: 'list_node_groups', command: 'list_node_groups', args: { node_path: '/root/Generated' } },
   { collection: nodeTools, name: 'list_nodes_in_group', command: 'list_nodes_in_group', args: { group_name: 'GroupA' } },
   { collection: scriptTools, name: 'create_script', command: 'create_script', args: { script_path: 'res://scripts/example.gd', content: 'extends Node' } },
