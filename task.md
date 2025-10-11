@@ -1,11 +1,11 @@
 # Task Plan
 
 ## Current Execution Plan
-- [x] Extend the Godot MCP scene command processor with a physics world snapshot exporter and structured logging.
-- [x] Expose the snapshot via a new `godot://physics/world` MCP resource and ensure the server registers it.
-- [x] Document the resource, update roadmap tracking, and keep existing task records accurate.
-- [x] Run full lint, test, and build suites for the MCP server before shipping.
-- [x] Add automated tests covering every MCP tool and resource endpoint to verify command wiring.
+- [ ] Implement remaining MCP command families before closing out roadmap items.
+- [ ] Add accompanying server tool definitions and validation schemas.
+- [ ] Update documentation and roadmap tracking artifacts.
+- [ ] Refresh automated tests spanning new commands and resources.
+- [ ] Run full lint, test, and build suites for the MCP server before shipping.
 
 ## Completed
 - [x] Research additional Godot editor features that expand MCP automation options
@@ -41,11 +41,11 @@
 
 ### Command expansions — Animation & VFX
 - [x] `list_animation_players` to enumerate AnimationPlayer content across the edited scene.
-- [ ] `edit_animation` to author AnimationPlayer content.
-- [ ] `configure_animation_tree` to adjust AnimationTree nodes, blend amounts, and parameters.
-- [ ] `bake_skeleton_pose` to capture Skeleton3D poses into an animation resource.
-- [ ] `generate_tween_sequence` for programmatic Tween node timelines.
-- [ ] `sync_particles_with_animation` to align GPUParticles3D emission with AnimationPlayer tracks.
+- [x] `edit_animation` to author AnimationPlayer content.
+- [x] `configure_animation_tree` to adjust AnimationTree nodes, blend amounts, and parameters.
+- [x] `bake_skeleton_pose` to capture Skeleton3D poses into an animation resource.
+- [x] `generate_tween_sequence` for programmatic Tween node timelines.
+- [x] `sync_particles_with_animation` to align GPUParticles3D emission with AnimationPlayer tracks.
 
 ### Command expansions — Physics & Navigation
 - [ ] `configure_physics_body` to set mass, collision layers/masks, and damping using UndoRedo transactions.

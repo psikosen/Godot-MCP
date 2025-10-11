@@ -291,6 +291,72 @@ const godotCommandCases: Array<{
   { collection: animationTools, name: 'list_animation_players', command: 'list_animation_players', args: { include_tracks: true } },
   { collection: animationTools, name: 'describe_animation_tracks', command: 'describe_animation_tracks', args: { include_keys: true } },
   { collection: animationTools, name: 'describe_animation_state_machines', command: 'describe_animation_state_machines', args: { include_transitions: true } },
+  {
+    collection: animationTools,
+    name: 'edit_animation',
+    command: 'edit_animation',
+    args: {
+      player_path: '/root/Animator',
+      animation: 'Idle',
+      operations: [
+        { type: 'set_property', property: 'length', value: 1.25 },
+        { type: 'insert_key', track_path: '../Sprite:position', time: 0, value: { x: 0, y: 0 } },
+      ],
+    },
+  },
+  {
+    collection: animationTools,
+    name: 'configure_animation_tree',
+    command: 'configure_animation_tree',
+    args: {
+      tree_path: '/root/AnimationTree',
+      properties: { active: true },
+      parameters: { 'Blend2/blend_amount': 0.5 },
+      state_transitions: [{ path: 'parameters/StateMachine/playback', state: 'Run' }],
+    },
+  },
+  {
+    collection: animationTools,
+    name: 'bake_skeleton_pose',
+    command: 'bake_skeleton_pose',
+    args: {
+      skeleton_path: '/root/Skeleton3D',
+      player_path: '/root/Animator',
+      animation: 'PoseCapture',
+      bones: ['Spine'],
+      space: 'local',
+      time: 0,
+    },
+  },
+  {
+    collection: animationTools,
+    name: 'generate_tween_sequence',
+    command: 'generate_tween_sequence',
+    args: {
+      player_path: '/root/Animator',
+      animation: 'TweenTimeline',
+      sequence: [
+        {
+          target_path: '/root/Sprite2D',
+          property: 'position',
+          from: { x: 0, y: 0 },
+          to: { x: 64, y: 64 },
+          duration: 0.5,
+        },
+      ],
+    },
+  },
+  {
+    collection: animationTools,
+    name: 'sync_particles_with_animation',
+    command: 'sync_particles_with_animation',
+    args: {
+      particles_path: '/root/Particles3D',
+      player_path: '/root/Animator',
+      animation: 'Idle',
+      emission: { lifetime: 1.2 },
+    },
+  },
 ];
 
 describe('Godot MCP tool command wiring', () => {

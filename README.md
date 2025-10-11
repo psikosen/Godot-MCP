@@ -166,6 +166,11 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `list_animation_players` - Enumerate AnimationPlayer nodes, active playback settings, and contained animations.
 - `describe_animation_tracks` - Inspect AnimationPlayer track configurations with optional keyframe timing and values.
 - `describe_animation_state_machines` - Summarize AnimationTree state machines, nested graphs, and transition metadata.
+- `edit_animation` - Apply structured operations to animation resources (tracks, keys, properties) with undo/redo support.
+- `configure_animation_tree` - Update AnimationTree properties, blend parameters, and state playback targets.
+- `bake_skeleton_pose` - Capture Skeleton2D/3D poses into an Animation resource at a specified timestamp.
+- `generate_tween_sequence` - Build Animation timelines from tween-style step definitions.
+- `sync_particles_with_animation` - Align particle emission properties and animation keys with an animation clip.
 
 #### Navigation Commands
 - `list_navigation_maps` - Summarize NavigationRegion2D/3D nodes and their resources
@@ -199,7 +204,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
 
 #### Planned Command Expansions (roadmap)
-- **Animation & VFX**: `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
+- **Animation & VFX** *(delivered)*: `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
 - **Physics & Navigation**: `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, `synchronize_navmesh_with_tilemap`.
 - **UI & Interaction**: `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, `validate_accessibility`.
 - **Audio & Media**: `configure_audio_bus`, `analyze_waveform`, `batch_import_audio_assets`.

@@ -607,6 +607,87 @@ Summarise AnimationTree state machine graphs, nested machines, and transition pr
 Describe the AnimationTree state machine graph for the Player AnimationTree so I can review transitions and nested states.
 ```
 
+### edit_animation
+Apply structured operations to Animation resources, including property tweaks, track/key manipulation, and animation renaming, all wrapped in undo-aware transactions.
+
+**Parameters:**
+- `player_path` - AnimationPlayer node path that owns the animation.
+- `animation` - Animation name to modify.
+- `operations` - Array of operation dictionaries. Supported types include `set_property`, `ensure_track`, `clear_track`, `insert_key`, `set_key`, `remove_key`, and `rename`.
+- `transaction_id` (optional) - Existing transaction identifier when batching edits across commands.
+
+**Example:**
+```
+Add a new key to the player idle animation at 0.5 seconds that offsets the pelvis bone upward by 0.1 units.
+```
+
+### configure_animation_tree
+Update AnimationTree properties, blend parameters, and state playback targets to retune complex animation graphs without leaving the MCP interface.
+
+**Parameters:**
+- `tree_path` - AnimationTree node path to configure.
+- `properties` (optional) - Dictionary of top-level AnimationTree properties to update (e.g., `{ "active": true }`).
+- `parameters` (optional) - Dictionary mapping parameter keys (e.g., `"Blend2/blend_amount"`) to new values.
+- `state_transitions` (optional) - Array of dictionaries describing state playback targets (e.g., `{ "path": "parameters/StateMachine/playback", "state": "Run" }`).
+- `transaction_id` (optional) - Existing transaction identifier when batching edits across commands.
+
+**Example:**
+```
+Set the locomotion AnimationTree active, push its blend amount to 0.65, and force the state machine to transition to the Run state.
+```
+
+### bake_skeleton_pose
+Capture the current pose of a Skeleton2D or Skeleton3D into an Animation resource, optionally limiting the operation to specific bones or adjusting capture space.
+
+**Parameters:**
+- `skeleton_path` - Skeleton node path whose pose should be captured.
+- `player_path` - AnimationPlayer node that should receive the baked pose.
+- `animation` - Animation name to create or update with the baked pose.
+- `bones` (optional) - Array of bone names to capture. When omitted, all bones are included.
+- `space` (optional, default `local`) - Capture pose in `local` or `global` space.
+- `overwrite` (optional, default `true`) - Remove existing keys on the tracked bones before baking.
+- `time` (optional, default `0`) - Timestamp in seconds for the baked keys.
+- `transaction_id` (optional) - Existing transaction identifier when batching edits across commands.
+
+**Example:**
+```
+Bake the hero skeleton’s current upper-body pose into the “AimPose” animation at time 0.
+```
+
+### generate_tween_sequence
+Generate or refresh an Animation resource that mirrors a tween-style property timeline, allowing designers to author tweens declaratively.
+
+**Parameters:**
+- `player_path` - AnimationPlayer node that will own the generated animation.
+- `animation` - Animation name to create/update.
+- `sequence` - Array of tween step dictionaries including `property`, `to`/`value`, optional `from`, `duration`, `delay`, and optional `target_path` overrides.
+- `overwrite` (optional, default `true`) - Clear the animation before generating the sequence.
+- `loop` (optional, default `false`) - Mark the generated animation as looping.
+- `target_path` (optional) - Default node path to animate when individual steps omit one.
+- `transaction_id` (optional) - Existing transaction identifier when batching edits across commands.
+
+**Example:**
+```
+Create a tween animation that slides the notification panel from off-screen to visible over 0.4 seconds with a brief easing delay.
+```
+
+### sync_particles_with_animation
+Synchronise particle emission settings with an animation timeline and optionally insert keys that toggle the emitter in sync with the animation playback.
+
+**Parameters:**
+- `particles_path` - GPUParticles/CPUParticles node path to synchronise.
+- `player_path` - AnimationPlayer controlling the target animation.
+- `animation` - Animation name that should drive emission.
+- `emission` (optional) - Dictionary of particle properties to update (e.g., `{ "lifetime": 1.5, "one_shot": true }`).
+- `overwrite_keys` (optional, default `true`) - Remove existing emission keys before inserting new ones.
+- `add_animation_keys` (optional, default `true`) - Insert animation keys toggling `emitting` on/off.
+- `transaction_id` (optional) - Existing transaction identifier when batching edits across commands.
+
+**Example:**
+```
+Tie the dash smoke particles to the “Dash” animation so they emit for the animation’s duration and stop automatically when the clip finishes.
+```
+
 ## MCP Resources
 
 ### godot://physics/world
