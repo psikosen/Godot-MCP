@@ -26,6 +26,9 @@ func _initialize_command_processors():
         var editor_script_commands = MCPEditorScriptCommands.new()  # Add our new processor
         var navigation_commands = MCPNavigationCommands.new()
         var animation_commands = MCPAnimationCommands.new()
+        var xr_commands = MCPXRCommands.new()
+        var multiplayer_commands = MCPMultiplayerCommands.new()
+        var compression_commands = MCPCompressionCommands.new()
 	
 	# Set server reference for all processors
 	node_commands._websocket_server = _websocket_server
@@ -36,6 +39,9 @@ func _initialize_command_processors():
         editor_script_commands._websocket_server = _websocket_server  # Set server reference
         navigation_commands._websocket_server = _websocket_server
         animation_commands._websocket_server = _websocket_server
+        xr_commands._websocket_server = _websocket_server
+        multiplayer_commands._websocket_server = _websocket_server
+        compression_commands._websocket_server = _websocket_server
 	
 	# Add them to our processor list
 	_command_processors.append(node_commands)
@@ -46,6 +52,9 @@ func _initialize_command_processors():
         _command_processors.append(editor_script_commands)  # Add to processor list
         _command_processors.append(navigation_commands)
         _command_processors.append(animation_commands)
+        _command_processors.append(xr_commands)
+        _command_processors.append(multiplayer_commands)
+        _command_processors.append(compression_commands)
 	
 	# Add them as children for proper lifecycle management
 	add_child(node_commands)
@@ -56,6 +65,9 @@ func _initialize_command_processors():
         add_child(editor_script_commands)  # Add as child
         add_child(navigation_commands)
         add_child(animation_commands)
+        add_child(xr_commands)
+        add_child(multiplayer_commands)
+        add_child(compression_commands)
 
 func _handle_command(client_id: int, command: Dictionary) -> void:
 	var command_type = command.get("type", "")

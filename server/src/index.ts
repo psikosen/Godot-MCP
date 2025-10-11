@@ -9,6 +9,9 @@ import { permissionTools } from './tools/permission_tools.js';
 import { navigationTools } from './tools/navigation_tools.js';
 import { audioTools } from './tools/audio_tools.js';
 import { animationTools } from './tools/animation_tools.js';
+import { xrTools } from './tools/xr_tools.js';
+import { multiplayerTools } from './tools/multiplayer_tools.js';
+import { compressionTools } from './tools/compression_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
@@ -41,6 +44,9 @@ import {
   currentScriptResource
 } from './resources/editor_resources.js';
 import { uiThemeResource } from './resources/ui_resources.js';
+import { xrInterfacesResource } from './resources/xr_resources.js';
+import { multiplayerStateResource } from './resources/multiplayer_resources.js';
+import { compressionSettingsResource } from './resources/compression_resources.js';
 
 /**
  * Main entry point for the Godot MCP server
@@ -76,6 +82,9 @@ async function main() {
     ...navigationTools,
     ...audioTools,
     ...animationTools,
+    ...xrTools,
+    ...multiplayerTools,
+    ...compressionTools,
   ].forEach(tool => {
     registerTool(tool);
   });
@@ -94,6 +103,9 @@ async function main() {
   server.addResource(animationTracksResource);
   server.addResource(editorStateResource);
   server.addResource(uiThemeResource);
+  server.addResource(xrInterfacesResource);
+  server.addResource(multiplayerStateResource);
+  server.addResource(compressionSettingsResource);
   server.addResource(selectedNodeResource);
   server.addResource(currentScriptResource);
   server.addResource(sceneStructureResource);
