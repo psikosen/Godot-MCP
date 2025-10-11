@@ -57,6 +57,7 @@
 ### Command expansions — UI & Interaction
 - [ ] `create_theme_override` to author Control theme overrides on nodes.
 - [ ] `configure_input_action_context` to batch-edit input actions tied to context-specific gameplay states.
+- [x] `configure_camera2d_limits` to adjust limit bounds, smoothing, and new dedicated editor settings for Camera2D nodes.
 - [ ] `wire_signal_handler` to connect node signals to target scripts with stub generation.
 - [ ] `layout_ui_grid` to auto-arrange Containers using anchor/margin presets from upstream templates.
 - [ ] `validate_accessibility` to scan UI scenes for accessibility metadata (focus, labels, navigation).
@@ -75,6 +76,7 @@
 - [ ] `unwrap_lightmap_uv2` to invoke the lightmapper/xatlas UV unwrap pipeline from MCP.
 - [ ] `optimize_mesh_lods` to call meshoptimizer decimation for LOD generation.
 - [ ] `configure_environment` to edit WorldEnvironment settings (sky, fog, lighting) with undo support.
+- [ ] `preview_environment_sun_settings` to drive the sun/environment preview popup with undo-aware adjustments.
 
 ### Command expansions — Project & Editor automation
 - [ ] `configure_project_setting` guard-railed writes to `ProjectSettings` with typed validation.

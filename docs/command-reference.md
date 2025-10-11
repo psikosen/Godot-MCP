@@ -114,6 +114,20 @@ Remove a node from a named group with full undo/redo support.
 Remove "Boss" from the "spawned_enemies" group after the fight ends.
 ```
 
+### configure_camera2d_limits
+Configure Camera2D limit boundaries, smoothing behaviour, and editor visualization helpers using undo-aware transactions.
+
+**Parameters:**
+- `node_path` - Path to the Camera2D node to configure.
+- `limits` (optional) - Dictionary of limit settings such as `enabled`, `left`, `right`, `top`, `bottom`, `smoothed`, and `draw_limits`.
+- `smoothing` (optional) - Dictionary toggling `position_enabled`, `position_speed`, `rotation_enabled`, and `rotation_speed`.
+- `transaction_id` (optional) - Use an existing transaction to batch configuration changes.
+
+**Example:**
+```
+Clamp the gameplay camera to a 512x256 region and enable smoothed edges so movement feels natural.
+```
+
 ### list_node_groups
 List all groups a node currently belongs to.
 

@@ -36,6 +36,40 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
+var hasConfigurationEntries = function (value) {
+    return !!value && Object.values(value).some(function (entry) { return entry !== undefined; });
+};
+var camera2DLimitsSchema = z
+    .object({
+    enabled: z.boolean().optional().describe('Enable or disable Camera2D limits.'),
+    draw_limits: z.boolean().optional().describe('Toggle visualization of Camera2D limits in the editor.'),
+    smoothed: z.boolean().optional().describe('Enable smoothing when the camera hits configured limits.'),
+    left: z.number().int().optional().describe('Left boundary in pixels.'),
+    right: z.number().int().optional().describe('Right boundary in pixels.'),
+    top: z.number().int().optional().describe('Top boundary in pixels.'),
+    bottom: z.number().int().optional().describe('Bottom boundary in pixels.'),
+})
+    .refine(function (value) { return Object.values(value).some(function (entry) { return entry !== undefined; }); }, {
+    message: 'Provide at least one limit property to update.',
+});
+var camera2DSmoothingSchema = z
+    .object({
+    position_enabled: z.boolean().optional().describe('Enable position smoothing for Camera2D.'),
+    position_speed: z
+        .number()
+        .nonnegative()
+        .optional()
+        .describe('Smoothing speed used when moving towards the target position.'),
+    rotation_enabled: z.boolean().optional().describe('Enable rotation smoothing for Camera2D.'),
+    rotation_speed: z
+        .number()
+        .nonnegative()
+        .optional()
+        .describe('Smoothing speed used when rotating towards the target angle.'),
+})
+    .refine(function (value) { return Object.values(value).some(function (entry) { return entry !== undefined; }); }, {
+    message: 'Provide at least one smoothing property to update.',
+});
 /**
  * Definition for node tools - operations that manipulate nodes in the scene tree
  */
@@ -388,6 +422,79 @@ export var nodeTools = [
         },
     },
     {
+        name: 'configure_camera2d_limits',
+        description: 'Adjust Camera2D limit bounds, smoothing, and editor visualization using undo-aware transactions.',
+        parameters: z
+            .object({
+            node_path: z
+                .string()
+                .describe('Path to the Camera2D node that should be configured (e.g. "/root/MainScene/Camera2D")'),
+            transaction_id: z
+                .string()
+                .optional()
+                .describe('Optional scene transaction identifier used to batch operations before committing.'),
+            limits: camera2DLimitsSchema.optional(),
+            smoothing: camera2DSmoothingSchema.optional(),
+        })
+            .superRefine(function (value, ctx) {
+            var hasLimits = value.limits !== undefined;
+            var hasSmoothing = value.smoothing !== undefined;
+            if (!hasLimits && !hasSmoothing) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'Provide limits or smoothing properties to update.',
+                    path: ['limits'],
+                });
+            }
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, payload, result, status_7, changeSummary, suffix, error_9;
+            var _c, _d;
+            var node_path = _b.node_path, transaction_id = _b.transaction_id, limits = _b.limits, smoothing = _b.smoothing;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _e.label = 1;
+                    case 1:
+                        _e.trys.push([1, 3, , 4]);
+                        payload = { node_path: node_path };
+                        if (transaction_id) {
+                            payload.transaction_id = transaction_id;
+                        }
+                        if (hasConfigurationEntries(limits)) {
+                            payload.limits = limits;
+                        }
+                        if (hasConfigurationEntries(smoothing)) {
+                            payload.smoothing = smoothing;
+                        }
+                        return [4 /*yield*/, godot.sendCommand('configure_camera2d_limits', payload)];
+                    case 2:
+                        result = _e.sent();
+                        status_7 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
+                        if (status_7 === 'no_change') {
+                            return [2 /*return*/, "Camera2D at ".concat(node_path, " already matches the requested configuration.")];
+                        }
+                        changeSummary = Array.isArray(result.changes)
+                            ? result.changes
+                                .map(function (change) { return "".concat(change.property, ": ").concat(JSON.stringify(change.value)); })
+                                .join(', ')
+                            : undefined;
+                        suffix = changeSummary && changeSummary.length > 0 ? " (".concat(changeSummary, ")") : '';
+                        return [2 /*return*/, "Configured Camera2D limits for ".concat((_d = result.node_path) !== null && _d !== void 0 ? _d : node_path, " [").concat(status_7, "]").concat(suffix)];
+                    case 3:
+                        error_9 = _e.sent();
+                        throw new Error("Failed to configure Camera2D limits: ".concat(error_9.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+            escalationPrompt: 'The assistant is requesting to modify Camera2D boundaries and smoothing. Approve if the scene should adopt these camera constraints.',
+        },
+    },
+    {
         name: 'list_node_groups',
         description: 'List all groups assigned to a specific node',
         parameters: z.object({
@@ -395,7 +502,7 @@ export var nodeTools = [
                 .describe('Path to the node whose groups should be listed'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, groups, error_9;
+            var godot, result, groups, error_10;
             var _c;
             var node_path = _b.node_path;
             return __generator(this, function (_d) {
@@ -414,8 +521,8 @@ export var nodeTools = [
                         }
                         return [2 /*return*/, "Groups for node ".concat(node_path, ":\n").concat(groups.join('\n'))];
                     case 3:
-                        error_9 = _d.sent();
-                        throw new Error("Failed to list node groups: ".concat(error_9.message));
+                        error_10 = _d.sent();
+                        throw new Error("Failed to list node groups: ".concat(error_10.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -433,7 +540,7 @@ export var nodeTools = [
                 .describe('Group name to query'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, nodes, formatted, error_10;
+            var godot, result, nodes, formatted, error_11;
             var _c;
             var group_name = _b.group_name;
             return __generator(this, function (_d) {
@@ -455,8 +562,8 @@ export var nodeTools = [
                             .join('\n');
                         return [2 /*return*/, "Nodes in group \"".concat(group_name, "\":\n").concat(formatted)];
                     case 3:
-                        error_10 = _d.sent();
-                        throw new Error("Failed to list nodes in group: ".concat(error_10.message));
+                        error_11 = _d.sent();
+                        throw new Error("Failed to list nodes in group: ".concat(error_11.message));
                     case 4: return [2 /*return*/];
                 }
             });
