@@ -688,6 +688,156 @@ Synchronise particle emission settings with an animation timeline and optionally
 Tie the dash smoke particles to the “Dash” animation so they emit for the animation’s duration and stop automatically when the clip finishes.
 ```
 
+## XR Tools
+
+### list_xr_interfaces
+Return all XR interfaces registered with the project along with their initialisation state and capabilities.
+
+**Parameters:** None
+
+**Example:**
+```
+List every XR interface available so I can confirm OpenXR is active.
+```
+
+### initialize_xr_interface
+Initialise a specific XR interface and optionally promote it to the primary interface for the session.
+
+**Parameters:**
+- `interface_name` - XR interface name as reported by Godot (e.g., `OpenXR`, `WebXR`).
+- `make_primary` (optional, default `false`) - Whether the interface should become the primary interface.
+- `start_session` (optional, default `true`) - Request a session start when the interface supports it.
+
+**Example:**
+```
+Initialise the OpenXR interface and make it the primary platform for editor testing.
+```
+
+### shutdown_xr_interface
+Shut down an XR interface, ending any active session and releasing resources.
+
+**Parameters:**
+- `interface_name` - XR interface to stop.
+
+**Example:**
+```
+Stop the OpenXR interface after we finish testing VR interactions.
+```
+
+### save_xr_project_settings
+Persist XR-specific ProjectSettings paths so collaborators load the same configuration automatically.
+
+**Parameters:**
+- `settings` - Either an array of `{ path, value }` entries or a dictionary mapping ProjectSettings paths to values.
+- `save` (optional, default `true`) - Save `project.godot` immediately after applying changes.
+
+**Example:**
+```
+Enable the OpenXR rendering setting and persist it to the project file.
+```
+
+## Multiplayer Tools
+
+### get_multiplayer_state
+Capture the current SceneTree multiplayer snapshot, including peer IDs, authority flags, and peer class details.
+
+**Parameters:** None
+
+**Example:**
+```
+Summarise the multiplayer state so I can confirm which peer is acting as the server.
+```
+
+### create_multiplayer_peer
+Create and attach an ENet, WebSocket, or WebRTC peer to the SceneTree in server or client mode.
+
+**Parameters:**
+- `peer_type` - Transport type (`enet`, `websocket`, or `webrtc`).
+- `mode` (optional, default `server`) - Whether to create the peer in `server` or `client` mode.
+- `port` (optional) - Listen or connect port depending on the mode.
+- `max_clients` (optional) - Maximum concurrent clients when running an ENet server.
+- `address` (optional) - Remote address for ENet clients.
+- `url` (optional) - WebSocket URL for WebSocket clients.
+- `protocols` (optional) - Array of WebSocket subprotocols when hosting a WebSocket server.
+
+**Example:**
+```
+Start an ENet server on port 9123 with support for 8 simultaneous clients.
+```
+
+### teardown_multiplayer_peer
+Disconnect and remove the active multiplayer peer, returning the project to single-player execution.
+
+**Parameters:** None
+
+**Example:**
+```
+Shut down the multiplayer peer once the playtest session ends.
+```
+
+### spawn_multiplayer_scene
+Instantiate a PackedScene and optionally assign multiplayer authority to a specific peer.
+
+**Parameters:**
+- `scene_path` - PackedScene resource path to instantiate.
+- `parent_path` (optional, default `/root`) - Scene tree location where the instance should be added.
+- `owner_peer_id` (optional) - Peer ID granted multiplayer authority for the spawned instance.
+
+**Example:**
+```
+Spawn res://scenes/multiplayer_lobby.tscn under /root and grant authority to peer 1.
+```
+
+## Compression Tools
+
+### configure_texture_compression
+Update platform-scoped GPU compression settings and optionally persist them to `project.godot`.
+
+**Parameters:**
+- `platform` - Platform segment appended to `rendering/textures/vram_compression/<platform>`.
+- `settings` - Dictionary of option/value pairs to apply beneath the platform segment.
+- `save` (optional, default `true`) - Save `project.godot` after the update.
+
+**Example:**
+```
+Set the mobile compression preset to favour ASTC for mid-tier Android devices.
+```
+
+### batch_reimport_textures
+Trigger a reimport of multiple textures so the latest compression settings are applied across the project.
+
+**Parameters:**
+- `paths` - Array of texture resource paths (`res://...`) to reimport.
+
+**Example:**
+```
+Reimport every icon texture after changing the compression preset.
+```
+
+### create_texture_import_preset
+Register a reusable import preset tailored to a particular texture importer (ASTC/KTX/WebP workflows, for example).
+
+**Parameters:**
+- `preset_name` - Identifier stored under `import/presets/<importer>/<preset_name>`.
+- `importer` (optional, default `texture`) - Importer namespace the preset belongs to.
+- `options` - Dictionary of importer-specific options.
+- `save` (optional, default `true`) - Save `project.godot` after registering the preset.
+
+**Example:**
+```
+Create a WebP import preset that forces lossless compression for UI atlases.
+```
+
+### list_texture_compression_settings
+Return the texture compression presets and import options currently registered in ProjectSettings.
+
+**Parameters:** None
+
+**Example:**
+```
+List every compression preset configured so I can confirm the mobile overrides are present.
+```
+
 ## MCP Resources
 
 ### godot://physics/world

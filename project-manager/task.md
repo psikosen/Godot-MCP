@@ -94,6 +94,6 @@
 - [ ] Rendering assets: support GLTF/FBX import workflows leveraging `modules/gltf`, `modules/fbx`, and `modules/xatlas_unwrap` utilities.
 - [x] Materials & light transport: surface shader, lightmap, and mesh optimization pipelines aligned with `modules/glslang`, `modules/lightmapper_rd`, and `modules/meshoptimizer`.
 - [ ] Audio: automate audio bus, stream, and interactive music tooling with `modules/interactive_music`, `modules/ogg`, and `modules/vorbis`.
-- [ ] XR & VR: implement project configuration flows for `modules/openxr`, `modules/mobile_vr`, and `modules/webxr`.
-- [ ] Multiplayer & networking: add project scaffolds and live session utilities for `modules/multiplayer`, `modules/webrtc`, and `modules/websocket`.
-- [ ] Compression & texture pipelines: orchestrate transcoding and compression tasks across `modules/astcenc`, `modules/ktx`, and `modules/webp`.
+- [x] XR & VR: implement project configuration flows for `modules/openxr`, `modules/mobile_vr`, and `modules/webxr`.
+- [x] Multiplayer & networking: add project scaffolds and live session utilities for `modules/multiplayer`, `modules/webrtc`, and `modules/websocket`.
+- [x] Compression & texture pipelines: orchestrate transcoding and compression tasks across `modules/astcenc`, `modules/ktx`, and `modules/webp`.

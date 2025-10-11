@@ -44,6 +44,9 @@ const { physicsWorldResource } = await import('../dist/resources/physics_resourc
 const { animationStateMachinesResource, animationTracksResource } = await import('../dist/resources/animation_resources.js');
 const { editorStateResource, selectedNodeResource, currentScriptResource } = await import('../dist/resources/editor_resources.js');
 const { uiThemeResource } = await import('../dist/resources/ui_resources.js');
+const { xrInterfacesResource } = await import('../dist/resources/xr_resources.js');
+const { multiplayerStateResource } = await import('../dist/resources/multiplayer_resources.js');
+const { compressionSettingsResource } = await import('../dist/resources/compression_resources.js');
 
 describe('Godot MCP resources', () => {
   beforeEach(() => {
@@ -197,6 +200,30 @@ describe('Godot MCP resources', () => {
       include_fonts: true,
     });
     expect(result.text).toContain('types');
+  });
+
+  it('loads XR interface metadata', async () => {
+    mockSendCommand.mockResolvedValueOnce({ interfaces: [] });
+    const result = await xrInterfacesResource.load();
+
+    expect(mockSendCommand).toHaveBeenCalledWith('list_xr_interfaces', {});
+    expect(result.text).toContain('interfaces');
+  });
+
+  it('loads multiplayer state snapshots', async () => {
+    mockSendCommand.mockResolvedValueOnce({ unique_id: 1, connected_peers: [] });
+    const result = await multiplayerStateResource.load();
+
+    expect(mockSendCommand).toHaveBeenCalledWith('get_multiplayer_state', {});
+    expect(result.text).toContain('unique_id');
+  });
+
+  it('loads compression preset data', async () => {
+    mockSendCommand.mockResolvedValueOnce({ settings: {} });
+    const result = await compressionSettingsResource.load();
+
+    expect(mockSendCommand).toHaveBeenCalledWith('list_texture_compression_settings', {});
+    expect(result.text).toContain('settings');
   });
 
 });

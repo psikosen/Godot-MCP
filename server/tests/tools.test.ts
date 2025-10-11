@@ -125,6 +125,9 @@ const { navigationTools } = await import('../dist/tools/navigation_tools.js');
 const { audioTools } = await import('../dist/tools/audio_tools.js');
 const { animationTools } = await import('../dist/tools/animation_tools.js');
 const { patchTools } = await import('../dist/tools/patch_tools.js');
+const { xrTools } = await import('../dist/tools/xr_tools.js');
+const { multiplayerTools } = await import('../dist/tools/multiplayer_tools.js');
+const { compressionTools } = await import('../dist/tools/compression_tools.js');
 
 const getTool = (collection: MCPTool[], name: string): MCPTool => {
   const tool = collection.find(item => item.name === name);
@@ -356,6 +359,63 @@ const godotCommandCases: Array<{
       animation: 'Idle',
       emission: { lifetime: 1.2 },
     },
+  },
+  { collection: xrTools, name: 'list_xr_interfaces', command: 'list_xr_interfaces', args: {} },
+  {
+    collection: xrTools,
+    name: 'initialize_xr_interface',
+    command: 'initialize_xr_interface',
+    args: { interface_name: 'OpenXR', make_primary: true },
+  },
+  {
+    collection: xrTools,
+    name: 'shutdown_xr_interface',
+    command: 'shutdown_xr_interface',
+    args: { interface_name: 'OpenXR' },
+  },
+  {
+    collection: xrTools,
+    name: 'save_xr_project_settings',
+    command: 'save_xr_project_settings',
+    args: { settings: [{ path: 'xr/openxr/enabled', value: true }], save: true },
+  },
+  { collection: multiplayerTools, name: 'get_multiplayer_state', command: 'get_multiplayer_state', args: {} },
+  {
+    collection: multiplayerTools,
+    name: 'create_multiplayer_peer',
+    command: 'create_multiplayer_peer',
+    args: { peer_type: 'enet', mode: 'server', port: 9000 },
+  },
+  { collection: multiplayerTools, name: 'teardown_multiplayer_peer', command: 'teardown_multiplayer_peer', args: {} },
+  {
+    collection: multiplayerTools,
+    name: 'spawn_multiplayer_scene',
+    command: 'spawn_multiplayer_scene',
+    args: { scene_path: 'res://scenes/network.tscn', parent_path: '/root', owner_peer_id: 1 },
+  },
+  {
+    collection: compressionTools,
+    name: 'configure_texture_compression',
+    command: 'configure_texture_compression',
+    args: { platform: 'mobile', settings: { mode: 'astc' }, save: true },
+  },
+  {
+    collection: compressionTools,
+    name: 'batch_reimport_textures',
+    command: 'batch_reimport_textures',
+    args: { paths: ['res://textures/icon.png'] },
+  },
+  {
+    collection: compressionTools,
+    name: 'create_texture_import_preset',
+    command: 'create_texture_import_preset',
+    args: { preset_name: 'astc_high', importer: 'texture', options: { 'compress/mode': 'Lossy' }, save: true },
+  },
+  {
+    collection: compressionTools,
+    name: 'list_texture_compression_settings',
+    command: 'list_texture_compression_settings',
+    args: {},
   },
 ];
 

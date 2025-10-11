@@ -18,6 +18,9 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
   - **CSG & GridMap Helpers**: Prototype boolean geometry and GridMap layouts with undo-safe editing primitives
   - **Project Commands**: Access project settings and resources
   - **Editor Commands**: Control various editor functionality
+  - **XR Commands**: Inspect interfaces, initialize platforms, and persist XR project settings
+  - **Multiplayer Commands**: Spin up ENet/WebSocket/WebRTC peers and spawn network-ready scenes
+  - **Compression Commands**: Manage GPU texture presets, import profiles, and batch reimports
 
 ## Quick Setup
 
@@ -116,6 +119,9 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `godot://physics/world` - Live snapshot of 2D/3D physics spaces with per-space gravity, body/area/joint inventories, and configuration metadata.
 - `godot://animation/state-machines` - Inspect AnimationTree graphs, blend spaces, and transitions for the active scene.
 - `godot://animation/tracks` - Read AnimationPlayer timelines, tracks, and keyframes with keyframe metadata.
+- `godot://xr/interfaces` - Report available XR interfaces, initialization state, and capabilities.
+- `godot://multiplayer/state` - Summarize the active SceneTree multiplayer peer, connectivity, and authority configuration.
+- `godot://assets/compression-presets` - Surface configured texture compression presets and import profiles.
 
 #### Upcoming Resource Endpoints (sourced from godotengine/godot)
 - `godot://ui/theme` - Surface the currently applied UI Theme resources, styles, and fonts for audit.
@@ -190,6 +196,24 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `remove_input_event_from_action` - Remove an input event by index or matching fields
 - `list_audio_buses` - Enumerate the audio bus graph with volume, routing, and effect status
 - `configure_audio_bus` - Adjust audio bus volume, routing, and effect enablement with optional persistence
+
+#### XR Commands
+- `list_xr_interfaces` - Enumerate XR interfaces, initialization state, and capabilities exposed by the project build.
+- `initialize_xr_interface` - Initialize a named XR interface and optionally promote it to the primary interface.
+- `shutdown_xr_interface` - Gracefully end the XR session for a specific interface and release resources.
+- `save_xr_project_settings` - Persist XR-related ProjectSettings entries for deterministic editor configuration.
+
+#### Multiplayer Commands
+- `get_multiplayer_state` - Capture the SceneTree multiplayer snapshot including connected peers and authority metadata.
+- `create_multiplayer_peer` - Configure ENet, WebSocket, or WebRTC peers in server/client mode for playtesting.
+- `teardown_multiplayer_peer` - Disconnect and clear the active multiplayer peer returning the scene to single-player mode.
+- `spawn_multiplayer_scene` - Instantiate a PackedScene and optionally assign multiplayer authority for quick session setup.
+
+#### Compression Commands
+- `configure_texture_compression` - Apply GPU compression options scoped to a platform and optionally save to disk.
+- `batch_reimport_textures` - Reimport a batch of textures so new compression presets are applied consistently.
+- `create_texture_import_preset` - Register reusable import presets for ASTC/KTX/WebP oriented workflows.
+- `list_texture_compression_settings` - Inspect the current compression presets and import settings stored in ProjectSettings.
 
 #### Patch Commands
 - `preview_patch` - Preview a diff before it is applied

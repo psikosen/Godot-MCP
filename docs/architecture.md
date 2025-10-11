@@ -59,6 +59,7 @@ The MCP server bridges Claude and Godot:
 - Validates command parameters
 - Formats responses for Claude's consumption
 - Provides help text and examples
+- Encapsulates domain-specific suites for XR setup, multiplayer scaffolding, and asset compression automation
 
 #### Project Context Indexer
 - Scans the project tree (excluding transient directories) and caches metadata

@@ -119,6 +119,27 @@ The server provides the following tools to Claude:
 - **save_scene**: Save the current scene
 - **open_scene**: Open a scene file
 
+### XR Automation
+
+- **list_xr_interfaces**: Inspect XR interfaces and capabilities exposed by the editor.
+- **initialize_xr_interface**: Start a specific XR interface and optionally promote it to primary.
+- **shutdown_xr_interface**: Stop a running XR interface session.
+- **save_xr_project_settings**: Persist XR-related ProjectSettings for reproducible setups.
+
+### Multiplayer Utilities
+
+- **get_multiplayer_state**: Fetch SceneTree multiplayer snapshot including peers and authority data.
+- **create_multiplayer_peer**: Configure ENet, WebSocket, or WebRTC peers in server/client mode.
+- **teardown_multiplayer_peer**: Clear the active multiplayer peer connection.
+- **spawn_multiplayer_scene**: Instantiate network-ready scenes and assign authority.
+
+### Asset Compression & Import Helpers
+
+- **configure_texture_compression**: Update platform-specific GPU compression presets.
+- **batch_reimport_textures**: Reimport textures to apply new compression settings.
+- **create_texture_import_preset**: Register reusable import presets for ASTC/KTX/WebP workflows.
+- **list_texture_compression_settings**: Inspect compression presets currently stored in ProjectSettings.
+
 ## Implementation Details
 
 ### Architecture

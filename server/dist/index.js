@@ -65,6 +65,9 @@ import { permissionTools } from './tools/permission_tools.js';
 import { navigationTools } from './tools/navigation_tools.js';
 import { audioTools } from './tools/audio_tools.js';
 import { animationTools } from './tools/animation_tools.js';
+import { xrTools } from './tools/xr_tools.js';
+import { multiplayerTools } from './tools/multiplayer_tools.js';
+import { compressionTools } from './tools/compression_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 // Import resources
@@ -76,6 +79,9 @@ import { physicsWorldResource } from './resources/physics_resources.js';
 import { animationStateMachinesResource, animationTracksResource, } from './resources/animation_resources.js';
 import { editorStateResource, selectedNodeResource, currentScriptResource } from './resources/editor_resources.js';
 import { uiThemeResource } from './resources/ui_resources.js';
+import { xrInterfacesResource } from './resources/xr_resources.js';
+import { multiplayerStateResource } from './resources/multiplayer_resources.js';
+import { compressionSettingsResource } from './resources/compression_resources.js';
 /**
  * Main entry point for the Godot MCP server
  */
@@ -104,7 +110,7 @@ function main() {
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true).forEach(function (tool) {
                         registerTool(tool);
                     });
                     // Register all resources
@@ -121,6 +127,9 @@ function main() {
                     server.addResource(animationTracksResource);
                     server.addResource(editorStateResource);
                     server.addResource(uiThemeResource);
+                    server.addResource(xrInterfacesResource);
+                    server.addResource(multiplayerStateResource);
+                    server.addResource(compressionSettingsResource);
                     server.addResource(selectedNodeResource);
                     server.addResource(currentScriptResource);
                     server.addResource(sceneStructureResource);
