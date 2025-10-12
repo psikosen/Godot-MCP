@@ -17,6 +17,7 @@
 - [x] Update command documentation to include the new tooling
 - [x] Run TypeScript build to ensure the server compiles after changes
 - [x] Ship read-only audio bus inspection via AudioServer to expose routing and effect metadata
+- [x] Document UI & Interaction epic completion and deduplicate redundant command implementations in the Godot addon
 
 ## Upcoming — Align MCP coverage with core Godot systems
 - [x] Add navigation map and agent tooling so MCP can read, bake, and edit resources backed by the `navigation_2d` and `navigation_3d` modules.
