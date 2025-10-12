@@ -80,14 +80,14 @@
 - [x] `preview_environment_sun_settings` to drive the sun/environment preview popup with undo-aware adjustments.
 
 ### Command expansions — Project & Editor automation
-- [ ] `configure_project_setting` guard-railed writes to `ProjectSettings` with typed validation.
-- [ ] `run_godot_headless` to launch deterministic headless playtests with log capture.
-- [ ] `capture_editor_profile` to stream Godot editor profiling data (CPU/GPU) back to MCP clients.
-- [ ] `manage_editor_plugins` to enable/disable addons and surface compatibility metadata.
-- [ ] `snapshot_scene_state` to save per-scene diffs for review before patching.
+- [x] `configure_project_setting` guard-railed writes to `ProjectSettings` with typed validation.
+- [x] `run_godot_headless` to launch deterministic headless playtests with log capture.
+- [x] `capture_editor_profile` to stream Godot editor profiling data (CPU/GPU) back to MCP clients.
+- [x] `manage_editor_plugins` to enable/disable addons and surface compatibility metadata.
+- [x] `snapshot_scene_state` to save per-scene diffs for review before patching.
 
 ## Research & dependencies
-- [ ] Review Godot upstream modules (animation, physics, audio, rendering) for exposed editor APIs enabling remote control.
-- [ ] Document authentication and permission considerations for higher-impact commands (e.g., headless run, profiling).
-- [ ] Align JSON schema for new resources/commands with FastMCP tool metadata to maintain discoverability.
+- [x] Review Godot upstream modules (animation, physics, audio, rendering) for exposed editor APIs enabling remote control.
+- [x] Document authentication and permission considerations for higher-impact commands (e.g., headless run, profiling).
+- [x] Align JSON schema for new resources/commands with FastMCP tool metadata to maintain discoverability.
 

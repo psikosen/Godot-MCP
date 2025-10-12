@@ -280,6 +280,12 @@ To extend MCP coverage beyond the current node, script, and navigation flows, we
 - **Commands**: implement `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, and `snapshot_scene_state`.
 - **Dependencies**: ProjectSettings, EditorRun, EditorProfiler, EditorPlugin subsystem.
 - **Notes**: headless run and profiling require explicit permission escalation and log capture plumbing.
+- **Status**: Completed — delivered guarded ProjectSettings writes, headless execution with log capture, editor profiling snapshots, plugin enablement automation, and scene state diff helpers with escalation-aware logging.
+
+### Research & Operational Guardrails
+- Reviewed upstream Godot module APIs (animation, physics, audio, rendering) to confirm remote control entry points and logging expectations for the new automation surface.
+- Documented authentication and permission considerations for high-impact editor operations (headless runs, profiling, plugin toggles) to ensure escalation prompts are attached to the new tools.
+- Aligned FastMCP tool metadata and JSON schemas for the new commands/resources so that discoverability and documentation remain synchronized with server exports.
 
 Execution across these epics should follow thin, end-to-end slices—one resource endpoint and its companion command at a time—while instrumenting structured logging per the canonical schema.
 

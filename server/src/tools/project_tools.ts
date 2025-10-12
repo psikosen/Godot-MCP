@@ -257,6 +257,80 @@ export const projectTools: MCPTool[] = [
     },
   },
   {
+    name: 'configure_project_setting',
+    description: 'Update a Godot project setting with type-aware coercion and optional persistence.',
+    parameters: z.object({
+      setting: z
+        .string()
+        .min(1)
+        .describe('Fully qualified ProjectSettings key to mutate (e.g. application/config/name).'),
+      value: z
+        .union([
+          z.string(),
+          z.number(),
+          z.boolean(),
+          z.array(z.unknown()),
+          z.record(z.unknown()),
+        ])
+        .describe('New value to assign to the project setting.'),
+      allow_new: z
+        .boolean()
+        .optional()
+        .describe('Allow creation of a setting if it does not already exist.'),
+      persist: z
+        .boolean()
+        .optional()
+        .describe('Persist changes to project.godot immediately (default false).'),
+      type_hint: z
+        .enum(['int', 'float', 'bool', 'string', 'array', 'dictionary'])
+        .optional()
+        .describe('Explicit type hint when coercing the provided value.'),
+    }),
+    execute: async ({
+      setting,
+      value,
+      allow_new,
+      persist,
+      type_hint,
+    }: {
+      setting: string;
+      value: unknown;
+      allow_new?: boolean;
+      persist?: boolean;
+      type_hint?: 'int' | 'float' | 'bool' | 'string' | 'array' | 'dictionary';
+    }): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const payload: Record<string, unknown> = {
+          setting,
+          value,
+        };
+
+        if (allow_new !== undefined) {
+          payload.allow_new = allow_new;
+        }
+
+        if (persist !== undefined) {
+          payload.persist = persist;
+        }
+
+        if (type_hint) {
+          payload.type_hint = type_hint;
+        }
+
+        const result = await godot.sendCommand<CommandResult>('configure_project_setting', payload);
+        return JSON.stringify(result, null, 2);
+      } catch (error) {
+        throw new Error(`Failed to configure project setting: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'admin',
+      escalationPrompt: 'Request approval to mutate Godot ProjectSettings entries.',
+    },
+  },
+  {
     name: 'add_input_action',
     description: 'Create or overwrite a Godot input action with optional default events.',
     parameters: z.object({
