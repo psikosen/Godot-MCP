@@ -395,6 +395,26 @@ const godotCommandCases: Array<{
     },
   },
   {
+    collection: audioTools,
+    name: 'analyze_waveform',
+    command: 'analyze_waveform',
+    args: { resource_path: 'res://audio/theme.ogg', envelope_bins: 128 },
+  },
+  {
+    collection: audioTools,
+    name: 'batch_import_audio_assets',
+    command: 'batch_import_audio_assets',
+    args: {
+      assets: [
+        {
+          path: 'res://audio/theme.ogg',
+          preset: 'music_high_quality',
+          options: { 'edit/loop': true, 'compress/mode': 'disabled' },
+        },
+      ],
+    },
+  },
+  {
     collection: editorTools,
     name: 'execute_editor_script',
     command: 'execute_editor_script',

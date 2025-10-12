@@ -262,6 +262,59 @@ var generateDynamicMusicLayerSchema = z
         });
     }
 });
+var analyzeWaveformSchema = z.object({
+    resource_path: z
+        .string()
+        .min(1, 'Audio resource path is required')
+        .describe('AudioStream resource to analyze (e.g. "res://audio/theme.ogg")'),
+    silence_threshold: z
+        .number()
+        .min(0.000001)
+        .max(0.1)
+        .optional()
+        .describe('Amplitude considered silence when computing ratios (default 0.0005)'),
+    envelope_bins: z
+        .number()
+        .int()
+        .min(16)
+        .max(4096)
+        .optional()
+        .describe('Number of min/max envelope bins to aggregate for waveform preview (default 256)'),
+});
+var audioImportAssetSchema = z.object({
+    path: z
+        .string()
+        .min(1, 'Audio resource path is required')
+        .describe('Audio asset to reimport (e.g. "res://audio/music.ogg")'),
+    preset: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Optional import preset name stored in the .import remap section'),
+    options: z
+        .record(z.any())
+        .optional()
+        .describe('Import parameter overrides written to the .import [params] section'),
+    import_settings: z
+        .record(z.any())
+        .optional()
+        .describe('Alias for options maintained for backwards compatibility'),
+});
+var batchImportAudioAssetsSchema = z
+    .object({
+    assets: z
+        .array(audioImportAssetSchema)
+        .optional()
+        .describe('Detailed audio asset descriptors with optional presets and options'),
+    paths: z
+        .array(z.string().min(1))
+        .optional()
+        .describe('Shorthand list of audio asset paths to reimport with existing settings'),
+})
+    .refine(function (value) { return (value.assets && value.assets.length > 0) || (value.paths && value.paths.length > 0); }, {
+    message: 'Provide at least one asset or path to import',
+    path: ['assets'],
+});
 var formatAudioPlayerResponse = function (result) {
     var _a, _b, _c;
     var nodePath = (_a = result.node_path) !== null && _a !== void 0 ? _a : 'unknown node';
@@ -411,6 +464,125 @@ var formatDynamicLayerResponse = function (result) {
     if (transitionLines.length > 0) {
         lines.push('Transitions:');
         lines.push(transitionLines.join('\n'));
+    }
+    return lines.join('\n');
+};
+var formatWaveformAnalysis = function (result) {
+    var _a, _b, _c, _d, _e;
+    var metadata = (_a = result.metadata) !== null && _a !== void 0 ? _a : {};
+    var resourcePath = (_c = (_b = metadata.resource_path) !== null && _b !== void 0 ? _b : result.resource_path) !== null && _c !== void 0 ? _c : 'res://audio/stream.audio';
+    var lengthSeconds = typeof metadata.length_seconds === 'number' ? metadata.length_seconds : undefined;
+    var mixRate = typeof metadata.mix_rate === 'number' ? metadata.mix_rate : undefined;
+    var channelCount = typeof metadata.channel_count === 'number' ? metadata.channel_count : undefined;
+    var analysisMode = (_d = result.analysis_mode) !== null && _d !== void 0 ? _d : 'metadata_only';
+    var limited = Boolean(result.limited);
+    var limitedReason = typeof result.limited_reason === 'string' ? result.limited_reason : undefined;
+    var silenceThreshold = typeof result.silence_threshold === 'number' ? result.silence_threshold : undefined;
+    var sampleFrames = typeof result.sample_frames === 'number' ? result.sample_frames : undefined;
+    var analysisDurationMs = typeof result.analysis_duration_ms === 'number' ? result.analysis_duration_ms : undefined;
+    var overall = (_e = result.overall) !== null && _e !== void 0 ? _e : {};
+    var channelSummaries = Array.isArray(result.channel_summaries)
+        ? result.channel_summaries
+        : [];
+    var formatDb = function (value) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return 'n/a';
+        }
+        return "".concat(value.toFixed(2), " dB");
+    };
+    var lines = [];
+    lines.push("Waveform analysis for ".concat(resourcePath));
+    lines.push("Mode: ".concat(analysisMode).concat(limited ? ' (limited)' : ''));
+    if (limitedReason) {
+        lines.push("Limitations: ".concat(limitedReason));
+    }
+    if (lengthSeconds !== undefined) {
+        lines.push("Length: ".concat(lengthSeconds.toFixed(3), "s"));
+    }
+    if (mixRate !== undefined) {
+        lines.push("Sample rate: ".concat(mixRate, " Hz"));
+    }
+    if (channelCount !== undefined) {
+        lines.push("Channels: ".concat(channelCount));
+    }
+    if (sampleFrames !== undefined) {
+        lines.push("Frames analyzed: ".concat(sampleFrames));
+    }
+    if (silenceThreshold !== undefined) {
+        lines.push("Silence threshold: ".concat(silenceThreshold));
+    }
+    if (analysisDurationMs !== undefined) {
+        lines.push("Analysis time: ".concat(analysisDurationMs.toFixed(2), " ms"));
+    }
+    if (Object.keys(overall).length > 0) {
+        var peakDb = typeof overall.peak_db === 'number' ? overall.peak_db : undefined;
+        var rmsDb = typeof overall.rms_db === 'number' ? overall.rms_db : undefined;
+        var crestDb = typeof overall.dynamic_range_db === 'number' ? overall.dynamic_range_db : undefined;
+        var summaryParts = ["peak ".concat(formatDb(peakDb)), "RMS ".concat(formatDb(rmsDb))];
+        if (crestDb !== undefined && Number.isFinite(crestDb)) {
+            summaryParts.push("crest ".concat(crestDb.toFixed(2), " dB"));
+        }
+        lines.push("Overall: ".concat(summaryParts.join(' | ')));
+    }
+    if (channelSummaries.length > 0) {
+        lines.push('Channels:');
+        channelSummaries.forEach(function (summary, index) {
+            var channelIndex = typeof summary.channel_index === 'number' ? summary.channel_index : index;
+            var peakDb = typeof summary.peak_db === 'number' ? summary.peak_db : undefined;
+            var rmsDb = typeof summary.rms_db === 'number' ? summary.rms_db : undefined;
+            var crestDb = typeof summary.crest_factor_db === 'number' ? summary.crest_factor_db : undefined;
+            var silenceRatio = typeof summary.silence_ratio === 'number' ? summary.silence_ratio : undefined;
+            var zcr = typeof summary.zero_crossings_per_second === 'number'
+                ? summary.zero_crossings_per_second
+                : undefined;
+            var parts = ["peak ".concat(formatDb(peakDb)), "RMS ".concat(formatDb(rmsDb))];
+            if (crestDb !== undefined && Number.isFinite(crestDb)) {
+                parts.push("crest ".concat(crestDb.toFixed(2), " dB"));
+            }
+            if (silenceRatio !== undefined && Number.isFinite(silenceRatio)) {
+                parts.push("silence ".concat((silenceRatio * 100).toFixed(1), "%"));
+            }
+            if (zcr !== undefined && Number.isFinite(zcr)) {
+                parts.push("ZCR ".concat(zcr.toFixed(1), "/s"));
+            }
+            lines.push("- Channel ".concat(channelIndex, ": ").concat(parts.join(' | ')));
+        });
+    }
+    return lines.join('\n');
+};
+var formatBatchImportAudioResult = function (result) {
+    var reimported = typeof result.reimported === 'number' ? result.reimported : 0;
+    var configUpdates = typeof result.config_updates === 'number' ? result.config_updates : 0;
+    var assets = Array.isArray(result.assets) ? result.assets : [];
+    var errors = Array.isArray(result.errors) ? result.errors : [];
+    var lines = [];
+    lines.push("Reimported ".concat(reimported, " audio asset").concat(reimported === 1 ? '' : 's', " (").concat(configUpdates, " config update").concat(configUpdates === 1 ? '' : 's', ")"));
+    if (assets.length > 0) {
+        lines.push('Assets:');
+        assets.forEach(function (asset) {
+            var _a, _b, _c, _d;
+            var resourcePath = (_b = (_a = asset.resource_path) !== null && _a !== void 0 ? _a : asset.path) !== null && _b !== void 0 ? _b : 'res://audio/asset.audio';
+            var status = (_c = asset.config_status) !== null && _c !== void 0 ? _c : 'unchanged';
+            var preset = (_d = asset.preset) !== null && _d !== void 0 ? _d : '';
+            var optionsApplied = typeof asset.options_applied === 'number' ? asset.options_applied : undefined;
+            var details = ["status=".concat(status)];
+            if (preset) {
+                details.push("preset=".concat(preset));
+            }
+            if (optionsApplied !== undefined) {
+                details.push("options=".concat(optionsApplied));
+            }
+            lines.push("- ".concat(resourcePath, ": ").concat(details.join(', ')));
+        });
+    }
+    if (errors.length > 0) {
+        lines.push('Warnings:');
+        errors.forEach(function (warning) {
+            var _a, _b, _c;
+            var path = (_b = (_a = warning.resource_path) !== null && _a !== void 0 ? _a : warning.path) !== null && _b !== void 0 ? _b : 'unknown';
+            var message = (_c = warning.error) !== null && _c !== void 0 ? _c : 'Unknown import warning';
+            lines.push("- ".concat(path, ": ").concat(message));
+        });
     }
     return lines.join('\n');
 };
@@ -631,6 +803,89 @@ export var audioTools = [
                     case 3:
                         error_3 = _b.sent();
                         throw new Error("Failed to generate dynamic music layer: ".concat(error_3.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'analyze_waveform',
+        description: 'Inspect waveform amplitude, RMS, crest factor, and optional envelope summaries for an AudioStream resource.',
+        parameters: analyzeWaveformSchema,
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, payload, result, error_4;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {
+                            resource_path: args.resource_path,
+                        };
+                        if (args.silence_threshold !== undefined) {
+                            payload.silence_threshold = args.silence_threshold;
+                        }
+                        if (args.envelope_bins !== undefined) {
+                            payload.envelope_bins = args.envelope_bins;
+                        }
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('analyze_waveform', payload)];
+                    case 2:
+                        result = _a.sent();
+                        return [2 /*return*/, formatWaveformAnalysis(result)];
+                    case 3:
+                        error_4 = _a.sent();
+                        throw new Error("Failed to analyze waveform: ".concat(error_4.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
+        name: 'batch_import_audio_assets',
+        description: 'Apply import presets or parameter overrides to audio assets and trigger a batch reimport through the EditorFileSystem.',
+        parameters: batchImportAudioAssetsSchema,
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, payload, result, error_5;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {};
+                        if (args.assets && args.assets.length > 0) {
+                            payload.assets = args.assets.map(function (asset) {
+                                var _a;
+                                var assetPayload = { path: asset.path };
+                                if (asset.preset !== undefined) {
+                                    assetPayload.preset = asset.preset;
+                                }
+                                var options = (_a = asset.options) !== null && _a !== void 0 ? _a : asset.import_settings;
+                                if (options !== undefined) {
+                                    assetPayload.options = options;
+                                }
+                                return assetPayload;
+                            });
+                        }
+                        if (args.paths && args.paths.length > 0) {
+                            payload.paths = args.paths;
+                        }
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('batch_import_audio_assets', payload)];
+                    case 2:
+                        result = _a.sent();
+                        return [2 /*return*/, formatBatchImportAudioResult(result)];
+                    case 3:
+                        error_5 = _a.sent();
+                        throw new Error("Failed to batch import audio assets: ".concat(error_5.message));
                     case 4: return [2 /*return*/];
                 }
             });

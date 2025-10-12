@@ -174,6 +174,8 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `author_audio_stream_player` - Create or configure AudioStreamPlayer nodes with stream assignments and playback settings
 - `author_interactive_music_graph` - Build or update AudioStreamInteractive resources with layered clips and transition logic
 - `generate_dynamic_music_layer` - Layer a new clip onto an interactive music resource with configurable entry/exit transitions
+- `analyze_waveform` - Produce amplitude, RMS, and crest factor summaries for AudioStream resources with optional envelope bins
+- `batch_import_audio_assets` - Apply import presets or parameter overrides to audio files and trigger a batch reimport
 
 #### Animation Commands
 - `list_animation_players` - Enumerate AnimationPlayer nodes, active playback settings, and contained animations.

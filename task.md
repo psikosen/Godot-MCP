@@ -67,8 +67,8 @@
 - [x] `configure_audio_bus` to insert/remove effects and adjust sends on the AudioServer.
 - [x] `author_audio_stream_player` to attach AudioStream resources with autoplay, 3D attenuation, and bus routing.
 - [x] `generate_dynamic_music_layer` to build InteractiveMusic transition tables.
-- [ ] `analyze_waveform` to produce basic waveform/loudness summaries for preview.
-- [ ] `batch_import_audio_assets` to drive import presets for WAV/OGG via the editor importer.
+- [x] `analyze_waveform` to produce basic waveform/loudness summaries for preview.
+- [x] `batch_import_audio_assets` to drive import presets for WAV/OGG via the editor importer.
 
 ### Command expansions — Rendering & Assets
 - [ ] `generate_material_variant` to clone materials with parameter overrides and optionally baked textures.

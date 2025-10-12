@@ -82,6 +82,24 @@ interface GenerateDynamicMusicLayerParams {
   make_initial?: boolean;
 }
 
+interface AnalyzeWaveformParams {
+  resource_path: string;
+  silence_threshold?: number;
+  envelope_bins?: number;
+}
+
+interface AudioImportAssetConfig {
+  path: string;
+  preset?: string;
+  options?: Record<string, unknown>;
+  import_settings?: Record<string, unknown>;
+}
+
+interface BatchImportAudioAssetsParams {
+  assets?: AudioImportAssetConfig[];
+  paths?: string[];
+}
+
 const audioPlayerTypeSchema = z.enum([
   'AudioStreamPlayer',
   'AudioStreamPlayer2D',
@@ -314,6 +332,65 @@ const generateDynamicMusicLayerSchema = z
     }
   });
 
+const analyzeWaveformSchema = z.object({
+  resource_path: z
+    .string()
+    .min(1, 'Audio resource path is required')
+    .describe('AudioStream resource to analyze (e.g. "res://audio/theme.ogg")'),
+  silence_threshold: z
+    .number()
+    .min(0.000001)
+    .max(0.1)
+    .optional()
+    .describe('Amplitude considered silence when computing ratios (default 0.0005)'),
+  envelope_bins: z
+    .number()
+    .int()
+    .min(16)
+    .max(4096)
+    .optional()
+    .describe('Number of min/max envelope bins to aggregate for waveform preview (default 256)'),
+});
+
+const audioImportAssetSchema = z.object({
+  path: z
+    .string()
+    .min(1, 'Audio resource path is required')
+    .describe('Audio asset to reimport (e.g. "res://audio/music.ogg")'),
+  preset: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Optional import preset name stored in the .import remap section'),
+  options: z
+    .record(z.any())
+    .optional()
+    .describe('Import parameter overrides written to the .import [params] section'),
+  import_settings: z
+    .record(z.any())
+    .optional()
+    .describe('Alias for options maintained for backwards compatibility'),
+});
+
+const batchImportAudioAssetsSchema = z
+  .object({
+    assets: z
+      .array(audioImportAssetSchema)
+      .optional()
+      .describe('Detailed audio asset descriptors with optional presets and options'),
+    paths: z
+      .array(z.string().min(1))
+      .optional()
+      .describe('Shorthand list of audio asset paths to reimport with existing settings'),
+  })
+  .refine(
+    (value) => (value.assets && value.assets.length > 0) || (value.paths && value.paths.length > 0),
+    {
+      message: 'Provide at least one asset or path to import',
+      path: ['assets'],
+    },
+  );
+
 const formatAudioPlayerResponse = (result: CommandResult): string => {
   const nodePath = (result.node_path as string) ?? 'unknown node';
   const nodeType = (result.node_type as string) ?? 'AudioStreamPlayer';
@@ -479,6 +556,148 @@ const formatDynamicLayerResponse = (result: CommandResult): string => {
   if (transitionLines.length > 0) {
     lines.push('Transitions:');
     lines.push(transitionLines.join('\n'));
+  }
+
+  return lines.join('\n');
+};
+
+const formatWaveformAnalysis = (result: CommandResult): string => {
+  const metadata = (result.metadata as Record<string, unknown>) ?? {};
+  const resourcePath =
+    (metadata.resource_path as string) ?? (result.resource_path as string) ?? 'res://audio/stream.audio';
+  const lengthSeconds = typeof metadata.length_seconds === 'number' ? (metadata.length_seconds as number) : undefined;
+  const mixRate = typeof metadata.mix_rate === 'number' ? (metadata.mix_rate as number) : undefined;
+  const channelCount = typeof metadata.channel_count === 'number' ? (metadata.channel_count as number) : undefined;
+  const analysisMode = (result.analysis_mode as string) ?? 'metadata_only';
+  const limited = Boolean(result.limited);
+  const limitedReason = typeof result.limited_reason === 'string' ? (result.limited_reason as string) : undefined;
+  const silenceThreshold =
+    typeof result.silence_threshold === 'number' ? (result.silence_threshold as number) : undefined;
+  const sampleFrames = typeof result.sample_frames === 'number' ? (result.sample_frames as number) : undefined;
+  const analysisDurationMs =
+    typeof result.analysis_duration_ms === 'number' ? (result.analysis_duration_ms as number) : undefined;
+  const overall = (result.overall as Record<string, unknown>) ?? {};
+  const channelSummaries = Array.isArray(result.channel_summaries)
+    ? (result.channel_summaries as Record<string, unknown>[])
+    : [];
+
+  const formatDb = (value?: number): string => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 'n/a';
+    }
+    return `${value.toFixed(2)} dB`;
+  };
+
+  const lines: string[] = [];
+  lines.push(`Waveform analysis for ${resourcePath}`);
+  lines.push(`Mode: ${analysisMode}${limited ? ' (limited)' : ''}`);
+  if (limitedReason) {
+    lines.push(`Limitations: ${limitedReason}`);
+  }
+  if (lengthSeconds !== undefined) {
+    lines.push(`Length: ${lengthSeconds.toFixed(3)}s`);
+  }
+  if (mixRate !== undefined) {
+    lines.push(`Sample rate: ${mixRate} Hz`);
+  }
+  if (channelCount !== undefined) {
+    lines.push(`Channels: ${channelCount}`);
+  }
+  if (sampleFrames !== undefined) {
+    lines.push(`Frames analyzed: ${sampleFrames}`);
+  }
+  if (silenceThreshold !== undefined) {
+    lines.push(`Silence threshold: ${silenceThreshold}`);
+  }
+  if (analysisDurationMs !== undefined) {
+    lines.push(`Analysis time: ${analysisDurationMs.toFixed(2)} ms`);
+  }
+
+  if (Object.keys(overall).length > 0) {
+    const peakDb = typeof overall.peak_db === 'number' ? (overall.peak_db as number) : undefined;
+    const rmsDb = typeof overall.rms_db === 'number' ? (overall.rms_db as number) : undefined;
+    const crestDb = typeof overall.dynamic_range_db === 'number' ? (overall.dynamic_range_db as number) : undefined;
+    const summaryParts = [`peak ${formatDb(peakDb)}`, `RMS ${formatDb(rmsDb)}`];
+    if (crestDb !== undefined && Number.isFinite(crestDb)) {
+      summaryParts.push(`crest ${crestDb.toFixed(2)} dB`);
+    }
+    lines.push(`Overall: ${summaryParts.join(' | ')}`);
+  }
+
+  if (channelSummaries.length > 0) {
+    lines.push('Channels:');
+    channelSummaries.forEach((summary, index) => {
+      const channelIndex =
+        typeof summary.channel_index === 'number' ? (summary.channel_index as number) : index;
+      const peakDb = typeof summary.peak_db === 'number' ? (summary.peak_db as number) : undefined;
+      const rmsDb = typeof summary.rms_db === 'number' ? (summary.rms_db as number) : undefined;
+      const crestDb = typeof summary.crest_factor_db === 'number' ? (summary.crest_factor_db as number) : undefined;
+      const silenceRatio = typeof summary.silence_ratio === 'number' ? (summary.silence_ratio as number) : undefined;
+      const zcr =
+        typeof summary.zero_crossings_per_second === 'number'
+          ? (summary.zero_crossings_per_second as number)
+          : undefined;
+
+      const parts = [`peak ${formatDb(peakDb)}`, `RMS ${formatDb(rmsDb)}`];
+      if (crestDb !== undefined && Number.isFinite(crestDb)) {
+        parts.push(`crest ${crestDb.toFixed(2)} dB`);
+      }
+      if (silenceRatio !== undefined && Number.isFinite(silenceRatio)) {
+        parts.push(`silence ${(silenceRatio * 100).toFixed(1)}%`);
+      }
+      if (zcr !== undefined && Number.isFinite(zcr)) {
+        parts.push(`ZCR ${zcr.toFixed(1)}/s`);
+      }
+
+      lines.push(`- Channel ${channelIndex}: ${parts.join(' | ')}`);
+    });
+  }
+
+  return lines.join('\n');
+};
+
+const formatBatchImportAudioResult = (result: CommandResult): string => {
+  const reimported = typeof result.reimported === 'number' ? (result.reimported as number) : 0;
+  const configUpdates = typeof result.config_updates === 'number' ? (result.config_updates as number) : 0;
+  const assets = Array.isArray(result.assets) ? (result.assets as Record<string, unknown>[]) : [];
+  const errors = Array.isArray(result.errors) ? (result.errors as Record<string, unknown>[]) : [];
+
+  const lines: string[] = [];
+  lines.push(
+    `Reimported ${reimported} audio asset${reimported === 1 ? '' : 's'} (${configUpdates} config update${
+      configUpdates === 1 ? '' : 's'
+    })`,
+  );
+
+  if (assets.length > 0) {
+    lines.push('Assets:');
+    assets.forEach((asset) => {
+      const resourcePath =
+        (asset.resource_path as string) ?? (asset.path as string) ?? 'res://audio/asset.audio';
+      const status = (asset.config_status as string) ?? 'unchanged';
+      const preset = (asset.preset as string) ?? '';
+      const optionsApplied =
+        typeof asset.options_applied === 'number' ? (asset.options_applied as number) : undefined;
+
+      const details: string[] = [`status=${status}`];
+      if (preset) {
+        details.push(`preset=${preset}`);
+      }
+      if (optionsApplied !== undefined) {
+        details.push(`options=${optionsApplied}`);
+      }
+
+      lines.push(`- ${resourcePath}: ${details.join(', ')}`);
+    });
+  }
+
+  if (errors.length > 0) {
+    lines.push('Warnings:');
+    errors.forEach((warning) => {
+      const path = (warning.resource_path as string) ?? (warning.path as string) ?? 'unknown';
+      const message = (warning.error as string) ?? 'Unknown import warning';
+      lines.push(`- ${path}: ${message}`);
+    });
   }
 
   return lines.join('\n');
@@ -693,6 +912,73 @@ export const audioTools: MCPTool[] = [
         return formatDynamicLayerResponse(result);
       } catch (error) {
         throw new Error(`Failed to generate dynamic music layer: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'analyze_waveform',
+    description:
+      'Inspect waveform amplitude, RMS, crest factor, and optional envelope summaries for an AudioStream resource.',
+    parameters: analyzeWaveformSchema,
+    execute: async (args: AnalyzeWaveformParams): Promise<string> => {
+      const godot = getGodotConnection();
+      const payload: Record<string, unknown> = {
+        resource_path: args.resource_path,
+      };
+
+      if (args.silence_threshold !== undefined) {
+        payload.silence_threshold = args.silence_threshold;
+      }
+      if (args.envelope_bins !== undefined) {
+        payload.envelope_bins = args.envelope_bins;
+      }
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('analyze_waveform', payload);
+        return formatWaveformAnalysis(result);
+      } catch (error) {
+        throw new Error(`Failed to analyze waveform: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+  {
+    name: 'batch_import_audio_assets',
+    description:
+      'Apply import presets or parameter overrides to audio assets and trigger a batch reimport through the EditorFileSystem.',
+    parameters: batchImportAudioAssetsSchema,
+    execute: async (args: BatchImportAudioAssetsParams): Promise<string> => {
+      const godot = getGodotConnection();
+      const payload: Record<string, unknown> = {};
+
+      if (args.assets && args.assets.length > 0) {
+        payload.assets = args.assets.map((asset) => {
+          const assetPayload: Record<string, unknown> = { path: asset.path };
+          if (asset.preset !== undefined) {
+            assetPayload.preset = asset.preset;
+          }
+          const options = asset.options ?? asset.import_settings;
+          if (options !== undefined) {
+            assetPayload.options = options;
+          }
+          return assetPayload;
+        });
+      }
+
+      if (args.paths && args.paths.length > 0) {
+        payload.paths = args.paths;
+      }
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('batch_import_audio_assets', payload);
+        return formatBatchImportAudioResult(result);
+      } catch (error) {
+        throw new Error(`Failed to batch import audio assets: ${(error as Error).message}`);
       }
     },
     metadata: {

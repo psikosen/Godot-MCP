@@ -702,6 +702,36 @@ Add a new clip layer to an existing `AudioStreamInteractive` resource (or update
 Add a "Drums" layer to res://audio/dynamic_theme.interactive using clip "Loop" as the base, crossfading on the next bar when entering and fading out over 2 beats when exiting.
 ```
 
+### analyze_waveform
+Analyse an AudioStream resource to produce metadata, amplitude envelopes, RMS values, and crest factor summaries for quick mastering checks.
+
+**Parameters:**
+- `resource_path` (required) - AudioStream resource path (e.g. `res://audio/theme.ogg`).
+- `silence_threshold` (optional, default `0.0005`) - Amplitude level treated as silence when calculating ratios and zero-crossing counts.
+- `envelope_bins` (optional, default `256`) - Number of min/max envelope buckets returned for waveform preview data.
+
+**Example:**
+```
+Analyse res://audio/theme.ogg with a 0.0001 silence threshold and generate 128 envelope bins for UI visualization.
+```
+
+### batch_import_audio_assets
+Apply import presets or override parameters for one or more audio assets and reimport them through Godot's `EditorFileSystem`.
+
+**Parameters:**
+- `assets` (optional) - Array of asset descriptors with:
+  - `path` (required) - Audio resource path to reimport.
+  - `preset` (optional) - Import preset name recorded in the `.import` remap section.
+  - `options` (optional) - Dictionary of importer parameters persisted under the `.import` `[params]` section.
+  - `import_settings` (optional) - Alias for `options` kept for backwards compatibility.
+- `paths` (optional) - Array of audio resource paths to reimport using their existing `.import` configuration.
+  > Provide at least one entry via `assets` or `paths`.
+
+**Example:**
+```
+Reimport res://audio/theme.ogg using the "music_high_quality" preset and set edit/loop to true while disabling compression.
+```
+
 ## Animation Commands
 
 ### list_animation_players

@@ -128,6 +128,12 @@ return true
                 "generate_dynamic_music_layer":
                         _generate_dynamic_music_layer(client_id, params, command_id)
                         return true
+                "analyze_waveform":
+                        _analyze_waveform(client_id, params, command_id)
+                        return true
+                "batch_import_audio_assets":
+                        _batch_import_audio_assets(client_id, params, command_id)
+                        return true
                 "configure_csg_shape":
                         _configure_csg_shape(client_id, params, command_id)
                         return true
@@ -2770,6 +2776,410 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 
         _log("Generated dynamic music layer", function_name, context)
         _send_success(client_id, response, command_id)
+
+func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_analyze_waveform"
+        var context := {
+                "command": "analyze_waveform",
+                "client_id": client_id,
+                "command_id": command_id,
+                "system_section": "audio_analysis",
+        }
+
+        var resource_path := String(params.get("resource_path", ""))
+        if resource_path.is_empty():
+                _log("Audio resource path is required for waveform analysis", function_name, context, true)
+                return _send_error(client_id, "Audio resource path is required", command_id)
+
+        var normalized_path := _normalize_resource_path(resource_path)
+        context["resource_path"] = normalized_path
+
+        if not ResourceLoader.exists(normalized_path):
+                context["resource_missing"] = true
+                _log("Audio resource not found for waveform analysis", function_name, context, true)
+                return _send_error(client_id, "Audio resource not found: %s" % normalized_path, command_id)
+
+        var audio_resource := ResourceLoader.load(normalized_path)
+        if audio_resource == null or not (audio_resource is AudioStream):
+                context["resource_type"] = audio_resource.get_class() if audio_resource else "null"
+                _log("Resource is not an AudioStream", function_name, context, true)
+                return _send_error(client_id, "Resource is not an AudioStream: %s" % normalized_path, command_id)
+
+        var audio_stream: AudioStream = audio_resource
+        var mix_rate := float(audio_stream.get_mix_rate()) if audio_stream.has_method("get_mix_rate") else 0.0
+        var channel_count := audio_stream.get_channel_count() if audio_stream.has_method("get_channel_count") else 0
+        if channel_count <= 0 and _has_property(audio_stream, "stereo"):
+                channel_count = bool(audio_stream.stereo) ? 2 : 1
+        if channel_count <= 0:
+                channel_count = 1
+
+        var duration_seconds := audio_stream.get_length() if audio_stream.has_method("get_length") else 0.0
+        var loop_enabled := _has_property(audio_stream, "loop") and bool(audio_stream.loop)
+
+        var metadata := {
+                "resource_path": normalized_path,
+                "stream_type": audio_stream.get_class(),
+                "mix_rate": mix_rate,
+                "channel_count": channel_count,
+                "length_seconds": duration_seconds,
+                "loop": loop_enabled,
+        }
+
+        var silence_threshold := clamp(float(params.get("silence_threshold", 0.0005)), 0.000001, 0.1)
+        var envelope_bins := int(params.get("envelope_bins", 256))
+        envelope_bins = clamp(envelope_bins, 16, 4096)
+        var analysis_mode := "metadata_only"
+        var limited_reason := ""
+        var sample_frames := 0
+        var total_samples := 0
+        var channel_summaries: Array = []
+        var overall_summary := {}
+        var analysis_started_ms := Time.get_ticks_msec()
+
+        if audio_stream is AudioStreamSample:
+                var sample_stream: AudioStreamSample = audio_stream
+                var format := sample_stream.format
+                var pcm_supported := format == AudioStreamSample.FORMAT_8_BITS or format == AudioStreamSample.FORMAT_16_BITS
+                if not pcm_supported:
+                        limited_reason = "Unsupported PCM format for inline analysis"
+                else:
+                        var data: PackedByteArray = sample_stream.data
+                        if data.is_empty():
+                                limited_reason = "Audio stream contains no PCM frames"
+                        else:
+                                analysis_mode = "pcm_samples"
+                                var bytes_per_sample := format == AudioStreamSample.FORMAT_16_BITS ? 2 : 1
+                                var total_values := data.size() / bytes_per_sample
+                                if channel_count <= 0:
+                                        channel_count = sample_stream.stereo ? 2 : 1
+                                        if channel_count <= 0:
+                                                channel_count = 1
+                                sample_frames = int(total_values / max(channel_count, 1))
+                                total_samples = sample_frames * channel_count
+
+                                if mix_rate <= 0.0 and sample_stream.mix_rate > 0:
+                                        mix_rate = float(sample_stream.mix_rate)
+                                if duration_seconds <= 0.0 and mix_rate > 0.0:
+                                        duration_seconds = float(sample_frames) / mix_rate
+                                        metadata["length_seconds"] = duration_seconds
+                                metadata["mix_rate"] = mix_rate
+                                metadata["channel_count"] = channel_count
+
+                                var stats: Array = []
+                                var envelopes: Array = []
+                                for channel_index in channel_count:
+                                        stats.append({
+                                                "min": 1.0,
+                                                "max": -1.0,
+                                                "sum": 0.0,
+                                                "sum_sq": 0.0,
+                                                "peak": 0.0,
+                                                "samples": 0,
+                                                "silent": 0,
+                                                "zero_crossings": 0,
+                                                "previous_sign": 0,
+                                        })
+                                        var bins: Array = []
+                                        for bin_index in envelope_bins:
+                                                bins.append({"min": 1.0, "max": -1.0, "samples": 0})
+                                        envelopes.append(bins)
+
+                                var buffer := StreamPeerBuffer.new()
+                                buffer.big_endian = false
+                                buffer.data_array = data
+
+                                var overall_peak := 0.0
+                                var overall_sum := 0.0
+                                var overall_sum_sq := 0.0
+
+                                for frame_index in sample_frames:
+                                        var envelope_bin := -1
+                                        if envelope_bins > 0 and sample_frames > 0:
+                                                envelope_bin = int(floor(float(frame_index) * envelope_bins / sample_frames))
+                                                if envelope_bin >= envelope_bins:
+                                                        envelope_bin = envelope_bins - 1
+
+                                        for channel_index in channel_count:
+                                                if buffer.get_position() >= buffer.get_size():
+                                                        break
+
+                                                var sample_value := 0.0
+                                                if format == AudioStreamSample.FORMAT_16_BITS:
+                                                        sample_value = clamp(buffer.get_16() / 32768.0, -1.0, 1.0)
+                                                else:
+                                                        sample_value = (buffer.get_u8() - 128.0) / 128.0
+
+                                                var channel_stats: Dictionary = stats[channel_index]
+                                                channel_stats["samples"] += 1
+                                                channel_stats["sum"] += sample_value
+                                                channel_stats["sum_sq"] += sample_value * sample_value
+                                                if sample_value < channel_stats["min"]:
+                                                        channel_stats["min"] = sample_value
+                                                if sample_value > channel_stats["max"]:
+                                                        channel_stats["max"] = sample_value
+                                                var abs_value := abs(sample_value)
+                                                if abs_value > channel_stats["peak"]:
+                                                        channel_stats["peak"] = abs_value
+                                                if abs_value <= silence_threshold:
+                                                        channel_stats["silent"] += 1
+
+                                                var previous_sign := int(channel_stats["previous_sign"])
+                                                var sign := 0
+                                                if sample_value > silence_threshold:
+                                                        sign = 1
+                                                elif sample_value < -silence_threshold:
+                                                        sign = -1
+                                                if previous_sign != 0 and sign != 0 and previous_sign != sign:
+                                                        channel_stats["zero_crossings"] += 1
+                                                if sign != 0:
+                                                        channel_stats["previous_sign"] = sign
+
+                                                if envelope_bin >= 0:
+                                                        var bin_stats: Dictionary = envelopes[channel_index][envelope_bin]
+                                                        bin_stats["samples"] += 1
+                                                        if sample_value < bin_stats["min"]:
+                                                                bin_stats["min"] = sample_value
+                                                        if sample_value > bin_stats["max"]:
+                                                                bin_stats["max"] = sample_value
+                                                        envelopes[channel_index][envelope_bin] = bin_stats
+
+                                                stats[channel_index] = channel_stats
+
+                                                if abs_value > overall_peak:
+                                                        overall_peak = abs_value
+                                                overall_sum += sample_value
+                                                overall_sum_sq += sample_value * sample_value
+
+                                var total_sample_count := max(total_samples, 1)
+                                var overall_rms := sqrt(overall_sum_sq / total_sample_count)
+                                var overall_mean := overall_sum / total_sample_count
+                                var overall_peak_db := _amplitude_to_decibels(overall_peak)
+                                var overall_rms_db := _amplitude_to_decibels(overall_rms)
+                                overall_summary = {
+                                        "peak_amplitude": overall_peak,
+                                        "peak_db": overall_peak_db,
+                                        "rms_amplitude": overall_rms,
+                                        "rms_db": overall_rms_db,
+                                        "mean_amplitude": overall_mean,
+                                        "dynamic_range_db": overall_peak_db - overall_rms_db,
+                                }
+
+                                channel_summaries = []
+                                for channel_index in channel_count:
+                                        var channel_stats: Dictionary = stats[channel_index]
+                                        var sample_count := int(channel_stats["samples"])
+                                        var mean_amplitude := sample_count > 0 ? channel_stats["sum"] / sample_count : 0.0
+                                        var rms_amplitude := sample_count > 0 ? sqrt(channel_stats["sum_sq"] / sample_count) : 0.0
+                                        var peak_amplitude := channel_stats["peak"]
+                                        var peak_db := _amplitude_to_decibels(peak_amplitude)
+                                        var rms_db := _amplitude_to_decibels(rms_amplitude)
+                                        var crest_factor := peak_db - rms_db
+                                        var silence_ratio := sample_count > 0 ? float(channel_stats["silent"]) / sample_count : 0.0
+                                        var zero_crossing_rate := 0.0
+                                        if duration_seconds > 0.0:
+                                                zero_crossing_rate = float(channel_stats["zero_crossings"]) / duration_seconds
+
+                                        var envelope: Array = []
+                                        if envelope_bins > 0:
+                                                for bin_stats in envelopes[channel_index]:
+                                                        var bin_samples := int(bin_stats["samples"])
+                                                        if bin_samples == 0:
+                                                                envelope.append({"min": 0.0, "max": 0.0, "samples": 0})
+                                                        else:
+                                                                envelope.append({
+                                                                        "min": bin_stats["min"],
+                                                                        "max": bin_stats["max"],
+                                                                        "samples": bin_samples,
+                                                                })
+
+                                        channel_summaries.append({
+                                                "channel_index": channel_index,
+                                                "sample_count": sample_count,
+                                                "min_amplitude": channel_stats["min"] if sample_count > 0 else 0.0,
+                                                "max_amplitude": channel_stats["max"] if sample_count > 0 else 0.0,
+                                                "peak_amplitude": peak_amplitude,
+                                                "peak_db": peak_db,
+                                                "rms_amplitude": rms_amplitude,
+                                                "rms_db": rms_db,
+                                                "mean_amplitude": mean_amplitude,
+                                                "crest_factor_db": crest_factor,
+                                                "silence_ratio": silence_ratio,
+                                                "zero_crossings": channel_stats["zero_crossings"],
+                                                "zero_crossings_per_second": zero_crossing_rate,
+                                                "envelope": envelope,
+                                        })
+
+        var analysis_elapsed_ms := Time.get_ticks_msec() - analysis_started_ms
+
+        var response := {
+                "metadata": metadata,
+                "analysis_mode": analysis_mode,
+                "silence_threshold": silence_threshold,
+                "envelope_bins": envelope_bins,
+                "sample_frames": sample_frames,
+                "total_samples": total_samples,
+                "analysis_duration_ms": analysis_elapsed_ms,
+        }
+
+        if not channel_summaries.is_empty():
+                response["channel_summaries"] = channel_summaries
+        if not overall_summary.is_empty():
+                response["overall"] = overall_summary
+        if not limited_reason.is_empty():
+                response["limited"] = true
+                response["limited_reason"] = limited_reason
+        else:
+                response["limited"] = analysis_mode != "pcm_samples"
+
+        context["analysis_mode"] = analysis_mode
+        context["channel_count"] = channel_count
+        context["sample_frames"] = sample_frames
+        context["analysis_duration_ms"] = analysis_elapsed_ms
+        if not limited_reason.is_empty():
+                context["limited_reason"] = limited_reason
+
+        _log("Completed waveform analysis", function_name, context)
+        _send_success(client_id, response, command_id)
+
+func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_batch_import_audio_assets"
+        var context := {
+                "command": "batch_import_audio_assets",
+                "client_id": client_id,
+                "command_id": command_id,
+                "system_section": "audio_import",
+        }
+
+        var assets_param = params.get("assets", params.get("paths", []))
+        if typeof(assets_param) != TYPE_ARRAY:
+                context["assets_type"] = typeof(assets_param)
+                _log("Audio batch import expects an array of asset definitions", function_name, context, true)
+                return _send_error(client_id, "Audio batch import expects an array of asset definitions", command_id)
+
+        var asset_entries: Array = []
+        for entry in assets_param:
+                match typeof(entry):
+                        TYPE_STRING, TYPE_STRING_NAME:
+                                asset_entries.append({"path": String(entry)})
+                        TYPE_DICTIONARY:
+                                asset_entries.append((entry as Dictionary).duplicate(true))
+                        _:
+                                var entry_context := context.duplicate(true)
+                                entry_context["entry_type"] = typeof(entry)
+                                _log("Unsupported audio import entry type", function_name, entry_context, true)
+                                return _send_error(client_id, "Unsupported audio import entry type", command_id)
+
+        if asset_entries.is_empty():
+                _log("No audio assets were supplied for batch import", function_name, context, true)
+                return _send_error(client_id, "Provide at least one audio asset to import", command_id)
+
+        var filesystem := EditorFileSystem.get_singleton()
+        if filesystem == null:
+                _log("EditorFileSystem is unavailable for audio import", function_name, context, true)
+                return _send_error(client_id, "EditorFileSystem is unavailable", command_id)
+
+        var normalized_paths := PackedStringArray()
+        var asset_results: Array = []
+        var config_updates := 0
+        var errors: Array = []
+
+        for asset in asset_entries:
+                var asset_dict: Dictionary = asset
+                var raw_path := String(asset_dict.get("path", ""))
+                if raw_path.is_empty():
+                        errors.append({"error": "Missing path", "asset": asset_dict.duplicate(true)})
+                        continue
+
+                var normalized_path := _normalize_resource_path(raw_path)
+                if not ResourceLoader.exists(normalized_path):
+                        errors.append({
+                                "error": "Resource not found",
+                                "resource_path": normalized_path,
+                        })
+                        continue
+
+                normalized_paths.append(normalized_path)
+
+                var asset_summary := {
+                        "resource_path": normalized_path,
+                        "preset": String(asset_dict.get("preset", "")),
+                        "options_applied": 0,
+                        "config_status": "unchanged",
+                }
+
+                var options_value = asset_dict.get("options", asset_dict.get("import_settings", {}))
+                var options_dict: Dictionary = {}
+                if typeof(options_value) == TYPE_DICTIONARY:
+                        options_dict = (options_value as Dictionary).duplicate(true)
+                elif typeof(options_value) != TYPE_NIL:
+                        errors.append({
+                                "error": "Import options must be a dictionary",
+                                "resource_path": normalized_path,
+                        })
+                        asset_results.append(asset_summary)
+                        continue
+
+                var preset_name := asset_summary["preset"]
+                if not preset_name.is_empty() or not options_dict.is_empty():
+                        var import_config_path := normalized_path + ".import"
+                        var global_import_path := ProjectSettings.globalize_path(import_config_path)
+                        var config := ConfigFile.new()
+                        var load_status := config.load(global_import_path)
+                        if load_status != OK:
+                                ResourceLoader.load(normalized_path)
+                                load_status = config.load(global_import_path)
+
+                        if load_status != OK:
+                                errors.append({
+                                        "error": "Failed to load import configuration",
+                                        "resource_path": normalized_path,
+                                        "status": load_status,
+                                })
+                        else:
+                                if not preset_name.is_empty():
+                                        config.set_value("remap", "preset", preset_name)
+                                if not options_dict.is_empty():
+                                        for option_key in options_dict.keys():
+                                                config.set_value("params", String(option_key), options_dict[option_key])
+                                        asset_summary["options_applied"] = options_dict.size()
+
+                                var save_status := config.save(global_import_path)
+                                if save_status != OK:
+                                        errors.append({
+                                                "error": "Failed to save import configuration",
+                                                "resource_path": normalized_path,
+                                                "status": save_status,
+                                        })
+                                else:
+                                        asset_summary["config_status"] = "updated"
+                                        config_updates += 1
+
+                asset_results.append(asset_summary)
+
+        if normalized_paths.is_empty():
+                context["errors"] = errors.duplicate(true)
+                _log("No valid audio assets resolved for reimport", function_name, context, true)
+                return _send_error(client_id, "No valid audio assets to import", command_id)
+
+        filesystem.reimport_files(normalized_paths)
+
+        context["reimported"] = normalized_paths.size()
+        context["config_updates"] = config_updates
+        context["error_count"] = errors.size()
+        if not errors.is_empty():
+                context["errors"] = errors.duplicate(true)
+
+        _log("Triggered batch audio asset import", function_name, context)
+
+        var response := {
+                "reimported": normalized_paths.size(),
+                "assets": asset_results,
+                "config_updates": config_updates,
+        }
+        if not errors.is_empty():
+                response["errors"] = errors
+
+        _send_success(client_id, response, command_id)
 func _serialize_audio_player_changes(changes: Array) -> Array:
         var serialized: Array = []
         for change in changes:
@@ -4784,10 +5194,16 @@ func _node_path_to_string(node: Node, fallback: String) -> String:
         return fallback
 
 
+func _amplitude_to_decibels(amplitude: float) -> float:
+        if amplitude <= 0.0:
+                return -144.0
+        return 20.0 * (log(amplitude) / log(10.0))
+
+
 func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
-	var payload := {
-		"filename": LOG_FILENAME,
-		"timestamp": Time.get_datetime_string_from_system(true, true),
+        var payload := {
+                "filename": LOG_FILENAME,
+                "timestamp": Time.get_datetime_string_from_system(true, true),
 		"classname": "MCPSceneCommands",
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
