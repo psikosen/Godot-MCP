@@ -43,6 +43,9 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
                 "configure_audio_bus":
                         _configure_audio_bus(client_id, params, command_id)
                         return true
+                "configure_input_action_context":
+                        _configure_input_action_context(client_id, params, command_id)
+                        return true
         return false  # Command not handled
 
 func _get_project_info(client_id: int, _params: Dictionary, command_id: String) -> void:
@@ -687,6 +690,143 @@ func _event_matches(event: InputEvent, criteria: Dictionary) -> bool:
                         return false
 
         return true
+
+func _configure_input_action_context(client_id: int, params: Dictionary, command_id: String) -> void:
+	var context_name: String = params.get("context_name", "")
+	var actions_param = params.get("actions", [])
+	var persistent: bool = params.get("persistent", true)
+	var replace_existing: bool = params.get("replace_existing", true)
+	var remove_missing: bool = params.get("remove_missing", false)
+
+	if context_name.is_empty():
+		return _send_error(client_id, "Context name cannot be empty", command_id)
+
+	if typeof(actions_param) != TYPE_ARRAY:
+		return _send_error(client_id, "Actions must be provided as an array", command_id)
+
+	var context_setting_path := "mcp/input_contexts/%s" % context_name
+	var stored_state := {}
+	if ProjectSettings.has_setting(context_setting_path):
+		var existing_state = ProjectSettings.get_setting(context_setting_path)
+		if typeof(existing_state) == TYPE_DICTIONARY:
+			stored_state = existing_state.duplicate(true)
+
+	var context_state: Dictionary = stored_state
+	var created_actions: Array = []
+	var updated_actions: Array = []
+	var removed_actions: Array = []
+	var events_added: Array = []
+	var events_removed: Array = []
+	var processed_actions: Dictionary = {}
+
+	for action_entry in actions_param:
+		if typeof(action_entry) != TYPE_DICTIONARY:
+			return _send_error(client_id, "Each action definition must be a dictionary", command_id)
+
+		var action_name: String = action_entry.get("name", "")
+		var remove_action: bool = action_entry.get("remove", false)
+		var replace_events: bool = action_entry.get("replace_events", replace_existing)
+		var events_param = action_entry.get("events", [])
+
+		if action_name.is_empty():
+			return _send_error(client_id, "Action definitions require a name", command_id)
+
+		processed_actions[action_name] = true
+
+		if remove_action:
+			if InputMap.has_action(action_name):
+				InputMap.erase_action(action_name)
+				removed_actions.append(action_name)
+			context_state.erase(action_name)
+			continue
+
+		if not InputMap.has_action(action_name):
+			InputMap.add_action(action_name)
+			created_actions.append(action_name)
+
+		var desired_events: Array = []
+		if typeof(events_param) == TYPE_ARRAY:
+			for event_data in events_param:
+				if typeof(event_data) != TYPE_DICTIONARY:
+					return _send_error(client_id, "Event definitions must be dictionaries", command_id)
+				var event_instance = _deserialize_input_event(event_data)
+				if not event_instance:
+					return _send_error(client_id, "Unsupported input event definition", command_id)
+				desired_events.append({"event": event_instance, "serialized": _serialize_input_event(event_instance)})
+
+		var existing_events: Array = InputMap.action_get_events(action_name)
+		var serialized_existing: Array = []
+		for existing_event in existing_events:
+			serialized_existing.append(_serialize_input_event(existing_event))
+
+		if replace_events:
+			for existing_event in existing_events:
+				InputMap.action_erase_event(action_name, existing_event)
+				events_removed.append({"action": action_name, "event": _serialize_input_event(existing_event)})
+			serialized_existing.clear()
+
+		for desired in desired_events:
+			var serialized_event: Dictionary = desired["serialized"]
+			var already_present := false
+			for existing_serialized in serialized_existing:
+				if existing_serialized == serialized_event:
+					already_present = true
+					break
+			if already_present:
+				continue
+			InputMap.action_add_event(action_name, desired["event"])
+			serialized_existing.append(serialized_event)
+			events_added.append({"action": action_name, "event": serialized_event})
+
+                if not created_actions.has(action_name) and not updated_actions.has(action_name):
+                        updated_actions.append(action_name)
+
+		context_state[action_name] = {
+			"events": serialized_existing,
+			"replace_events": replace_events,
+		}
+
+	if remove_missing:
+		var to_remove: Array = []
+		for existing_action in context_state.keys():
+			if not processed_actions.has(existing_action):
+				to_remove.append(existing_action)
+
+		for action_name in to_remove:
+			if InputMap.has_action(action_name):
+				InputMap.erase_action(action_name)
+				removed_actions.append(action_name)
+			context_state.erase(action_name)
+
+	if persistent:
+		ProjectSettings.set_setting(context_setting_path, context_state)
+		ProjectSettings.save()
+
+	var response := {
+		"context_name": context_name,
+		"created_actions": created_actions,
+		"updated_actions": updated_actions,
+		"removed_actions": removed_actions,
+		"events_added": events_added,
+		"events_removed": events_removed,
+		"persistent": persistent,
+		"remove_missing": remove_missing,
+	}
+
+	_log("Configured input action context", "_configure_input_action_context", {
+		"context_name": context_name,
+		"created": created_actions,
+		"updated": updated_actions,
+		"removed": removed_actions,
+		"events_added": events_added.size(),
+		"events_removed": events_removed.size(),
+		"persistent": persistent,
+		"system_section": "project_input",
+		"line_num": __LINE__,
+	})
+
+	_send_success(client_id, response, command_id)
+
 
 func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
         var payload := {

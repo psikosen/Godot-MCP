@@ -128,6 +128,71 @@ Configure Camera2D limit boundaries, smoothing behaviour, and editor visualizati
 Clamp the gameplay camera to a 512x256 region and enable smoothed edges so movement feels natural.
 ```
 
+### create_theme_override
+Author or update a Control theme override with undo support so UI elements can adopt project themes consistently.
+
+**Parameters:**
+- `node_path` - Path to the Control node to modify.
+- `override_type` - Override category (`color`, `constant`, `font`, `font_size`, `stylebox`, or `icon`).
+- `override_name` - Theme item name such as `font_color` or `panel`.
+- `value` - New value for the override (color hex, numeric constant, or resource path).
+- `resource_path` (optional) - Explicit resource path for font, stylebox, or icon overrides.
+- `transaction_id` (optional) - Use an existing transaction to batch the override.
+
+**Example:**
+```
+Set the "font_color" override on "/root/MainScene/UI/Label" to "#ffd166" so it matches the brand palette.
+```
+
+### wire_signal_handler
+Connect a signal between nodes, optionally creating a script and handler stub before wiring the connection.
+
+**Parameters:**
+- `source_path` - Node emitting the signal.
+- `signal_name` - Name of the signal to connect.
+- `target_path` - Node that will receive the callback.
+- `method_name` - Method to invoke on the target node.
+- `script_path` (optional) - Script resource to assign if the target has no script yet.
+- `create_script` (optional) - Whether a missing script should be created automatically.
+- `arguments` (optional) - Argument names to include in the generated stub.
+- `binds` (optional) - Values to bind when connecting.
+- `deferred` / `one_shot` / `reference_counted` (optional) - Connection flags mirroring Godot's `connect` API.
+- `transaction_id` (optional) - Transaction to batch the connection with other edits.
+
+**Example:**
+```
+Connect "pressed" on "/root/MainScene/UI/StartButton" to `_on_start_pressed` on the GameController script, creating the method if it doesn't exist.
+```
+
+### layout_ui_grid
+Apply a grid layout template to a Control container, aligning children into columns with consistent spacing.
+
+**Parameters:**
+- `container_path` - Path to the container Control.
+- `columns` (optional) - Column count (default 2).
+- `horizontal_gap` / `vertical_gap` (optional) - Cell spacing in pixels.
+- `cell_size` (optional) - Uniform width/height for each cell.
+- `size_flags` (optional) - Horizontal and vertical size flag overrides for children.
+- `transaction_id` (optional) - Use an existing transaction to batch layout changes.
+
+**Example:**
+```
+Arrange the children of "/root/MainScene/UI/SettingsGrid" into three columns with 12px spacing.
+```
+
+### validate_accessibility
+Scan Control nodes for common accessibility issues such as missing focus, accessible descriptions, or tooltips.
+
+**Parameters:**
+- `root_path` (optional) - Root node to scan (default `/root`).
+- `include_hidden` (optional) - Whether to include hidden controls.
+- `max_depth` (optional) - Limit recursion depth (0 means unlimited).
+
+**Example:**
+```
+Audit the UI under "/root/MainScene/UI" and list controls missing accessible names or tooltips.
+```
+
 ### list_node_groups
 List all groups a node currently belongs to.
 
@@ -525,6 +590,21 @@ Remove a registered input event by index or by matching event fields.
 **Example:**
 ```
 Remove the duplicate Spacebar binding from the "jump" action.
+```
+
+### configure_input_action_context
+Batch author or update multiple input actions under a named context so bindings can be swapped together.
+
+**Parameters:**
+- `context_name` - Identifier for the context being managed.
+- `actions` - Array of action definitions `{ name, events, remove, replace_events }`.
+- `persistent` (optional) - Save the resulting context and Input Map immediately (default true).
+- `replace_existing` (optional) - Replace events on actions unless overridden per entry (default true).
+- `remove_missing` (optional) - Remove actions from the context that were not included in the payload.
+
+**Example:**
+```
+Define a "gamepad" context that maps `move_left`/`move_right` to stick input and removes mouse bindings.
 ```
 
 ### list_audio_buses

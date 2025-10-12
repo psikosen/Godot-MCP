@@ -495,6 +495,286 @@ export var nodeTools = [
         },
     },
     {
+        name: 'create_theme_override',
+        description: 'Create or update a Control theme override with undo support.',
+        parameters: z.object({
+            node_path: z
+                .string()
+                .describe('Path to the Control node that should receive the theme override.'),
+            override_type: z
+                .enum(['color', 'constant', 'font', 'font_size', 'stylebox', 'icon'])
+                .describe('Type of override to apply.'),
+            override_name: z
+                .string()
+                .describe('Theme item name such as "font_color", "panel", or "normal".'),
+            value: z
+                .any()
+                .optional()
+                .describe('Override value. Colors accept HTML strings or RGBA dictionaries; resource overrides accept paths.'),
+            resource_path: z
+                .string()
+                .optional()
+                .describe('Resource path for font, icon, or stylebox overrides when different from `value`.'),
+            transaction_id: z
+                .string()
+                .optional()
+                .describe('Existing transaction identifier to batch with other edits.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, status_8, appliedValue, valueDescription, resolvedName, resolvedType, resolvedPath, error_10;
+            var _c, _d, _e, _f, _g, _h;
+            var node_path = _b.node_path, override_type = _b.override_type, override_name = _b.override_name, value = _b.value, resource_path = _b.resource_path, transaction_id = _b.transaction_id;
+            return __generator(this, function (_j) {
+                switch (_j.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _j.label = 1;
+                    case 1:
+                        _j.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('create_theme_override', {
+                                node_path: node_path,
+                                override_type: override_type,
+                                override_name: override_name,
+                                value: value,
+                                resource_path: resource_path,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _j.sent();
+                        status_8 = (_c = result.status) !== null && _c !== void 0 ? _c : 'pending';
+                        appliedValue = (_e = (_d = result.value) !== null && _d !== void 0 ? _d : result.applied_value) !== null && _e !== void 0 ? _e : value;
+                        valueDescription = appliedValue === undefined ? 'inherit' : JSON.stringify(appliedValue);
+                        resolvedName = (_f = result.override_name) !== null && _f !== void 0 ? _f : override_name;
+                        resolvedType = (_g = result.override_type) !== null && _g !== void 0 ? _g : override_type;
+                        resolvedPath = (_h = result.node_path) !== null && _h !== void 0 ? _h : node_path;
+                        return [2 /*return*/, "Theme override ".concat(resolvedName, " (").concat(resolvedType, ") applied to ").concat(resolvedPath, " [").concat(status_8, "] -> ").concat(valueDescription)];
+                    case 3:
+                        error_10 = _j.sent();
+                        throw new Error("Failed to create theme override: ".concat(error_10.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'wire_signal_handler',
+        description: 'Connect a signal between nodes and generate method stubs when needed.',
+        parameters: z.object({
+            source_path: z
+                .string()
+                .describe('Node emitting the signal (e.g. "/root/Main/StartButton").'),
+            signal_name: z
+                .string()
+                .describe('Name of the signal to connect (e.g. "pressed").'),
+            target_path: z
+                .string()
+                .describe('Node that should receive the callback.'),
+            method_name: z
+                .string()
+                .describe('Method to invoke on the target node when the signal fires.'),
+            script_path: z
+                .string()
+                .optional()
+                .describe('Optional script resource to assign before connecting the signal.'),
+            create_script: z
+                .boolean()
+                .optional()
+                .describe('Create a new script at `script_path` if none is assigned.'),
+            arguments: z
+                .array(z.string())
+                .optional()
+                .describe('Argument names to include in the generated stub.'),
+            binds: z
+                .array(z.any())
+                .optional()
+                .describe('Optional values to bind to the signal connection.'),
+            deferred: z
+                .boolean()
+                .optional()
+                .describe('Connect the signal in deferred mode.'),
+            one_shot: z
+                .boolean()
+                .optional()
+                .describe('Connect the signal in one-shot mode.'),
+            reference_counted: z
+                .boolean()
+                .optional()
+                .describe('Use reference-counted connections that disconnect when either side is freed.'),
+            transaction_id: z
+                .string()
+                .optional()
+                .describe('Existing transaction identifier to batch with other edits.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, status_9, stubInfo, error_11;
+            var _c;
+            var source_path = _b.source_path, signal_name = _b.signal_name, target_path = _b.target_path, method_name = _b.method_name, script_path = _b.script_path, create_script = _b.create_script, argumentNames = _b.arguments, binds = _b.binds, deferred = _b.deferred, one_shot = _b.one_shot, reference_counted = _b.reference_counted, transaction_id = _b.transaction_id;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('wire_signal_handler', {
+                                source_path: source_path,
+                                signal_name: signal_name,
+                                target_path: target_path,
+                                method_name: method_name,
+                                script_path: script_path,
+                                create_script: create_script,
+                                arguments: argumentNames,
+                                binds: binds,
+                                deferred: deferred,
+                                one_shot: one_shot,
+                                reference_counted: reference_counted,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _d.sent();
+                        status_9 = (_c = result.status) !== null && _c !== void 0 ? _c : 'pending';
+                        stubInfo = result.stub_created ? 'stub generated' : 'existing method';
+                        return [2 /*return*/, "Connected ".concat(signal_name, " on ").concat(source_path, " -> ").concat(method_name, " [").concat(status_9, "; ").concat(stubInfo, "]")];
+                    case 3:
+                        error_11 = _d.sent();
+                        throw new Error("Failed to wire signal handler: ".concat(error_11.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'layout_ui_grid',
+        description: 'Arrange Control children into a grid layout with consistent spacing.',
+        parameters: z.object({
+            container_path: z
+                .string()
+                .describe('Path to the container Control whose children should be arranged.'),
+            columns: z
+                .number()
+                .int()
+                .min(1)
+                .optional()
+                .describe('Number of columns to use (default 2).'),
+            horizontal_gap: z
+                .number()
+                .optional()
+                .describe('Horizontal spacing between columns in pixels.'),
+            vertical_gap: z
+                .number()
+                .optional()
+                .describe('Vertical spacing between rows in pixels.'),
+            cell_size: z
+                .union([
+                z.object({ x: z.number().optional(), y: z.number().optional() }),
+                z.tuple([z.number(), z.number()]),
+            ])
+                .optional()
+                .describe('Uniform cell size expressed as `{ x, y }` or `[width, height]`.'),
+            size_flags: z
+                .object({ horizontal: z.number().optional(), vertical: z.number().optional() })
+                .optional()
+                .describe('Override size flags for child controls.'),
+            transaction_id: z
+                .string()
+                .optional()
+                .describe('Existing transaction identifier to batch with other edits.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, status_10, updated, error_12;
+            var _c;
+            var container_path = _b.container_path, columns = _b.columns, horizontal_gap = _b.horizontal_gap, vertical_gap = _b.vertical_gap, cell_size = _b.cell_size, size_flags = _b.size_flags, transaction_id = _b.transaction_id;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('layout_ui_grid', {
+                                container_path: container_path,
+                                columns: columns,
+                                horizontal_gap: horizontal_gap,
+                                vertical_gap: vertical_gap,
+                                cell_size: cell_size,
+                                size_flags: size_flags,
+                                transaction_id: transaction_id,
+                            })];
+                    case 2:
+                        result = _d.sent();
+                        status_10 = (_c = result.status) !== null && _c !== void 0 ? _c : 'pending';
+                        updated = Array.isArray(result.updated_nodes) ? result.updated_nodes.length : 0;
+                        return [2 /*return*/, "Applied grid layout to ".concat(container_path, " (").concat(updated, " controls) [").concat(status_10, "]")];
+                    case 3:
+                        error_12 = _d.sent();
+                        throw new Error("Failed to layout UI grid: ".concat(error_12.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'validate_accessibility',
+        description: 'Scan Control nodes for accessibility gaps such as missing focus or descriptions.',
+        parameters: z.object({
+            root_path: z
+                .string()
+                .optional()
+                .describe('Root node to scan (defaults to the edited scene root).'),
+            include_hidden: z
+                .boolean()
+                .optional()
+                .describe('Include hidden controls in the scan.'),
+            max_depth: z
+                .number()
+                .int()
+                .nonnegative()
+                .optional()
+                .describe('Limit the traversal depth (0 means unlimited).'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, issueCount, scanned, target, error_13;
+            var _c, _d, _e, _f;
+            var root_path = _b.root_path, include_hidden = _b.include_hidden, max_depth = _b.max_depth;
+            return __generator(this, function (_g) {
+                switch (_g.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _g.label = 1;
+                    case 1:
+                        _g.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('validate_accessibility', {
+                                root_path: root_path,
+                                include_hidden: include_hidden,
+                                max_depth: max_depth,
+                            })];
+                    case 2:
+                        result = _g.sent();
+                        issueCount = Number((_e = (_c = result.issue_count) !== null && _c !== void 0 ? _c : (_d = result.issues) === null || _d === void 0 ? void 0 : _d.length) !== null && _e !== void 0 ? _e : 0);
+                        scanned = Number((_f = result.scanned_count) !== null && _f !== void 0 ? _f : 0);
+                        target = root_path !== null && root_path !== void 0 ? root_path : 'scene';
+                        return [2 /*return*/, "Accessibility scan for ".concat(target, " inspected ").concat(scanned, " controls and found ").concat(issueCount, " issues.")];
+                    case 3:
+                        error_13 = _g.sent();
+                        throw new Error("Failed to validate accessibility: ".concat(error_13.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
         name: 'list_node_groups',
         description: 'List all groups assigned to a specific node',
         parameters: z.object({
@@ -502,7 +782,7 @@ export var nodeTools = [
                 .describe('Path to the node whose groups should be listed'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, groups, error_10;
+            var godot, result, groups, error_14;
             var _c;
             var node_path = _b.node_path;
             return __generator(this, function (_d) {
@@ -521,8 +801,8 @@ export var nodeTools = [
                         }
                         return [2 /*return*/, "Groups for node ".concat(node_path, ":\n").concat(groups.join('\n'))];
                     case 3:
-                        error_10 = _d.sent();
-                        throw new Error("Failed to list node groups: ".concat(error_10.message));
+                        error_14 = _d.sent();
+                        throw new Error("Failed to list node groups: ".concat(error_14.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -540,7 +820,7 @@ export var nodeTools = [
                 .describe('Group name to query'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, nodes, formatted, error_11;
+            var godot, result, nodes, formatted, error_15;
             var _c;
             var group_name = _b.group_name;
             return __generator(this, function (_d) {
@@ -562,8 +842,8 @@ export var nodeTools = [
                             .join('\n');
                         return [2 /*return*/, "Nodes in group \"".concat(group_name, "\":\n").concat(formatted)];
                     case 3:
-                        error_11 = _d.sent();
-                        throw new Error("Failed to list nodes in group: ".concat(error_11.message));
+                        error_15 = _d.sent();
+                        throw new Error("Failed to list nodes in group: ".concat(error_15.message));
                     case 4: return [2 /*return*/];
                 }
             });
