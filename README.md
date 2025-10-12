@@ -160,6 +160,9 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `configure_physics_body` - Adjust PhysicsBody2D/3D properties with undo/redo
 - `configure_physics_area` - Update Area2D/Area3D monitoring, gravity, and masks
 - `configure_physics_joint` - Rewire Joint2D/3D connections and constraint limits
+- `link_joint_bodies` - Connect joints to specific physics bodies and optionally tweak constraint settings
+- `rebuild_physics_shapes` - Regenerate CollisionShape3D resources from Mesh nodes or assets
+- `profile_physics_step` - Capture PhysicsServer and Performance metrics for quick diagnostics
 - `configure_csg_shape` - Tweak CSG combiners and primitives with undo/redo support
 - `configure_material_resource` - Create/update Material resources, apply glslang shader code, bind lightmapper textures, and persist meshoptimizer metadata
 - `paint_gridmap_cells` - Stamp MeshLibrary items into GridMap coordinates in batches
@@ -185,6 +188,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `update_navigation_region` - Change navigation region node properties with undo/redo
 - `update_navigation_resource` - Edit NavigationPolygon or NavigationMesh resource properties
 - `update_navigation_agent` - Adjust NavigationAgent parameters with undo/redo
+- `synchronize_navmesh_with_tilemap` - Rebake TileMap navigation layers and optional navigation regions
 
 #### Project Commands
 - `refresh_project_index` - Rebuild the cached project index snapshot

@@ -371,5 +371,63 @@ export var navigationTools = [
             requiredRole: 'edit',
         },
     },
+    {
+        name: 'synchronize_navmesh_with_tilemap',
+        description: 'Rebake TileMap navigation layers and optional navigation regions to keep pathfinding in sync.',
+        parameters: z.object({
+            tilemap_path: z
+                .string()
+                .describe('Path to the TileMap node whose navigation data should be synchronized.'),
+            region_paths: z
+                .array(z.string())
+                .optional()
+                .describe('Optional navigation region node paths to rebake after updating the TileMap.'),
+            on_thread: z
+                .boolean()
+                .optional()
+                .describe('Whether navigation baking should run on a worker thread (defaults to true).'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, payload, result, rebaked, invalid, navigationUpdated, lines, error_7;
+            var _c;
+            var tilemap_path = _b.tilemap_path, region_paths = _b.region_paths, _d = _b.on_thread, on_thread = _d === void 0 ? true : _d;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {
+                            tilemap_path: tilemap_path,
+                            on_thread: on_thread,
+                        };
+                        if (region_paths && region_paths.length > 0) {
+                            payload.region_paths = region_paths;
+                        }
+                        _e.label = 1;
+                    case 1:
+                        _e.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('synchronize_navmesh_with_tilemap', payload)];
+                    case 2:
+                        result = _e.sent();
+                        rebaked = Array.isArray(result.rebaked_regions) ? result.rebaked_regions : [];
+                        invalid = Array.isArray(result.invalid_regions) ? result.invalid_regions : [];
+                        navigationUpdated = Boolean(result.navigation_map_updated);
+                        lines = [
+                            "Synchronized TileMap navigation for ".concat((_c = result.tilemap_path) !== null && _c !== void 0 ? _c : tilemap_path),
+                            "Rebaked regions: ".concat(rebaked.length > 0 ? rebaked.join(', ') : 'none'),
+                            "Invalid regions: ".concat(invalid.length > 0 ? invalid.join(', ') : 'none'),
+                            "Navigation map updated: ".concat(navigationUpdated ? 'yes' : 'no'),
+                        ];
+                        return [2 /*return*/, lines.join('\n')];
+                    case 3:
+                        error_7 = _e.sent();
+                        throw new Error("Failed to synchronize TileMap navigation: ".concat(error_7.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
 ];
 //# sourceMappingURL=navigation_tools.js.map

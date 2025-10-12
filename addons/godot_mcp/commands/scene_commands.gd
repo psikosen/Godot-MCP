@@ -110,6 +110,15 @@ return true
                 "configure_physics_joint":
                         _configure_physics_joint(client_id, params, command_id)
                         return true
+                "link_joint_bodies":
+                        _link_joint_bodies(client_id, params, command_id)
+                        return true
+                "rebuild_physics_shapes":
+                        _rebuild_physics_shapes(client_id, params, command_id)
+                        return true
+                "profile_physics_step":
+                        _profile_physics_step(client_id, params, command_id)
+                        return true
                 "author_audio_stream_player":
                         _author_audio_stream_player(client_id, params, command_id)
                         return true
@@ -966,15 +975,128 @@ func _configure_physics_area(client_id: int, params: Dictionary, command_id: Str
 	)
 
 func _configure_physics_joint(client_id: int, params: Dictionary, command_id: String) -> void:
-	_configure_physics_node(
-		client_id,
-		params,
-		command_id,
-		"joint",
-		"Configure Physics Joint",
-		"configure_physics_joint",
-		"_configure_physics_joint"
-	)
+        _configure_physics_node(
+                client_id,
+                params,
+                command_id,
+                "joint",
+                "Configure Physics Joint",
+                "configure_physics_joint",
+                "_configure_physics_joint"
+        )
+
+func _link_joint_bodies(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_link_joint_bodies"
+        var joint_path := String(params.get("joint_path", ""))
+        var transaction_id := String(params.get("transaction_id", ""))
+        var context := {
+                "command": "link_joint_bodies",
+                "client_id": client_id,
+                "joint_path": joint_path,
+                "transaction_id": transaction_id,
+        }
+
+        if joint_path.is_empty():
+                _log("Joint path cannot be empty", function_name, context, true)
+                return _send_error(client_id, "Joint path cannot be empty", command_id)
+
+        var joint = _get_editor_node(joint_path)
+        if not joint:
+                _log("Joint node not found", function_name, context, true)
+                return _send_error(client_id, "Joint not found: %s" % joint_path, command_id)
+
+        var classification := _classify_physics_node(joint)
+        if classification.get("category", "") != "joint":
+                context["joint_type"] = joint.get_class()
+                _log("Requested node is not a physics joint", function_name, context, true)
+                return _send_error(client_id, "Node at path is not a physics joint", command_id)
+
+        context["dimension"] = classification.get("dimension", "unknown")
+
+        var property_overrides: Dictionary = {}
+
+        if params.has("body_a_path"):
+                var body_a_path := String(params.get("body_a_path", ""))
+                context["body_a_path"] = body_a_path
+
+                if body_a_path.is_empty():
+                        property_overrides["node_a"] = NodePath("")
+                else:
+                        var body_a = _get_editor_node(body_a_path)
+                        if not body_a:
+                                _log("Body A node not found", function_name, context, true)
+                                return _send_error(client_id, "Body A not found: %s" % body_a_path, command_id)
+
+                        if classification.get("dimension", "") == "2d" and not (body_a is PhysicsBody2D):
+                                context["body_a_type"] = body_a.get_class()
+                                _log("Body A is not a 2D physics body", function_name, context, true)
+                                return _send_error(client_id, "Body A must be a 2D physics body", command_id)
+
+                        if classification.get("dimension", "") == "3d" and not (body_a is PhysicsBody3D):
+                                context["body_a_type"] = body_a.get_class()
+                                _log("Body A is not a 3D physics body", function_name, context, true)
+                                return _send_error(client_id, "Body A must be a 3D physics body", command_id)
+
+                        var relative_path_a := joint.get_path_to(body_a)
+                        context["relative_body_a_path"] = str(relative_path_a)
+                        property_overrides["node_a"] = relative_path_a
+
+        if params.has("body_b_path"):
+                var body_b_path := String(params.get("body_b_path", ""))
+                context["body_b_path"] = body_b_path
+
+                if body_b_path.is_empty():
+                        property_overrides["node_b"] = NodePath("")
+                else:
+                        var body_b = _get_editor_node(body_b_path)
+                        if not body_b:
+                                _log("Body B node not found", function_name, context, true)
+                                return _send_error(client_id, "Body B not found: %s" % body_b_path, command_id)
+
+                        if classification.get("dimension", "") == "2d" and not (body_b is PhysicsBody2D):
+                                context["body_b_type"] = body_b.get_class()
+                                _log("Body B is not a 2D physics body", function_name, context, true)
+                                return _send_error(client_id, "Body B must be a 2D physics body", command_id)
+
+                        if classification.get("dimension", "") == "3d" and not (body_b is PhysicsBody3D):
+                                context["body_b_type"] = body_b.get_class()
+                                _log("Body B is not a 3D physics body", function_name, context, true)
+                                return _send_error(client_id, "Body B must be a 3D physics body", command_id)
+
+                        var relative_path_b := joint.get_path_to(body_b)
+                        context["relative_body_b_path"] = str(relative_path_b)
+                        property_overrides["node_b"] = relative_path_b
+
+        var additional_properties_param = params.get("properties", {})
+        if params.has("properties") and typeof(additional_properties_param) != TYPE_DICTIONARY:
+                context["properties_type"] = Variant.get_type_name(typeof(additional_properties_param))
+                _log("Joint configuration expects a dictionary of properties", function_name, context, true)
+                return _send_error(client_id, "Joint configuration expects a dictionary of properties", command_id)
+
+        if typeof(additional_properties_param) == TYPE_DICTIONARY:
+                var additional_properties: Dictionary = additional_properties_param.duplicate(true)
+                for key in additional_properties.keys():
+                        property_overrides[key] = additional_properties[key]
+
+        if property_overrides.is_empty():
+                _log("No joint link updates were provided", function_name, context, true)
+                return _send_error(client_id, "No joint link updates were provided", command_id)
+
+        var config_params := {
+                "node_path": joint_path,
+                "transaction_id": transaction_id,
+                "properties": property_overrides,
+        }
+
+        _configure_physics_node(
+                client_id,
+                config_params,
+                command_id,
+                "joint",
+                "Link Joint Bodies",
+                "link_joint_bodies",
+                function_name
+        )
 
 func _configure_physics_node(
 	client_id: int,
@@ -1170,14 +1292,257 @@ func _configure_physics_node(
 			return _send_error(client_id, "Failed to commit physics configuration", command_id)
 		status = "committed"
 
-	_send_success(client_id, {
-		"node_path": node_path,
-		"node_type": node.get_class(),
-		"dimension": classification.get("dimension", "unknown"),
-		"changes": serialized_changes,
-		"transaction_id": transaction.transaction_id,
-		"status": status,
-	}, command_id)
+        _send_success(client_id, {
+                "node_path": node_path,
+                "node_type": node.get_class(),
+                "dimension": classification.get("dimension", "unknown"),
+                "changes": serialized_changes,
+                "transaction_id": transaction.transaction_id,
+                "status": status,
+        }, command_id)
+
+
+
+func _rebuild_physics_shapes(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_rebuild_physics_shapes"
+        var node_path := String(params.get("node_path", ""))
+        var mesh_node_path := String(params.get("mesh_node_path", ""))
+        var mesh_resource_path := String(params.get("mesh_resource_path", ""))
+        var shape_type := String(params.get("shape_type", "convex")).to_lower()
+        var transaction_id := String(params.get("transaction_id", ""))
+
+        var context := {
+                "command": "rebuild_physics_shapes",
+                "client_id": client_id,
+                "node_path": node_path,
+                "mesh_node_path": mesh_node_path,
+                "mesh_resource_path": mesh_resource_path,
+                "shape_type": shape_type,
+                "transaction_id": transaction_id,
+        }
+
+        if node_path.is_empty():
+                _log("Shape node path cannot be empty", function_name, context, true)
+                return _send_error(client_id, "Shape node path cannot be empty", command_id)
+
+        var shape_node = _get_editor_node(node_path)
+        if not shape_node:
+                _log("Shape node not found", function_name, context, true)
+                return _send_error(client_id, "Shape node not found: %s" % node_path, command_id)
+
+        if not (shape_node is CollisionShape3D):
+                context["node_type"] = shape_node.get_class()
+                _log(
+                        "Physics shape rebuild currently supports CollisionShape3D nodes",
+                        function_name,
+                        context,
+                        true
+                )
+                return _send_error(
+                        client_id,
+                        "Physics shape rebuild currently supports CollisionShape3D nodes",
+                        command_id
+                )
+
+        if shape_type != "convex" and shape_type != "trimesh":
+                _log("Unsupported shape_type provided", function_name, context, true)
+                return _send_error(client_id, "shape_type must be 'convex' or 'trimesh'", command_id)
+
+        var mesh: Mesh = null
+        var mesh_source := ""
+
+        if not mesh_resource_path.is_empty():
+                if ResourceLoader.exists(mesh_resource_path):
+                        var loaded = ResourceLoader.load(mesh_resource_path)
+                        if loaded is Mesh:
+                                mesh = loaded
+                                mesh_source = mesh_resource_path
+                        else:
+                                context["loaded_resource_type"] = loaded ? loaded.get_class() : "null"
+                                _log("Resource is not a Mesh", function_name, context, true)
+                                return _send_error(client_id, "Resource is not a Mesh: %s" % mesh_resource_path, command_id)
+                else:
+                        _log("Mesh resource path not found", function_name, context, true)
+                        return _send_error(client_id, "Mesh resource not found: %s" % mesh_resource_path, command_id)
+
+        if mesh == null and not mesh_node_path.is_empty():
+                var mesh_node = _get_editor_node(mesh_node_path)
+                if not mesh_node:
+                        _log("Mesh node path could not be resolved", function_name, context, true)
+                        return _send_error(client_id, "Mesh node not found: %s" % mesh_node_path, command_id)
+
+                if _has_property(mesh_node, "mesh"):
+                        var candidate = mesh_node.get("mesh")
+                        if candidate is Mesh:
+                                mesh = candidate
+                                mesh_source = _node_path_to_string(mesh_node, mesh_node_path)
+                        else:
+                                context["candidate_type"] = candidate ? candidate.get_class() : "null"
+                                _log("Mesh node does not expose a Mesh resource", function_name, context, true)
+                                return _send_error(client_id, "Mesh node does not expose a Mesh resource", command_id)
+                elif mesh_node is Mesh:
+                        mesh = mesh_node
+                        mesh_source = _node_path_to_string(mesh_node, mesh_node_path)
+                else:
+                        context["mesh_node_type"] = mesh_node.get_class()
+                        _log("Mesh node is not compatible", function_name, context, true)
+                        return _send_error(client_id, "Mesh node is not compatible with shape rebuild", command_id)
+
+        if mesh == null:
+                var parent = shape_node.get_parent()
+                if parent and _has_property(parent, "mesh"):
+                        var parent_mesh = parent.get("mesh")
+                        if parent_mesh is Mesh:
+                                mesh = parent_mesh
+                                mesh_source = _node_path_to_string(parent, "")
+
+        if mesh == null:
+                if shape_node.get_parent():
+                        context["parent_path"] = _node_path_to_string(shape_node.get_parent(), "")
+                _log("Unable to resolve mesh for physics rebuild", function_name, context, true)
+                return _send_error(client_id, "Unable to locate a Mesh resource to rebuild the shape", command_id)
+
+        var new_shape: Shape3D = null
+        if shape_type == "convex":
+                new_shape = mesh.create_convex_shape()
+        else:
+                new_shape = mesh.create_trimesh_shape()
+
+        if new_shape == null:
+                context["mesh_surface_count"] = mesh.get_surface_count()
+                _log("Mesh could not generate the requested shape", function_name, context, true)
+                return _send_error(client_id, "Mesh could not generate the requested shape", command_id)
+
+        var metadata := {
+                "command": "rebuild_physics_shapes",
+                "node_path": node_path,
+                "shape_type": shape_type,
+                "mesh_source": mesh_source,
+                "client_id": client_id,
+        }
+
+        var transaction
+        if transaction_id.is_empty():
+                transaction = SceneTransactionManager.begin_inline("Rebuild Physics Shape", metadata)
+        else:
+                transaction = SceneTransactionManager.get_transaction(transaction_id)
+                if not transaction:
+                        transaction = SceneTransactionManager.begin_registered(
+                                transaction_id,
+                                "Rebuild Physics Shape",
+                                metadata
+                        )
+
+        if not transaction:
+                _log("Failed to obtain scene transaction for physics shape rebuild", function_name, context, true)
+                return _send_error(
+                        client_id,
+                        "Failed to obtain scene transaction for physics shape rebuild",
+                        command_id
+                )
+
+        var previous_shape = shape_node.shape
+        transaction.add_do_property(shape_node, "shape", new_shape)
+        transaction.add_undo_property(shape_node, "shape", previous_shape)
+        transaction.add_do_reference(new_shape)
+
+        var log_payload := metadata.duplicate(true)
+        log_payload["shape_class"] = new_shape.get_class()
+        log_payload["mesh_surface_count"] = mesh.get_surface_count()
+        if previous_shape:
+                log_payload["previous_shape_class"] = previous_shape.get_class()
+
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                _log("Rebuilt physics shape from mesh", function_name, log_payload)
+        )
+
+        transaction.register_on_rollback(func():
+                _log("Rolled back physics shape rebuild", function_name, log_payload)
+        )
+
+        var status := "pending"
+        if transaction_id.is_empty():
+                if transaction.has_operations():
+                        if transaction.commit():
+                                status = "committed"
+                        else:
+                                transaction.rollback()
+                                _log("Failed to commit physics shape rebuild", function_name, log_payload, true)
+                                return _send_error(client_id, "Failed to commit physics shape rebuild", command_id)
+                else:
+                        transaction.rollback()
+                        _log("No operations recorded for physics shape rebuild", function_name, log_payload)
+                        return _send_success(client_id, {
+                                "node_path": node_path,
+                                "shape_type": shape_type,
+                                "shape_class": new_shape.get_class(),
+                                "mesh_source": mesh_source,
+                                "transaction_id": transaction.transaction_id,
+                                "status": "no_changes",
+                        }, command_id)
+
+        _send_success(client_id, {
+                "node_path": node_path,
+                "shape_type": shape_type,
+                "shape_class": new_shape.get_class(),
+                "mesh_source": mesh_source,
+                "transaction_id": transaction.transaction_id,
+                "status": status,
+        }, command_id)
+
+
+
+func _profile_physics_step(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_profile_physics_step"
+        var include_2d := bool(params.get("include_2d", true))
+        var include_3d := bool(params.get("include_3d", true))
+        var include_performance := bool(params.get("include_performance", true))
+
+        var snapshot := {
+                "timestamp": Time.get_datetime_string_from_system(true, true),
+                "include_2d": include_2d,
+                "include_3d": include_3d,
+                "include_performance": include_performance,
+        }
+
+        if include_performance:
+                var performance_metrics := {
+                        "time_physics_process": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS),
+                        "physics_2d_active_objects": Performance.get_monitor(Performance.PHYSICS_2D_ACTIVE_OBJECTS),
+                        "physics_2d_collision_pairs": Performance.get_monitor(Performance.PHYSICS_2D_COLLISION_PAIRS),
+                        "physics_3d_active_objects": Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS),
+                        "physics_3d_collision_pairs": Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS),
+                }
+                snapshot["performance"] = performance_metrics
+
+        if include_2d:
+                var physics2d := {
+                        "active_objects": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_ACTIVE_OBJECTS),
+                        "active_islands": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_ACTIVE_ISLANDS),
+                        "active_constraints": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_ACTIVE_CONSTRAINTS),
+                        "island_count": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_ISLAND_COUNT),
+                        "step_count": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_STEP_COUNT),
+                        "broadphase_pairs": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_BROADPHASE_PAIRS),
+                        "broadphase_pair_attempts": PhysicsServer2D.get_process_info(PhysicsServer2D.PROCESS_INFO_BROADPHASE_PAIR_ATTEMPTS),
+                }
+                snapshot["physics_2d"] = physics2d
+
+        if include_3d:
+                var physics3d := {
+                        "active_objects": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_ACTIVE_OBJECTS),
+                        "active_islands": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_ACTIVE_ISLANDS),
+                        "active_constraints": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_ACTIVE_CONSTRAINTS),
+                        "island_count": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_ISLAND_COUNT),
+                        "step_count": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_STEP_COUNT),
+                        "broadphase_pairs": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_BROADPHASE_PAIRS),
+                        "broadphase_pair_attempts": PhysicsServer3D.get_process_info(PhysicsServer3D.PROCESS_INFO_BROADPHASE_PAIR_ATTEMPTS),
+                }
+                snapshot["physics_3d"] = physics3d
+
+        _log("Captured physics profiling snapshot", function_name, snapshot)
+
+        _send_success(client_id, snapshot, command_id)
 
 
 

@@ -764,6 +764,215 @@ export var sceneTools = [
         },
     },
     {
+        name: 'link_joint_bodies',
+        description: 'Connect a joint to physics bodies and apply optional property updates with undo support',
+        parameters: z.object({
+            joint_path: z.string().describe('Path to the joint node to configure.'),
+            body_a_path: z
+                .string()
+                .nullable()
+                .optional()
+                .describe('Optional path to the first physics body. Use an empty string or null to detach.'),
+            body_b_path: z
+                .string()
+                .nullable()
+                .optional()
+                .describe('Optional path to the second physics body. Use an empty string or null to detach.'),
+            properties: z
+                .record(z.any())
+                .optional()
+                .describe('Additional joint property overrides to apply after linking.'),
+            transaction_id: z
+                .string()
+                .optional()
+                .describe('Optional transaction identifier to batch changes.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, payload, result, error_14;
+            var joint_path = _b.joint_path, body_a_path = _b.body_a_path, body_b_path = _b.body_b_path, _c = _b.properties, properties = _c === void 0 ? {} : _c, transaction_id = _b.transaction_id;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {
+                            joint_path: joint_path,
+                        };
+                        if (transaction_id) {
+                            payload.transaction_id = transaction_id;
+                        }
+                        if (body_a_path !== undefined) {
+                            payload.body_a_path = body_a_path !== null && body_a_path !== void 0 ? body_a_path : '';
+                        }
+                        if (body_b_path !== undefined) {
+                            payload.body_b_path = body_b_path !== null && body_b_path !== void 0 ? body_b_path : '';
+                        }
+                        if (properties && Object.keys(properties).length > 0) {
+                            payload.properties = properties;
+                        }
+                        _d.label = 1;
+                    case 1:
+                        _d.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('link_joint_bodies', payload)];
+                    case 2:
+                        result = _d.sent();
+                        return [2 /*return*/, formatPhysicsResponse('joint', result)];
+                    case 3:
+                        error_14 = _d.sent();
+                        throw new Error("Failed to link joint bodies: ".concat(error_14.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'rebuild_physics_shapes',
+        description: 'Regenerate a CollisionShape3D from an associated Mesh resource with undo/redo support',
+        parameters: z.object({
+            node_path: z
+                .string()
+                .describe('Path to the CollisionShape3D node that should receive the rebuilt shape.'),
+            mesh_node_path: z
+                .string()
+                .optional()
+                .describe('Optional node path that exposes a Mesh resource (e.g. MeshInstance3D).'),
+            mesh_resource_path: z
+                .string()
+                .optional()
+                .describe('Optional Mesh resource path (res://...) to load for the rebuild.'),
+            shape_type: z
+                .enum(['convex', 'trimesh'])
+                .optional()
+                .describe('Shape variant to generate. Defaults to convex if omitted.'),
+            transaction_id: z
+                .string()
+                .optional()
+                .describe('Optional transaction identifier to batch the shape update.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, payload, result, resolvedShapeType, resolvedShapeClass, meshSource, status_1, error_15;
+            var _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+            var node_path = _b.node_path, mesh_node_path = _b.mesh_node_path, mesh_resource_path = _b.mesh_resource_path, shape_type = _b.shape_type, transaction_id = _b.transaction_id;
+            return __generator(this, function (_o) {
+                switch (_o.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {
+                            node_path: node_path,
+                        };
+                        if (mesh_node_path) {
+                            payload.mesh_node_path = mesh_node_path;
+                        }
+                        if (mesh_resource_path) {
+                            payload.mesh_resource_path = mesh_resource_path;
+                        }
+                        if (shape_type) {
+                            payload.shape_type = shape_type;
+                        }
+                        if (transaction_id) {
+                            payload.transaction_id = transaction_id;
+                        }
+                        _o.label = 1;
+                    case 1:
+                        _o.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('rebuild_physics_shapes', payload)];
+                    case 2:
+                        result = _o.sent();
+                        resolvedShapeType = String((_d = (_c = result.shape_type) !== null && _c !== void 0 ? _c : shape_type) !== null && _d !== void 0 ? _d : 'unknown');
+                        resolvedShapeClass = String((_e = result.shape_class) !== null && _e !== void 0 ? _e : 'Shape3D');
+                        meshSource = String((_h = (_g = (_f = result.mesh_source) !== null && _f !== void 0 ? _f : mesh_node_path) !== null && _g !== void 0 ? _g : mesh_resource_path) !== null && _h !== void 0 ? _h : 'unspecified');
+                        status_1 = String((_j = result.status) !== null && _j !== void 0 ? _j : 'pending');
+                        return [2 /*return*/, [
+                                "Rebuilt ".concat(resolvedShapeType, " shape for ").concat((_k = result.node_path) !== null && _k !== void 0 ? _k : node_path),
+                                "Shape class: ".concat(resolvedShapeClass),
+                                "Mesh source: ".concat(meshSource),
+                                "Transaction: ".concat((_m = (_l = result.transaction_id) !== null && _l !== void 0 ? _l : transaction_id) !== null && _m !== void 0 ? _m : 'n/a', " (").concat(status_1, ")"),
+                            ].join('\n')];
+                    case 3:
+                        error_15 = _o.sent();
+                        throw new Error("Failed to rebuild physics shape: ".concat(error_15.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
+    {
+        name: 'profile_physics_step',
+        description: 'Capture a snapshot of physics server metrics from the editor for diagnostics.',
+        parameters: z
+            .object({
+            include_2d: z.boolean().optional().describe('Include PhysicsServer2D metrics. Defaults to true.'),
+            include_3d: z.boolean().optional().describe('Include PhysicsServer3D metrics. Defaults to true.'),
+            include_performance: z
+                .boolean()
+                .optional()
+                .describe('Include Performance monitor values related to physics. Defaults to true.'),
+        })
+            .default({}),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, payload, result, lines, _i, _c, _d, key, value, _e, _f, _g, key, value, _h, _j, _k, key, value, error_16;
+            var _l;
+            var _m = _b.include_2d, include_2d = _m === void 0 ? true : _m, _o = _b.include_3d, include_3d = _o === void 0 ? true : _o, _p = _b.include_performance, include_performance = _p === void 0 ? true : _p;
+            return __generator(this, function (_q) {
+                switch (_q.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        payload = {
+                            include_2d: include_2d,
+                            include_3d: include_3d,
+                            include_performance: include_performance,
+                        };
+                        _q.label = 1;
+                    case 1:
+                        _q.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('profile_physics_step', payload)];
+                    case 2:
+                        result = _q.sent();
+                        lines = [
+                            "Physics profiling snapshot (".concat((_l = result.timestamp) !== null && _l !== void 0 ? _l : 'unknown', ")"),
+                        ];
+                        if (include_performance && typeof result.performance === 'object' && result.performance !== null) {
+                            lines.push('Performance metrics:');
+                            for (_i = 0, _c = Object.entries(result.performance); _i < _c.length; _i++) {
+                                _d = _c[_i], key = _d[0], value = _d[1];
+                                lines.push("  ".concat(key, ": ").concat(value));
+                            }
+                        }
+                        if (include_2d && typeof result.physics_2d === 'object' && result.physics_2d !== null) {
+                            lines.push('Physics 2D:');
+                            for (_e = 0, _f = Object.entries(result.physics_2d); _e < _f.length; _e++) {
+                                _g = _f[_e], key = _g[0], value = _g[1];
+                                lines.push("  ".concat(key, ": ").concat(value));
+                            }
+                        }
+                        if (include_3d && typeof result.physics_3d === 'object' && result.physics_3d !== null) {
+                            lines.push('Physics 3D:');
+                            for (_h = 0, _j = Object.entries(result.physics_3d); _h < _j.length; _h++) {
+                                _k = _j[_h], key = _k[0], value = _k[1];
+                                lines.push("  ".concat(key, ": ").concat(value));
+                            }
+                        }
+                        if (lines.length === 1) {
+                            lines.push('No physics metrics were returned by the editor.');
+                        }
+                        return [2 /*return*/, lines.join('\n')];
+                    case 3:
+                        error_16 = _q.sent();
+                        throw new Error("Failed to profile physics step: ".concat(error_16.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
         name: 'configure_csg_shape',
         description: 'Update CSG nodes with undo/redo aware property changes',
         parameters: z.object({
@@ -774,7 +983,7 @@ export var sceneTools = [
                 .describe('Optional transaction identifier to batch multiple edits'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_14;
+            var godot, result, error_17;
             var node_path = _b.node_path, properties = _b.properties, transaction_id = _b.transaction_id;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -792,8 +1001,8 @@ export var sceneTools = [
                         result = _c.sent();
                         return [2 /*return*/, formatCsgResponse(result)];
                     case 3:
-                        error_14 = _c.sent();
-                        throw new Error("Failed to configure CSG shape: ".concat(error_14.message));
+                        error_17 = _c.sent();
+                        throw new Error("Failed to configure CSG shape: ".concat(error_17.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -807,7 +1016,7 @@ export var sceneTools = [
         description: 'Create or update material resources, wiring glslang shader code, lightmapper_rd textures, and meshoptimizer metadata',
         parameters: configureMaterialResourceSchema,
         execute: function (params) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, error_15;
+            var godot, result, error_18;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -820,8 +1029,8 @@ export var sceneTools = [
                         result = _a.sent();
                         return [2 /*return*/, formatMaterialResponse(result)];
                     case 3:
-                        error_15 = _a.sent();
-                        throw new Error("Failed to configure material resource: ".concat(error_15.message));
+                        error_18 = _a.sent();
+                        throw new Error("Failed to configure material resource: ".concat(error_18.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -843,7 +1052,7 @@ export var sceneTools = [
                 .describe('Optional transaction identifier when batching cell edits'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_16;
+            var godot, result, error_19;
             var node_path = _b.node_path, cells = _b.cells, transaction_id = _b.transaction_id;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -861,8 +1070,8 @@ export var sceneTools = [
                         result = _c.sent();
                         return [2 /*return*/, formatGridMapResponse('paint', result)];
                     case 3:
-                        error_16 = _c.sent();
-                        throw new Error("Failed to paint GridMap cells: ".concat(error_16.message));
+                        error_19 = _c.sent();
+                        throw new Error("Failed to paint GridMap cells: ".concat(error_19.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -884,7 +1093,7 @@ export var sceneTools = [
                 .describe('Optional transaction identifier when batching cell clears'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_17;
+            var godot, result, error_20;
             var node_path = _b.node_path, cells = _b.cells, transaction_id = _b.transaction_id;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -902,8 +1111,8 @@ export var sceneTools = [
                         result = _c.sent();
                         return [2 /*return*/, formatGridMapResponse('clear', result)];
                     case 3:
-                        error_17 = _c.sent();
-                        throw new Error("Failed to clear GridMap cells: ".concat(error_17.message));
+                        error_20 = _c.sent();
+                        throw new Error("Failed to clear GridMap cells: ".concat(error_20.message));
                     case 4: return [2 /*return*/];
                 }
             });

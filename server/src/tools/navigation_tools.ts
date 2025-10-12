@@ -17,6 +17,12 @@ interface NavigationMutationParams {
   transaction_id?: string;
 }
 
+interface SynchronizeNavmeshParams {
+  tilemap_path: string;
+  region_paths?: string[];
+  on_thread?: boolean;
+}
+
 /**
  * Utility to format a vector dictionary into readable string output.
  */
@@ -305,6 +311,56 @@ export const navigationTools: MCPTool[] = [
         return `Updated ${dimension.toUpperCase()} navigation agent ${result.node_path} (${status}). Properties: ${Object.keys(properties).join(', ')}`;
       } catch (error) {
         throw new Error(`Failed to update navigation agent: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'synchronize_navmesh_with_tilemap',
+    description: 'Rebake TileMap navigation layers and optional navigation regions to keep pathfinding in sync.',
+    parameters: z.object({
+      tilemap_path: z
+        .string()
+        .describe('Path to the TileMap node whose navigation data should be synchronized.'),
+      region_paths: z
+        .array(z.string())
+        .optional()
+        .describe('Optional navigation region node paths to rebake after updating the TileMap.'),
+      on_thread: z
+        .boolean()
+        .optional()
+        .describe('Whether navigation baking should run on a worker thread (defaults to true).'),
+    }),
+    execute: async ({ tilemap_path, region_paths, on_thread = true }: SynchronizeNavmeshParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      const payload: Record<string, unknown> = {
+        tilemap_path,
+        on_thread,
+      };
+
+      if (region_paths && region_paths.length > 0) {
+        payload.region_paths = region_paths;
+      }
+
+      try {
+        const result = await godot.sendCommand<Record<string, unknown>>('synchronize_navmesh_with_tilemap', payload);
+        const rebaked = Array.isArray(result.rebaked_regions) ? (result.rebaked_regions as string[]) : [];
+        const invalid = Array.isArray(result.invalid_regions) ? (result.invalid_regions as string[]) : [];
+        const navigationUpdated = Boolean(result.navigation_map_updated);
+
+        const lines: string[] = [
+          `Synchronized TileMap navigation for ${result.tilemap_path ?? tilemap_path}`,
+          `Rebaked regions: ${rebaked.length > 0 ? rebaked.join(', ') : 'none'}`,
+          `Invalid regions: ${invalid.length > 0 ? invalid.join(', ') : 'none'}`,
+          `Navigation map updated: ${navigationUpdated ? 'yes' : 'no'}`,
+        ];
+
+        return lines.join('\n');
+      } catch (error) {
+        throw new Error(`Failed to synchronize TileMap navigation: ${(error as Error).message}`);
       }
     },
     metadata: {
