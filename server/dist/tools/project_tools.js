@@ -469,5 +469,81 @@ export var projectTools = [
             requiredRole: 'edit',
         },
     },
+    {
+        name: 'configure_input_action_context',
+        description: 'Batch manage input actions for a named context, creating, updating, or removing bindings together.',
+        parameters: z.object({
+            context_name: z
+                .string()
+                .min(1)
+                .describe('Identifier for the input context to create or update.'),
+            actions: z
+                .array(z.object({
+                name: z
+                    .string()
+                    .min(1)
+                    .describe('Input action name to configure.'),
+                events: z
+                    .array(inputEventSchema)
+                    .optional()
+                    .describe('Input events to assign to the action.'),
+                remove: z
+                    .boolean()
+                    .optional()
+                    .describe('Remove the action from the context and Input Map.'),
+                replace_events: z
+                    .boolean()
+                    .optional()
+                    .describe('Override existing events instead of merging with them.'),
+            }))
+                .min(1)
+                .describe('List of action definitions to apply for the context.'),
+            persistent: z
+                .boolean()
+                .optional()
+                .describe('Persist changes to ProjectSettings immediately (default true).'),
+            replace_existing: z
+                .boolean()
+                .optional()
+                .describe('Default replace behaviour for events when not specified per action.'),
+            remove_missing: z
+                .boolean()
+                .optional()
+                .describe('Remove actions from the context that are not present in the payload.'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, created, updated, removed, error_8;
+            var context_name = _b.context_name, actions = _b.actions, persistent = _b.persistent, replace_existing = _b.replace_existing, remove_missing = _b.remove_missing;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _c.label = 1;
+                    case 1:
+                        _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('configure_input_action_context', {
+                                context_name: context_name,
+                                actions: actions,
+                                persistent: persistent,
+                                replace_existing: replace_existing,
+                                remove_missing: remove_missing,
+                            })];
+                    case 2:
+                        result = _c.sent();
+                        created = Array.isArray(result.created_actions) ? result.created_actions.length : 0;
+                        updated = Array.isArray(result.updated_actions) ? result.updated_actions.length : 0;
+                        removed = Array.isArray(result.removed_actions) ? result.removed_actions.length : 0;
+                        return [2 /*return*/, "Configured input action context \"".concat(context_name, "\": ").concat(created, " created, ").concat(updated, " updated, ").concat(removed, " removed.")];
+                    case 3:
+                        error_8 = _c.sent();
+                        throw new Error("Failed to configure input action context: ".concat(error_8.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'edit',
+        },
+    },
 ];
 //# sourceMappingURL=project_tools.js.map

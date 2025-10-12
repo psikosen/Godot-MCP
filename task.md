@@ -55,12 +55,12 @@
 - [x] `synchronize_navmesh_with_tilemap` to rebake navigation after TileMap edits.
 
 ### Command expansions — UI & Interaction
-- [ ] `create_theme_override` to author Control theme overrides on nodes.
-- [ ] `configure_input_action_context` to batch-edit input actions tied to context-specific gameplay states.
+- [x] `create_theme_override` to author Control theme overrides on nodes.
+- [x] `configure_input_action_context` to batch-edit input actions tied to context-specific gameplay states.
 - [x] `configure_camera2d_limits` to adjust limit bounds, smoothing, and new dedicated editor settings for Camera2D nodes.
-- [ ] `wire_signal_handler` to connect node signals to target scripts with stub generation.
-- [ ] `layout_ui_grid` to auto-arrange Containers using anchor/margin presets from upstream templates.
-- [ ] `validate_accessibility` to scan UI scenes for accessibility metadata (focus, labels, navigation).
+- [x] `wire_signal_handler` to connect node signals to target scripts with stub generation.
+- [x] `layout_ui_grid` to auto-arrange Containers using anchor/margin presets from upstream templates.
+- [x] `validate_accessibility` to scan UI scenes for accessibility metadata (focus, labels, navigation).
 
 ### Command expansions — Audio & Media
 - [x] `list_audio_buses` to enumerate audio routing, volume, and effect state for review.

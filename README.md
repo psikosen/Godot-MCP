@@ -137,6 +137,10 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `rename_node` - Rename a node while preserving undo history
 - `add_node_to_group` - Add a node to a named group (optionally persisting to the scene file)
 - `remove_node_from_group` - Remove a node from a group with undo/redo
+- `create_theme_override` - Author Control theme overrides with undo-safe transactions
+- `wire_signal_handler` - Connect node signals to scripted methods with optional stub generation
+- `layout_ui_grid` - Apply column-based layouts to Control containers with consistent spacing
+- `validate_accessibility` - Inspect Control nodes for missing focus, labels, or accessible descriptions
 - `list_node_groups` - List all groups the node currently belongs to
 - `list_nodes_in_group` - Enumerate nodes that are members of a group in the edited scene
 
@@ -198,6 +202,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `remove_input_action` - Delete an input action from the project settings
 - `add_input_event_to_action` - Register an additional event on an existing input action
 - `remove_input_event_from_action` - Remove an input event by index or matching fields
+- `configure_input_action_context` - Batch manage related input actions and persist context metadata
 - `list_audio_buses` - Enumerate the audio bus graph with volume, routing, and effect status
 - `configure_audio_bus` - Adjust audio bus volume, routing, and effect enablement with optional persistence
 

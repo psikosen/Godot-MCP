@@ -80,6 +80,46 @@ interface ConfigureCamera2DLimitsParams {
 const hasConfigurationEntries = (value: Record<string, unknown> | undefined): value is Record<string, unknown> =>
   !!value && Object.values(value).some(entry => entry !== undefined);
 
+interface ThemeOverrideParams {
+  node_path: string;
+  override_type: 'color' | 'constant' | 'font' | 'font_size' | 'stylebox' | 'icon';
+  override_name: string;
+  value?: unknown;
+  resource_path?: string;
+  transaction_id?: string;
+}
+
+interface WireSignalHandlerParams {
+  source_path: string;
+  signal_name: string;
+  target_path: string;
+  method_name: string;
+  script_path?: string;
+  create_script?: boolean;
+  arguments?: string[];
+  binds?: unknown[];
+  deferred?: boolean;
+  one_shot?: boolean;
+  reference_counted?: boolean;
+  transaction_id?: string;
+}
+
+interface LayoutUiGridParams {
+  container_path: string;
+  columns?: number;
+  horizontal_gap?: number;
+  vertical_gap?: number;
+  cell_size?: { x?: number; y?: number } | [number, number];
+  size_flags?: { horizontal?: number; vertical?: number };
+  transaction_id?: string;
+}
+
+interface ValidateAccessibilityParams {
+  root_path?: string;
+  include_hidden?: boolean;
+  max_depth?: number;
+}
+
 const camera2DLimitsSchema = z
   .object({
     enabled: z.boolean().optional().describe('Enable or disable Camera2D limits.'),
@@ -451,6 +491,270 @@ export const nodeTools: MCPTool[] = [
       requiredRole: 'edit',
       escalationPrompt:
         'The assistant is requesting to modify Camera2D boundaries and smoothing. Approve if the scene should adopt these camera constraints.',
+    },
+  },
+  {
+    name: 'create_theme_override',
+    description: 'Create or update a Control theme override with undo support.',
+    parameters: z.object({
+      node_path: z
+        .string()
+        .describe('Path to the Control node that should receive the theme override.'),
+      override_type: z
+        .enum(['color', 'constant', 'font', 'font_size', 'stylebox', 'icon'])
+        .describe('Type of override to apply.'),
+      override_name: z
+        .string()
+        .describe('Theme item name such as "font_color", "panel", or "normal".'),
+      value: z
+        .any()
+        .optional()
+        .describe('Override value. Colors accept HTML strings or RGBA dictionaries; resource overrides accept paths.'),
+      resource_path: z
+        .string()
+        .optional()
+        .describe('Resource path for font, icon, or stylebox overrides when different from `value`.'),
+      transaction_id: z
+        .string()
+        .optional()
+        .describe('Existing transaction identifier to batch with other edits.'),
+    }),
+    execute: async ({
+      node_path,
+      override_type,
+      override_name,
+      value,
+      resource_path,
+      transaction_id,
+    }: ThemeOverrideParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('create_theme_override', {
+          node_path,
+          override_type,
+          override_name,
+          value,
+          resource_path,
+          transaction_id,
+        });
+
+        const status = (result.status as string) ?? 'pending';
+        const appliedValue = result.value ?? result.applied_value ?? value;
+        const valueDescription = appliedValue === undefined ? 'inherit' : JSON.stringify(appliedValue);
+        const resolvedName = (result.override_name as string) ?? override_name;
+        const resolvedType = (result.override_type as string) ?? override_type;
+        const resolvedPath = (result.node_path as string) ?? node_path;
+        return `Theme override ${resolvedName} (${resolvedType}) applied to ${resolvedPath} [${status}] -> ${valueDescription}`;
+      } catch (error) {
+        throw new Error(`Failed to create theme override: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'wire_signal_handler',
+    description: 'Connect a signal between nodes and generate method stubs when needed.',
+    parameters: z.object({
+      source_path: z
+        .string()
+        .describe('Node emitting the signal (e.g. "/root/Main/StartButton").'),
+      signal_name: z
+        .string()
+        .describe('Name of the signal to connect (e.g. "pressed").'),
+      target_path: z
+        .string()
+        .describe('Node that should receive the callback.'),
+      method_name: z
+        .string()
+        .describe('Method to invoke on the target node when the signal fires.'),
+      script_path: z
+        .string()
+        .optional()
+        .describe('Optional script resource to assign before connecting the signal.'),
+      create_script: z
+        .boolean()
+        .optional()
+        .describe('Create a new script at `script_path` if none is assigned.'),
+      arguments: z
+        .array(z.string())
+        .optional()
+        .describe('Argument names to include in the generated stub.'),
+      binds: z
+        .array(z.any())
+        .optional()
+        .describe('Optional values to bind to the signal connection.'),
+      deferred: z
+        .boolean()
+        .optional()
+        .describe('Connect the signal in deferred mode.'),
+      one_shot: z
+        .boolean()
+        .optional()
+        .describe('Connect the signal in one-shot mode.'),
+      reference_counted: z
+        .boolean()
+        .optional()
+        .describe('Use reference-counted connections that disconnect when either side is freed.'),
+      transaction_id: z
+        .string()
+        .optional()
+        .describe('Existing transaction identifier to batch with other edits.'),
+    }),
+    execute: async ({
+      source_path,
+      signal_name,
+      target_path,
+      method_name,
+      script_path,
+      create_script,
+      arguments: argumentNames,
+      binds,
+      deferred,
+      one_shot,
+      reference_counted,
+      transaction_id,
+    }: WireSignalHandlerParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('wire_signal_handler', {
+          source_path,
+          signal_name,
+          target_path,
+          method_name,
+          script_path,
+          create_script,
+          arguments: argumentNames,
+          binds,
+          deferred,
+          one_shot,
+          reference_counted,
+          transaction_id,
+        });
+
+        const status = (result.status as string) ?? 'pending';
+        const stubInfo = result.stub_created ? 'stub generated' : 'existing method';
+        return `Connected ${signal_name} on ${source_path} -> ${method_name} [${status}; ${stubInfo}]`;
+      } catch (error) {
+        throw new Error(`Failed to wire signal handler: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'layout_ui_grid',
+    description: 'Arrange Control children into a grid layout with consistent spacing.',
+    parameters: z.object({
+      container_path: z
+        .string()
+        .describe('Path to the container Control whose children should be arranged.'),
+      columns: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe('Number of columns to use (default 2).'),
+      horizontal_gap: z
+        .number()
+        .optional()
+        .describe('Horizontal spacing between columns in pixels.'),
+      vertical_gap: z
+        .number()
+        .optional()
+        .describe('Vertical spacing between rows in pixels.'),
+      cell_size: z
+        .union([
+          z.object({ x: z.number().optional(), y: z.number().optional() }),
+          z.tuple([z.number(), z.number()]),
+        ])
+        .optional()
+        .describe('Uniform cell size expressed as `{ x, y }` or `[width, height]`.'),
+      size_flags: z
+        .object({ horizontal: z.number().optional(), vertical: z.number().optional() })
+        .optional()
+        .describe('Override size flags for child controls.'),
+      transaction_id: z
+        .string()
+        .optional()
+        .describe('Existing transaction identifier to batch with other edits.'),
+    }),
+    execute: async ({
+      container_path,
+      columns,
+      horizontal_gap,
+      vertical_gap,
+      cell_size,
+      size_flags,
+      transaction_id,
+    }: LayoutUiGridParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('layout_ui_grid', {
+          container_path,
+          columns,
+          horizontal_gap,
+          vertical_gap,
+          cell_size,
+          size_flags,
+          transaction_id,
+        });
+
+        const status = (result.status as string) ?? 'pending';
+        const updated = Array.isArray(result.updated_nodes) ? result.updated_nodes.length : 0;
+        return `Applied grid layout to ${container_path} (${updated} controls) [${status}]`;
+      } catch (error) {
+        throw new Error(`Failed to layout UI grid: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'validate_accessibility',
+    description: 'Scan Control nodes for accessibility gaps such as missing focus or descriptions.',
+    parameters: z.object({
+      root_path: z
+        .string()
+        .optional()
+        .describe('Root node to scan (defaults to the edited scene root).'),
+      include_hidden: z
+        .boolean()
+        .optional()
+        .describe('Include hidden controls in the scan.'),
+      max_depth: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe('Limit the traversal depth (0 means unlimited).'),
+    }),
+    execute: async ({ root_path, include_hidden, max_depth }: ValidateAccessibilityParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('validate_accessibility', {
+          root_path,
+          include_hidden,
+          max_depth,
+        });
+
+        const issueCount = Number(result.issue_count ?? result.issues?.length ?? 0);
+        const scanned = Number(result.scanned_count ?? 0);
+        const target = root_path ?? 'scene';
+        return `Accessibility scan for ${target} inspected ${scanned} controls and found ${issueCount} issues.`;
+      } catch (error) {
+        throw new Error(`Failed to validate accessibility: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
   {

@@ -10,6 +10,21 @@ const inputEventSchema = z.object({
     .describe('Input event type such as InputEventKey, key, InputEventMouseButton, mouse_button, etc.'),
 }).passthrough();
 
+interface InputActionContextAction {
+  name: string;
+  events?: Record<string, unknown>[];
+  remove?: boolean;
+  replace_events?: boolean;
+}
+
+interface ConfigureInputActionContextParams {
+  context_name: string;
+  actions: InputActionContextAction[];
+  persistent?: boolean;
+  replace_existing?: boolean;
+  remove_missing?: boolean;
+}
+
 export const projectTools: MCPTool[] = [
   {
     name: 'refresh_project_index',
@@ -376,6 +391,80 @@ export const projectTools: MCPTool[] = [
         return `Removed event from action "${result.action_name}".`;
       } catch (error) {
         throw new Error(`Failed to remove input event: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'configure_input_action_context',
+    description: 'Batch manage input actions for a named context, creating, updating, or removing bindings together.',
+    parameters: z.object({
+      context_name: z
+        .string()
+        .min(1)
+        .describe('Identifier for the input context to create or update.'),
+      actions: z
+        .array(
+          z.object({
+            name: z
+              .string()
+              .min(1)
+              .describe('Input action name to configure.'),
+            events: z
+              .array(inputEventSchema)
+              .optional()
+              .describe('Input events to assign to the action.'),
+            remove: z
+              .boolean()
+              .optional()
+              .describe('Remove the action from the context and Input Map.'),
+            replace_events: z
+              .boolean()
+              .optional()
+              .describe('Override existing events instead of merging with them.'),
+          })
+        )
+        .min(1)
+        .describe('List of action definitions to apply for the context.'),
+      persistent: z
+        .boolean()
+        .optional()
+        .describe('Persist changes to ProjectSettings immediately (default true).'),
+      replace_existing: z
+        .boolean()
+        .optional()
+        .describe('Default replace behaviour for events when not specified per action.'),
+      remove_missing: z
+        .boolean()
+        .optional()
+        .describe('Remove actions from the context that are not present in the payload.'),
+    }),
+    execute: async ({
+      context_name,
+      actions,
+      persistent,
+      replace_existing,
+      remove_missing,
+    }: ConfigureInputActionContextParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('configure_input_action_context', {
+          context_name,
+          actions,
+          persistent,
+          replace_existing,
+          remove_missing,
+        });
+
+        const created = Array.isArray(result.created_actions) ? result.created_actions.length : 0;
+        const updated = Array.isArray(result.updated_actions) ? result.updated_actions.length : 0;
+        const removed = Array.isArray(result.removed_actions) ? result.removed_actions.length : 0;
+        return `Configured input action context "${context_name}": ${created} created, ${updated} updated, ${removed} removed.`;
+      } catch (error) {
+        throw new Error(`Failed to configure input action context: ${(error as Error).message}`);
       }
     },
     metadata: {
