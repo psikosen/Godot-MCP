@@ -128,6 +128,7 @@ const { patchTools } = await import('../dist/tools/patch_tools.js');
 const { xrTools } = await import('../dist/tools/xr_tools.js');
 const { multiplayerTools } = await import('../dist/tools/multiplayer_tools.js');
 const { compressionTools } = await import('../dist/tools/compression_tools.js');
+const { renderingTools } = await import('../dist/tools/rendering_tools.js');
 
 const getTool = (collection: MCPTool[], name: string): MCPTool => {
   const tool = collection.find(item => item.name === name);
@@ -546,6 +547,60 @@ const godotCommandCases: Array<{
     name: 'list_texture_compression_settings',
     command: 'list_texture_compression_settings',
     args: {},
+  },
+  {
+    collection: renderingTools,
+    name: 'generate_material_variant',
+    command: 'generate_material_variant',
+    args: {
+      source_material: 'res://materials/base_material.tres',
+      overrides: { albedo_color: '#ffffff' },
+    },
+  },
+  {
+    collection: renderingTools,
+    name: 'compile_shader_preview',
+    command: 'compile_shader_preview',
+    args: {
+      shader_code: 'shader_type spatial; void fragment() { ALBEDO = vec3(1.0); }',
+    },
+  },
+  {
+    collection: renderingTools,
+    name: 'unwrap_lightmap_uv2',
+    command: 'unwrap_lightmap_uv2',
+    args: {
+      mesh_path: 'res://meshes/example.mesh',
+      texel_size: 0.2,
+    },
+  },
+  {
+    collection: renderingTools,
+    name: 'optimize_mesh_lods',
+    command: 'optimize_mesh_lods',
+    args: {
+      mesh_path: 'res://meshes/example.mesh',
+      lods: [0.5, 0.25],
+    },
+  },
+  {
+    collection: renderingTools,
+    name: 'configure_environment',
+    command: 'configure_environment',
+    args: {
+      environment_path: 'res://environment/world_env.tres',
+      properties: { background_mode: 2 },
+      ambient_light: { energy: 1.0 },
+    },
+  },
+  {
+    collection: renderingTools,
+    name: 'preview_environment_sun_settings',
+    command: 'preview_environment_sun_settings',
+    args: {
+      environment_path: 'res://environment/world_env.tres',
+      sun: { color: '#ffd27f', amount: 0.5 },
+    },
   },
 ];
 

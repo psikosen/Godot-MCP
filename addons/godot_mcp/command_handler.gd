@@ -29,6 +29,7 @@ func _initialize_command_processors():
         var xr_commands = MCPXRCommands.new()
         var multiplayer_commands = MCPMultiplayerCommands.new()
         var compression_commands = MCPCompressionCommands.new()
+        var rendering_commands = MCPRenderingCommands.new()
 	
 	# Set server reference for all processors
 	node_commands._websocket_server = _websocket_server
@@ -42,6 +43,7 @@ func _initialize_command_processors():
         xr_commands._websocket_server = _websocket_server
         multiplayer_commands._websocket_server = _websocket_server
         compression_commands._websocket_server = _websocket_server
+        rendering_commands._websocket_server = _websocket_server
 	
 	# Add them to our processor list
 	_command_processors.append(node_commands)
@@ -55,6 +57,7 @@ func _initialize_command_processors():
         _command_processors.append(xr_commands)
         _command_processors.append(multiplayer_commands)
         _command_processors.append(compression_commands)
+        _command_processors.append(rendering_commands)
 	
 	# Add them as children for proper lifecycle management
 	add_child(node_commands)
@@ -68,6 +71,7 @@ func _initialize_command_processors():
         add_child(xr_commands)
         add_child(multiplayer_commands)
         add_child(compression_commands)
+        add_child(rendering_commands)
 
 func _handle_command(client_id: int, command: Dictionary) -> void:
 	var command_type = command.get("type", "")

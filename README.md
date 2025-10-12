@@ -226,6 +226,14 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `create_texture_import_preset` - Register reusable import presets for ASTC/KTX/WebP oriented workflows.
 - `list_texture_compression_settings` - Inspect the current compression presets and import settings stored in ProjectSettings.
 
+#### Rendering Commands
+- `generate_material_variant` - Duplicate a Material resource, apply property and shader overrides, and optionally save it to disk.
+- `compile_shader_preview` - Compile Godot shader source and surface uniform/default texture metadata without touching files.
+- `unwrap_lightmap_uv2` - Invoke ArrayMesh lightmap unwrapping for a Mesh resource or MeshInstance3D node with optional saving.
+- `optimize_mesh_lods` - Produce simplified meshes for requested LOD ratios and optionally assign or persist the generated meshes.
+- `configure_environment` - Update Environment ambient light, fog, sky, and sun scattering properties with undo transactions.
+- `preview_environment_sun_settings` - Inspect current fog sun values and preview overrides before committing configuration changes.
+
 #### Patch Commands
 - `preview_patch` - Preview a diff before it is applied
 - `apply_patch` - Apply a previously previewed diff (requires admin approval)
@@ -243,7 +251,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - **Physics & Navigation**: `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, `synchronize_navmesh_with_tilemap`.
 - **UI & Interaction**: `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, `validate_accessibility`.
 - **Audio & Media**: `configure_audio_bus`, `analyze_waveform`, `batch_import_audio_assets`.
-- **Rendering & Assets**: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`.
+- **Rendering & Assets** *(delivered)*: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`, `preview_environment_sun_settings`.
 - **Project & Editor Automation**: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
 
 ### Command Roles & Escalations

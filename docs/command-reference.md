@@ -1004,6 +1004,98 @@ Return the texture compression presets and import options currently registered i
 List every compression preset configured so I can confirm the mobile overrides are present.
 ```
 
+## Rendering Tools
+
+### generate_material_variant
+Duplicate a Material resource, apply overrides, and optionally persist the result to disk.
+
+**Parameters:**
+- `source_material` - Path to the Material resource to duplicate.
+- `overrides` (optional) - Dictionary of Material property overrides applied to the duplicate.
+- `shader_parameters` (optional) - Shader uniform overrides used when the material is a `ShaderMaterial`.
+- `texture_overrides` (optional) - Dictionary mapping texture slot names to resource paths or dictionaries containing a `path`.
+- `save_path` (optional) - Destination path where the variant should be saved.
+- `resource_name` (optional) - Resource name assigned to the new material prior to saving.
+- `metadata` (optional) - `set_meta` key/value pairs stored on the generated material.
+
+**Example:**
+```
+Clone res://materials/base_material.tres, raise the albedo energy, and save it as res://materials/base_material_high.tres.
+```
+
+### compile_shader_preview
+Compile Godot shader source to surface uniform metadata and default textures without modifying project files.
+
+**Parameters:**
+- `shader_code` (optional) - Inline Godot shading language to compile for diagnostics.
+- `shader_path` (optional) - Existing Shader resource path used when inline code is omitted.
+
+**Example:**
+```
+Compile an inline spatial shader so I can inspect the uniforms and default textures before committing changes.
+```
+
+### unwrap_lightmap_uv2
+Run `ArrayMesh.lightmap_unwrap` for a Mesh resource or MeshInstance3D node and optionally persist the generated ArrayMesh.
+
+**Parameters:**
+- `mesh_path` (optional) - Resource path to the Mesh that should be unwrapped.
+- `node_path` (optional) - MeshInstance3D node path in the edited scene.
+- `texel_size` (optional) - Texel size hint passed to `lightmap_unwrap` (defaults to `0.2`).
+- `save_path` (optional) - Resource path where the unwrapped mesh should be saved.
+
+**Example:**
+```
+Unwrap UV2 for res://meshes/building.mesh with a texel size of 0.15 and save the result next to the original mesh resource.
+```
+
+### optimize_mesh_lods
+Generate simplified meshes for one or more LOD ratios and optionally assign or save the generated meshes.
+
+**Parameters:**
+- `mesh_path` (optional) - Resource path used as the LOD source.
+- `node_path` (optional) - MeshInstance3D node path whose mesh should be simplified.
+- `lods` (optional) - Array of triangle ratios (0-1] describing the desired LOD levels.
+- `save_paths` (optional) - Array of resource paths matching `lods` where generated meshes should be stored.
+
+**Example:**
+```
+Create 50% and 25% LOD meshes from res://meshes/vehicle.mesh and assign the coarsest mesh to the selected instance.
+```
+
+### configure_environment
+Update Environment ambient light, fog, sky, and sun scattering properties with undo-safe transactions.
+
+**Parameters:**
+- `environment_path` (optional) - Environment resource path to configure directly.
+- `world_environment` / `node_path` (optional) - WorldEnvironment node path whose Environment should be edited.
+- `properties` (optional) - Dictionary of direct Environment property overrides.
+- `ambient_light` (optional) - Dictionary covering `color`, `energy`, and `sky_contribution` overrides.
+- `fog` (optional) - Dictionary covering fog properties such as `color`, `density`, `height`, `sun_color`, `sun_amount`, and `sun_scatter`.
+- `sun` (optional) - Convenience dictionary mapped to fog sun properties (`color`, `amount`, `scatter`).
+- `sky` (optional) - Dictionary for sky overrides including `path`, `custom_fov`, `rotation`, and `energy`.
+- `transaction_id` (optional) - Existing transaction identifier used to batch configuration updates.
+- `save` (optional) - Persist the Environment resource immediately when true (default `true` when the transaction is committed).
+
+**Example:**
+```
+Raise the ambient light energy, switch the background mode to Sky, and point the fog sun scatter towards a warmer palette.
+```
+
+### preview_environment_sun_settings
+Preview fog sun scattering overrides and optionally apply them via `configure_environment`.
+
+**Parameters:**
+- `environment_path` (optional) - Environment resource path queried for current fog sun values.
+- `world_environment` / `node_path` (optional) - WorldEnvironment node path whose Environment should be inspected.
+- `sun` (optional) - Dictionary of preview values mapped to fog sun properties (`color`, `amount`, `scatter`).
+- `apply` (optional) - When true, forwards the request to `configure_environment` for immediate application.
+
+**Example:**
+```
+Preview how the fog sun color shifts when moving towards sunset hues and apply the change if it looks correct.
+```
+
 ## MCP Resources
 
 ### godot://physics/world
