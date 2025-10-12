@@ -10,6 +10,7 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
 - **Project Indexing & Query**: Cached project map with glob-style queries for quick discovery of files and directories
 - **Node Workflow Enhancements**: Rename nodes, manage group membership, and enumerate group contents with full undo/redo support
 - **Input Map Automation**: Inspect, add, and remove input actions or individual input events without leaving the editor
+- **Headless Execution & Profiling**: Launch deterministic headless runs, capture editor performance snapshots, and manage plugin state with audit-friendly logs
 - **Command Categories**:
   - **Node Commands**: Create, modify, and manage nodes in your scenes
   - **Script Commands**: Edit, analyze, and create GDScript files
@@ -207,6 +208,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `configure_input_action_context` - Batch manage related input actions and persist context metadata
 - `list_audio_buses` - Enumerate the audio bus graph with volume, routing, and effect status
 - `configure_audio_bus` - Adjust audio bus volume, routing, and effect enablement with optional persistence
+- `configure_project_setting` - Guard-railed ProjectSettings writes with type-aware validation and optional persistence
 
 #### XR Commands
 - `list_xr_interfaces` - Enumerate XR interfaces, initialization state, and capabilities exposed by the project build.
@@ -245,6 +247,10 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Editor Commands
 - `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
+- `run_godot_headless` - Launch the Godot editor binary headlessly and capture combined output for deterministic test runs
+- `capture_editor_profile` - Gather CPU, rendering, and memory metrics from the active editor session
+- `manage_editor_plugins` - Enable or disable project addons with optional persistence and structured logging
+- `snapshot_scene_state` - Capture the edited scene tree, node metadata, and key properties for pre-change review
 
 #### Planned Command Expansions (roadmap)
 - **Animation & VFX** *(delivered)*: `edit_animation`, `configure_animation_tree`, `bake_skeleton_pose`, `generate_tween_sequence`, `sync_particles_with_animation`.
@@ -252,7 +258,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - **UI & Interaction**: `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, `validate_accessibility`.
 - **Audio & Media**: `configure_audio_bus`, `analyze_waveform`, `batch_import_audio_assets`.
 - **Rendering & Assets** *(delivered)*: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`, `preview_environment_sun_settings`.
-- **Project & Editor Automation**: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
+- **Project & Editor Automation** *(delivered)*: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
 
 ### Command Roles & Escalations
 

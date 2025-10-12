@@ -4,6 +4,24 @@ extends MCPBaseCommandProcessor
 
 const LOG_FILENAME := "addons/godot_mcp/commands/project_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "project_commands"
+const PROJECT_SETTING_PREFIX_ALLOWLIST := [
+        "application/config/",
+        "application/run/",
+        "display/window/",
+        "input/",
+        "physics/2d/",
+        "physics/3d/",
+        "rendering/",
+        "audio/",
+        "gui/",
+]
+const PROJECT_SETTING_DENYLIST := [
+        "network/remote/",
+        "network/ssl/",
+        "network/proxy/",
+        "autoload/",
+        "editor_plugins/",
+]
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
@@ -46,7 +64,100 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
                 "configure_input_action_context":
                         _configure_input_action_context(client_id, params, command_id)
                         return true
+                "configure_project_setting":
+                        _configure_project_setting(client_id, params, command_id)
+                        return true
         return false  # Command not handled
+
+func _configure_project_setting(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_configure_project_setting"
+        var setting_path: String = params.get("setting", "")
+        var persist: bool = params.get("persist", false)
+        var allow_new: bool = params.get("allow_new", false)
+        var log_context := {
+                "system_section": "project_settings",
+                "line_num": __LINE__,
+                "setting": setting_path,
+                "persist": persist,
+                "allow_new": allow_new,
+        }
+
+        if setting_path.is_empty():
+                log_context["line_num"] = __LINE__
+                _log("Project setting path is required", function_name, log_context, true)
+                return _send_error(client_id, "Project setting path is required", command_id)
+
+        if not _is_setting_path_permitted(setting_path):
+                log_context["line_num"] = __LINE__
+                _log("Requested project setting is outside the supported allowlist", function_name, log_context, true)
+                return _send_error(client_id, "Requested project setting is not available for automation", command_id)
+
+        var has_existing := ProjectSettings.has_setting(setting_path)
+        if not has_existing and not allow_new:
+                log_context["line_num"] = __LINE__
+                _log("Project setting does not exist and creation has not been approved", function_name, log_context, true)
+                return _send_error(client_id, "Project setting does not exist. Set allow_new=true to create it explicitly.", command_id)
+
+        var new_value = params.get("value", null)
+        log_context["line_num"] = __LINE__
+        if typeof(new_value) == TYPE_NIL:
+                _log("New project setting value must be supplied", function_name, log_context, true)
+                return _send_error(client_id, "A value field must be supplied for configure_project_setting", command_id)
+
+        var previous_value = null
+        if has_existing:
+                previous_value = ProjectSettings.get_setting(setting_path)
+        var coerced_value = _coerce_project_setting_value(previous_value, new_value, params)
+        var type_hint: String = params.get("type_hint", "")
+        if not type_hint.is_empty():
+                log_context["type_hint"] = type_hint
+
+        log_context["line_num"] = __LINE__
+        log_context["previous_type"] = typeof(previous_value)
+        log_context["new_type"] = typeof(coerced_value)
+
+        if typeof(coerced_value) == TYPE_NIL and typeof(previous_value) != TYPE_NIL:
+                log_context["line_num"] = __LINE__
+                _log("Unable to coerce supplied value to the expected project setting type", function_name, log_context, true)
+                return _send_error(client_id, "Unable to coerce supplied value to the expected project setting type", command_id)
+
+        if has_existing and typeof(previous_value) != TYPE_NIL and typeof(coerced_value) != typeof(previous_value):
+                log_context["line_num"] = __LINE__
+                _log("Project setting type mismatch after coercion", function_name, log_context, true)
+                return _send_error(client_id, "Project setting type mismatch after coercion", command_id)
+
+        if has_existing and _are_variants_equal(previous_value, coerced_value):
+                log_context["line_num"] = __LINE__
+                _log("Project setting already matches requested value", function_name, log_context)
+                return _send_success(client_id, {
+                        "setting": setting_path,
+                        "previous_value": previous_value,
+                        "new_value": coerced_value,
+                        "persisted": false,
+                        "changed": false,
+                }, command_id)
+
+        ProjectSettings.set_setting(setting_path, coerced_value)
+        var persisted := false
+        if persist:
+                var save_err := ProjectSettings.save()
+                log_context["line_num"] = __LINE__
+                if save_err != OK:
+                        _log("Failed to persist project settings to disk", function_name, log_context, true)
+                        return _send_error(client_id, "Failed to persist project settings to disk", command_id)
+                persisted = true
+
+        log_context["line_num"] = __LINE__
+        log_context["previous_value"] = previous_value
+        log_context["new_value"] = coerced_value
+        _log("Configured project setting", function_name, log_context)
+        _send_success(client_id, {
+                "setting": setting_path,
+                "previous_value": previous_value,
+                "new_value": coerced_value,
+                "persisted": persisted,
+                "changed": true,
+        }, command_id)
 
 func _get_project_info(client_id: int, _params: Dictionary, command_id: String) -> void:
 	var project_name = ProjectSettings.get_setting("application/config/name", "Untitled Project")
@@ -825,7 +936,118 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 		"line_num": __LINE__,
 	})
 
-	_send_success(client_id, response, command_id)
+        _send_success(client_id, response, command_id)
+
+
+func _is_setting_path_permitted(setting_path: String) -> bool:
+        for denied in PROJECT_SETTING_DENYLIST:
+                if setting_path.begins_with(denied):
+                        return false
+
+        for allowed in PROJECT_SETTING_PREFIX_ALLOWLIST:
+                if setting_path.begins_with(allowed):
+                        return true
+
+        return false
+
+
+func _coerce_project_setting_value(previous_value, new_value, params: Dictionary):
+        var expected_type := typeof(previous_value)
+        var provided_type := typeof(new_value)
+        var type_hint: String = params.get("type_hint", "")
+
+        if typeof(previous_value) == TYPE_NIL:
+                if not type_hint.is_empty():
+                        return _coerce_with_hint(new_value, type_hint)
+                return new_value
+
+        if provided_type == expected_type:
+                return new_value
+
+        if provided_type == TYPE_STRING and type_hint.is_empty():
+                var parsed_value = _parse_property_value(new_value)
+                if typeof(parsed_value) == expected_type:
+                        return parsed_value
+                if expected_type == TYPE_BOOL:
+                        var lowered := new_value.to_lower()
+                        if lowered in ["true", "1", "yes", "on"]:
+                                return true
+                        if lowered in ["false", "0", "no", "off"]:
+                                return false
+
+        if not type_hint.is_empty():
+                var hinted := _coerce_with_hint(new_value, type_hint)
+                if typeof(hinted) != TYPE_NIL and (typeof(hinted) == expected_type or type_hint in ["array", "dictionary"]):
+                        return hinted
+
+        if expected_type == TYPE_INT and provided_type == TYPE_FLOAT:
+                return int(new_value)
+        if expected_type == TYPE_FLOAT and provided_type in [TYPE_INT, TYPE_FLOAT]:
+                return float(new_value)
+        if expected_type == TYPE_BOOL and provided_type in [TYPE_INT, TYPE_FLOAT]:
+                return abs(float(new_value)) > 0.0
+        if expected_type == TYPE_PACKED_STRING_ARRAY and provided_type == TYPE_ARRAY:
+                var psa := PackedStringArray()
+                for entry in new_value:
+                        psa.append(String(entry))
+                return psa
+        if expected_type == TYPE_ARRAY and provided_type == TYPE_PACKED_STRING_ARRAY:
+                return new_value
+        if expected_type == TYPE_STRING:
+                return String(new_value)
+
+        return new_value
+
+
+func _coerce_with_hint(new_value, type_hint: String):
+        match type_hint:
+                "int":
+                        return int(new_value)
+                "float":
+                        return float(new_value)
+                "bool":
+                        if typeof(new_value) == TYPE_STRING:
+                                var lowered := new_value.to_lower()
+                                if lowered in ["true", "1", "yes", "on"]:
+                                        return true
+                                if lowered in ["false", "0", "no", "off"]:
+                                        return false
+                        if typeof(new_value) in [TYPE_INT, TYPE_FLOAT]:
+                                return abs(float(new_value)) > 0.0
+                        return bool(new_value)
+                "string":
+                        return String(new_value)
+                "array":
+                        if typeof(new_value) == TYPE_ARRAY:
+                                return new_value
+                        if typeof(new_value) == TYPE_PACKED_STRING_ARRAY:
+                                return Array(new_value)
+                        if typeof(new_value) == TYPE_STRING:
+                                var parsed := _parse_property_value(new_value)
+                                if typeof(parsed) == TYPE_ARRAY:
+                                        return parsed
+                        return null
+                "dictionary":
+                        if typeof(new_value) == TYPE_DICTIONARY:
+                                return new_value
+                        if typeof(new_value) == TYPE_STRING:
+                                var parsed_dict := _parse_property_value(new_value)
+                                if typeof(parsed_dict) == TYPE_DICTIONARY:
+                                        return parsed_dict
+                        return null
+        return new_value
+
+
+func _are_variants_equal(a, b) -> bool:
+        if typeof(a) != typeof(b):
+                return false
+        if typeof(a) == TYPE_FLOAT:
+                return is_equal_approx(float(a), float(b))
+        if typeof(a) in [TYPE_ARRAY, TYPE_PACKED_STRING_ARRAY]:
+                return Array(a) == Array(b)
+        if typeof(a) == TYPE_DICTIONARY:
+                return Dictionary(a) == Dictionary(b)
+        return a == b
 
 
 func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
