@@ -322,6 +322,62 @@ Update Joint2D and Joint3D configuration including connected bodies and constrai
 Retarget the hinge joint to connect the new door and clamp its angular limits to ±30 degrees.
 ```
 
+### link_joint_bodies
+Link a joint node to specific PhysicsBody2D/3D nodes and optionally tweak constraint parameters in a single undo-aware action.
+
+**Parameters:**
+- `joint_path` - Path to the joint node that should be updated (e.g., "/root/MainScene/Hinge")
+- `body_a_path` (optional) - Absolute path to the first physics body. Provide an empty string to detach the slot.
+- `body_b_path` (optional) - Absolute path to the second physics body. Provide an empty string to detach the slot.
+- `properties` (optional) - Dictionary of additional joint properties to update after relinking (e.g., `{ "max_force": 200 }`).
+- `transaction_id` (optional) - Optional transaction identifier when batching edits across multiple commands.
+
+**Example:**
+```
+Connect the hinge joint to the upgraded door and frame bodies, then raise the solver priority so it resolves before secondary joints.
+```
+
+### rebuild_physics_shapes
+Regenerate a CollisionShape3D's shape resource from a Mesh node or resource to keep collision data aligned with geometry changes.
+
+**Parameters:**
+- `node_path` - Path to the CollisionShape3D node to update (e.g., "/root/MainScene/Collision")
+- `mesh_node_path` (optional) - Node path exposing a Mesh resource such as a MeshInstance3D.
+- `mesh_resource_path` (optional) - Resource path to a Mesh on disk (e.g., `"res://models/crate.glb"`).
+- `shape_type` (optional) - Shape variant to generate (`"convex"` or `"trimesh"`, defaults to `"convex"`).
+- `transaction_id` (optional) - Optional transaction identifier when batching edits.
+
+**Example:**
+```
+Rebuild the crate collision shape from the latest MeshInstance so physics matches the imported GLB geometry.
+```
+
+### profile_physics_step
+Capture a snapshot of Performance monitors and PhysicsServer process counters for quick diagnostics from the MCP client.
+
+**Parameters:**
+- `include_2d` (optional) - Whether to include PhysicsServer2D metrics (default `true`).
+- `include_3d` (optional) - Whether to include PhysicsServer3D metrics (default `true`).
+- `include_performance` (optional) - Whether to include `Performance` monitor readings related to physics (default `true`).
+
+**Example:**
+```
+Collect a physics profiling snapshot so we can compare active bodies and collision pairs before and after the new AI system.
+```
+
+### synchronize_navmesh_with_tilemap
+Synchronize a TileMap's navigation data and optionally rebake associated NavigationRegion nodes after tile edits.
+
+**Parameters:**
+- `tilemap_path` - Path to the TileMap node whose navigation layers should be refreshed.
+- `region_paths` (optional) - Array of NavigationRegion2D/3D node paths to rebake after the TileMap is synchronized.
+- `on_thread` (optional) - Whether region rebakes should run on a worker thread (`true` by default).
+
+**Example:**
+```
+Rebake the TileMap navigation and the patrol NavigationRegion after updating cliff tiles so pathfinding respects the new layout.
+```
+
 ### configure_csg_shape
 Configure CSGCombiner3D, CSGBox3D, and other CSG nodes with undo/redo aware property updates.
 

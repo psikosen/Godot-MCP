@@ -26,6 +26,9 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
                 "update_navigation_agent":
                         _update_navigation_agent(client_id, params, command_id)
                         return true
+                "synchronize_navmesh_with_tilemap":
+                        _synchronize_navmesh_with_tilemap(client_id, params, command_id)
+                        return true
         return false
 
 func _list_navigation_maps(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -413,6 +416,108 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
                         "transaction_id": transaction.transaction_id,
                         "status": "pending",
                 }, command_id)
+
+
+
+func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, command_id: String) -> void:
+        var function_name := "_synchronize_navmesh_with_tilemap"
+        var tilemap_path := String(params.get("tilemap_path", ""))
+        var region_paths_param = params.get("region_paths", [])
+        var on_thread := bool(params.get("on_thread", true))
+
+        var context := {
+                "command": "synchronize_navmesh_with_tilemap",
+                "client_id": client_id,
+                "tilemap_path": tilemap_path,
+                "on_thread": on_thread,
+        }
+
+        if tilemap_path.is_empty():
+                _log("TileMap path cannot be empty", function_name, context, true)
+                return _send_error(client_id, "TileMap path cannot be empty", command_id)
+
+        var tilemap = _get_editor_node(tilemap_path)
+        if not tilemap:
+                _log("TileMap node not found", function_name, context, true)
+                return _send_error(client_id, "TileMap not found: %s" % tilemap_path, command_id)
+
+        if not (tilemap is TileMap):
+                context["node_type"] = tilemap.get_class()
+                _log("Node at path is not a TileMap", function_name, context, true)
+                return _send_error(client_id, "Node at path is not a TileMap", command_id)
+
+        var requested_region_paths: Array = []
+        if params.has("region_paths"):
+                if typeof(region_paths_param) == TYPE_ARRAY:
+                        requested_region_paths = region_paths_param.duplicate()
+                else:
+                        context["region_paths_type"] = Variant.get_type_name(typeof(region_paths_param))
+                        _log("region_paths must be an array of node paths", function_name, context, true)
+                        return _send_error(client_id, "region_paths must be an array of node paths", command_id)
+        elif region_paths_param is Array:
+                requested_region_paths = region_paths_param.duplicate()
+
+        var rebaked_regions: Array = []
+        var invalid_regions: Array = []
+        var target_regions: Array = []
+
+        if requested_region_paths.is_empty():
+                for child in tilemap.get_children():
+                        if child is NavigationRegion2D or child is NavigationRegion3D:
+                                target_regions.append(child)
+        else:
+                for entry in requested_region_paths:
+                        var region_path := String(entry)
+                        if region_path.is_empty():
+                                continue
+                        var region_node = _get_editor_node(region_path)
+                        if not region_node:
+                                invalid_regions.append(region_path)
+                                continue
+                        if not (region_node is NavigationRegion2D or region_node is NavigationRegion3D):
+                                invalid_regions.append(region_path)
+                                continue
+                        target_regions.append(region_node)
+
+        for region in target_regions:
+                if region is NavigationRegion2D:
+                        region.bake_navigation_polygon(on_thread)
+                        rebaked_regions.append(_path_to_string(region))
+                elif region is NavigationRegion3D:
+                        region.bake_navigation_mesh(on_thread)
+                        rebaked_regions.append(_path_to_string(region))
+
+        var navigation_map_updated := false
+        if tilemap.has_method("bake_navigation"):
+                tilemap.bake_navigation()
+                navigation_map_updated = true
+        elif tilemap.has_method("queue_navigation_update"):
+                tilemap.queue_navigation_update()
+                navigation_map_updated = true
+        elif tilemap.has_method("get_navigation_map"):
+                var nav_map = tilemap.get_navigation_map()
+                if typeof(nav_map) == TYPE_RID:
+                        var rid: RID = nav_map
+                        if rid.is_valid():
+                                NavigationServer2D.map_force_update(rid)
+                                navigation_map_updated = true
+
+        if tilemap.has_method("update_internals"):
+                tilemap.update_internals()
+
+        if rebaked_regions.size() > 0 or navigation_map_updated:
+                _mark_scene_modified()
+
+        var result := {
+                "tilemap_path": _path_to_string(tilemap),
+                "rebaked_regions": rebaked_regions,
+                "invalid_regions": invalid_regions,
+                "navigation_map_updated": navigation_map_updated,
+        }
+
+        _log("Synchronized TileMap navigation", function_name, result)
+
+        _send_success(client_id, result, command_id)
 
 func _summarize_region_2d(region: NavigationRegion2D) -> Dictionary:
         var polygon := region.navigation_polygon

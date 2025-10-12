@@ -48,11 +48,11 @@
 - [x] `sync_particles_with_animation` to align GPUParticles3D emission with AnimationPlayer tracks.
 
 ### Command expansions — Physics & Navigation
-- [ ] `configure_physics_body` to set mass, collision layers/masks, and damping using UndoRedo transactions.
-- [ ] `link_joint_bodies` to create and configure Joint2D/Joint3D relationships.
-- [ ] `rebuild_physics_shapes` to regenerate convex and trimesh shapes from Mesh resources.
-- [ ] `profile_physics_step` to trigger PhysicsServer profiling captures via the editor.
-- [ ] `synchronize_navmesh_with_tilemap` to rebake navigation after TileMap edits.
+- [x] `configure_physics_body` to set mass, collision layers/masks, and damping using UndoRedo transactions.
+- [x] `link_joint_bodies` to create and configure Joint2D/Joint3D relationships.
+- [x] `rebuild_physics_shapes` to regenerate convex and trimesh shapes from Mesh resources.
+- [x] `profile_physics_step` to trigger PhysicsServer profiling captures via the editor.
+- [x] `synchronize_navmesh_with_tilemap` to rebake navigation after TileMap edits.
 
 ### Command expansions — UI & Interaction
 - [ ] `create_theme_override` to author Control theme overrides on nodes.

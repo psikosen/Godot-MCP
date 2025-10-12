@@ -253,9 +253,10 @@ To extend MCP coverage beyond the current node, script, and navigation flows, we
 
 ### 2. Physics, Navigation, & Profiling
 - **Resources**: provide `godot://physics/world` snapshots and extend navigation data with TileMap rebake metadata.
-- **Commands**: implement `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, and `synchronize_navmesh_with_tilemap`.
+- **Commands**: delivered `configure_physics_body`, `link_joint_bodies`, `rebuild_physics_shapes`, `profile_physics_step`, and `synchronize_navmesh_with_tilemap` through coordinated Godot and FastMCP tooling updates.
 - **Dependencies**: PhysicsServer2D/3D, Joint APIs, EditorNavigationRegion gizmos.
 - **Notes**: guard high-impact profiling commands behind escalation.
+- **Status**: Completed — physics authoring now covers bodies, joints, and shape regeneration while navigation keeps TileMaps and regions in sync.
 
 ### 3. UI & Interaction Systems
 - **Resources**: serve `godot://ui/theme` for project-wide theme audits.

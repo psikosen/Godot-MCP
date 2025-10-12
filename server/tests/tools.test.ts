@@ -192,6 +192,33 @@ const godotCommandCases: Array<{
   { collection: sceneTools, name: 'configure_physics_body', command: 'configure_physics_body', args: { node_path: '/root/Body', properties: { mass: 1 } } },
   { collection: sceneTools, name: 'configure_physics_area', command: 'configure_physics_area', args: { node_path: '/root/Area', properties: { gravity: 9.8 } } },
   { collection: sceneTools, name: 'configure_physics_joint', command: 'configure_physics_joint', args: { node_path: '/root/Joint', properties: { bias: 0.1 } } },
+  {
+    collection: sceneTools,
+    name: 'link_joint_bodies',
+    command: 'link_joint_bodies',
+    args: {
+      joint_path: '/root/Joint',
+      body_a_path: '/root/BodyA',
+      body_b_path: '/root/BodyB',
+      properties: { max_force: 100 },
+    },
+  },
+  {
+    collection: sceneTools,
+    name: 'rebuild_physics_shapes',
+    command: 'rebuild_physics_shapes',
+    args: {
+      node_path: '/root/CollisionShape3D',
+      mesh_node_path: '/root/MeshInstance3D',
+      shape_type: 'convex',
+    },
+  },
+  {
+    collection: sceneTools,
+    name: 'profile_physics_step',
+    command: 'profile_physics_step',
+    args: { include_2d: true, include_3d: true, include_performance: true },
+  },
   { collection: sceneTools, name: 'configure_csg_shape', command: 'configure_csg_shape', args: { node_path: '/root/CSG', properties: { radius: 2 } } },
   { collection: sceneTools, name: 'configure_material_resource', command: 'configure_material_resource', args: { resource_path: 'res://materials/mat.tres', material_properties: { albedo_color: '#ffffff' } } },
   {
@@ -263,6 +290,12 @@ const godotCommandCases: Array<{
     name: 'update_navigation_agent',
     command: 'update_navigation_agent',
     args: { node_path: '/root/Agent', properties: { max_speed: 5 } },
+  },
+  {
+    collection: navigationTools,
+    name: 'synchronize_navmesh_with_tilemap',
+    command: 'synchronize_navmesh_with_tilemap',
+    args: { tilemap_path: '/root/TileMap', region_paths: ['/root/NavRegion'], on_thread: true },
   },
   { collection: audioTools, name: 'author_audio_stream_player', command: 'author_audio_stream_player', args: { parent_path: '/root', player_name: 'Music', stream_path: 'res://audio/theme.ogg', autoplay: true } },
   {

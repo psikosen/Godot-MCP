@@ -44,6 +44,28 @@ interface ConfigurePhysicsNodeParams {
   transaction_id?: string;
 }
 
+interface LinkJointBodiesParams {
+  joint_path: string;
+  body_a_path?: string | null;
+  body_b_path?: string | null;
+  properties?: Record<string, unknown>;
+  transaction_id?: string;
+}
+
+interface RebuildPhysicsShapesParams {
+  node_path: string;
+  mesh_node_path?: string;
+  mesh_resource_path?: string;
+  shape_type?: 'convex' | 'trimesh';
+  transaction_id?: string;
+}
+
+interface ProfilePhysicsStepParams {
+  include_2d?: boolean;
+  include_3d?: boolean;
+  include_performance?: boolean;
+}
+
 interface ConfigureCsgShapeParams {
   node_path: string;
   properties: Record<string, unknown>;
@@ -765,6 +787,207 @@ export const sceneTools: MCPTool[] = [
     },
     metadata: {
       requiredRole: 'edit',
+    },
+  },
+
+  {
+    name: 'link_joint_bodies',
+    description: 'Connect a joint to physics bodies and apply optional property updates with undo support',
+    parameters: z.object({
+      joint_path: z.string().describe('Path to the joint node to configure.'),
+      body_a_path: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Optional path to the first physics body. Use an empty string or null to detach.'),
+      body_b_path: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Optional path to the second physics body. Use an empty string or null to detach.'),
+      properties: z
+        .record(z.any())
+        .optional()
+        .describe('Additional joint property overrides to apply after linking.'),
+      transaction_id: z
+        .string()
+        .optional()
+        .describe('Optional transaction identifier to batch changes.'),
+    }),
+    execute: async ({ joint_path, body_a_path, body_b_path, properties = {}, transaction_id }: LinkJointBodiesParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      const payload: Record<string, unknown> = {
+        joint_path,
+      };
+
+      if (transaction_id) {
+        payload.transaction_id = transaction_id;
+      }
+
+      if (body_a_path !== undefined) {
+        payload.body_a_path = body_a_path ?? '';
+      }
+
+      if (body_b_path !== undefined) {
+        payload.body_b_path = body_b_path ?? '';
+      }
+
+      if (properties && Object.keys(properties).length > 0) {
+        payload.properties = properties;
+      }
+
+      try {
+        const result = await godot.sendCommand<CommandResult>('link_joint_bodies', payload);
+        return formatPhysicsResponse('joint', result);
+      } catch (error) {
+        throw new Error(`Failed to link joint bodies: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+
+  {
+    name: 'rebuild_physics_shapes',
+    description: 'Regenerate a CollisionShape3D from an associated Mesh resource with undo/redo support',
+    parameters: z.object({
+      node_path: z
+        .string()
+        .describe('Path to the CollisionShape3D node that should receive the rebuilt shape.'),
+      mesh_node_path: z
+        .string()
+        .optional()
+        .describe('Optional node path that exposes a Mesh resource (e.g. MeshInstance3D).'),
+      mesh_resource_path: z
+        .string()
+        .optional()
+        .describe('Optional Mesh resource path (res://...) to load for the rebuild.'),
+      shape_type: z
+        .enum(['convex', 'trimesh'])
+        .optional()
+        .describe('Shape variant to generate. Defaults to convex if omitted.'),
+      transaction_id: z
+        .string()
+        .optional()
+        .describe('Optional transaction identifier to batch the shape update.'),
+    }),
+    execute: async ({
+      node_path,
+      mesh_node_path,
+      mesh_resource_path,
+      shape_type,
+      transaction_id,
+    }: RebuildPhysicsShapesParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      const payload: Record<string, unknown> = {
+        node_path,
+      };
+
+      if (mesh_node_path) {
+        payload.mesh_node_path = mesh_node_path;
+      }
+
+      if (mesh_resource_path) {
+        payload.mesh_resource_path = mesh_resource_path;
+      }
+
+      if (shape_type) {
+        payload.shape_type = shape_type;
+      }
+
+      if (transaction_id) {
+        payload.transaction_id = transaction_id;
+      }
+
+      try {
+        const result = await godot.sendCommand<Record<string, unknown>>('rebuild_physics_shapes', payload);
+        const resolvedShapeType = String(result.shape_type ?? shape_type ?? 'unknown');
+        const resolvedShapeClass = String(result.shape_class ?? 'Shape3D');
+        const meshSource = String(result.mesh_source ?? mesh_node_path ?? mesh_resource_path ?? 'unspecified');
+        const status = String(result.status ?? 'pending');
+
+        return [
+          `Rebuilt ${resolvedShapeType} shape for ${result.node_path ?? node_path}`,
+          `Shape class: ${resolvedShapeClass}`,
+          `Mesh source: ${meshSource}`,
+          `Transaction: ${result.transaction_id ?? transaction_id ?? 'n/a'} (${status})`,
+        ].join('\n');
+      } catch (error) {
+        throw new Error(`Failed to rebuild physics shape: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+
+  {
+    name: 'profile_physics_step',
+    description: 'Capture a snapshot of physics server metrics from the editor for diagnostics.',
+    parameters: z
+      .object({
+        include_2d: z.boolean().optional().describe('Include PhysicsServer2D metrics. Defaults to true.'),
+        include_3d: z.boolean().optional().describe('Include PhysicsServer3D metrics. Defaults to true.'),
+        include_performance: z
+          .boolean()
+          .optional()
+          .describe('Include Performance monitor values related to physics. Defaults to true.'),
+      })
+      .default({}),
+    execute: async ({
+      include_2d = true,
+      include_3d = true,
+      include_performance = true,
+    }: ProfilePhysicsStepParams): Promise<string> => {
+      const godot = getGodotConnection();
+
+      const payload: Record<string, unknown> = {
+        include_2d,
+        include_3d,
+        include_performance,
+      };
+
+      try {
+        const result = await godot.sendCommand<Record<string, unknown>>('profile_physics_step', payload);
+        const lines: string[] = [
+          `Physics profiling snapshot (${result.timestamp ?? 'unknown'})`,
+        ];
+
+        if (include_performance && typeof result.performance === 'object' && result.performance !== null) {
+          lines.push('Performance metrics:');
+          for (const [key, value] of Object.entries(result.performance as Record<string, unknown>)) {
+            lines.push(`  ${key}: ${value}`);
+          }
+        }
+
+        if (include_2d && typeof result.physics_2d === 'object' && result.physics_2d !== null) {
+          lines.push('Physics 2D:');
+          for (const [key, value] of Object.entries(result.physics_2d as Record<string, unknown>)) {
+            lines.push(`  ${key}: ${value}`);
+          }
+        }
+
+        if (include_3d && typeof result.physics_3d === 'object' && result.physics_3d !== null) {
+          lines.push('Physics 3D:');
+          for (const [key, value] of Object.entries(result.physics_3d as Record<string, unknown>)) {
+            lines.push(`  ${key}: ${value}`);
+          }
+        }
+
+        if (lines.length === 1) {
+          lines.push('No physics metrics were returned by the editor.');
+        }
+
+        return lines.join('\n');
+      } catch (error) {
+        throw new Error(`Failed to profile physics step: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
     },
   },
 
