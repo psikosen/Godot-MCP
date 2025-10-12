@@ -1,6 +1,7 @@
 # Task Plan
 
 ## Current Execution Plan
+- [x] Deliver rendering and environment command processors covering material variants, shader previews, UV2 unwrapping, mesh LOD optimization, and environment configuration/preview flows.
 - [x] Extend the Godot addon with XR, multiplayer, and compression command processors plus structured logging hooks.
 - [x] Publish matching MCP server tool definitions and resources so the new commands are discoverable.
 - [x] Update README and reference docs alongside roadmap trackers to reflect the new capabilities.
@@ -71,12 +72,12 @@
 - [x] `batch_import_audio_assets` to drive import presets for WAV/OGG via the editor importer.
 
 ### Command expansions — Rendering & Assets
-- [ ] `generate_material_variant` to clone materials with parameter overrides and optionally baked textures.
-- [ ] `compile_shader_preview` to validate shader code via the RenderingServer and return compilation diagnostics.
-- [ ] `unwrap_lightmap_uv2` to invoke the lightmapper/xatlas UV unwrap pipeline from MCP.
-- [ ] `optimize_mesh_lods` to call meshoptimizer decimation for LOD generation.
-- [ ] `configure_environment` to edit WorldEnvironment settings (sky, fog, lighting) with undo support.
-- [ ] `preview_environment_sun_settings` to drive the sun/environment preview popup with undo-aware adjustments.
+- [x] `generate_material_variant` to clone materials with parameter overrides and optionally baked textures.
+- [x] `compile_shader_preview` to validate shader code via the RenderingServer and return compilation diagnostics.
+- [x] `unwrap_lightmap_uv2` to invoke the lightmapper/xatlas UV unwrap pipeline from MCP.
+- [x] `optimize_mesh_lods` to call meshoptimizer decimation for LOD generation.
+- [x] `configure_environment` to edit WorldEnvironment settings (sky, fog, lighting) with undo support.
+- [x] `preview_environment_sun_settings` to drive the sun/environment preview popup with undo-aware adjustments.
 
 ### Command expansions — Project & Editor automation
 - [ ] `configure_project_setting` guard-railed writes to `ProjectSettings` with typed validation.

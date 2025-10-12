@@ -12,6 +12,7 @@ import { animationTools } from './tools/animation_tools.js';
 import { xrTools } from './tools/xr_tools.js';
 import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
+import { renderingTools } from './tools/rendering_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
@@ -85,6 +86,7 @@ async function main() {
     ...xrTools,
     ...multiplayerTools,
     ...compressionTools,
+    ...renderingTools,
   ].forEach(tool => {
     registerTool(tool);
   });

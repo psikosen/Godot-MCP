@@ -272,9 +272,9 @@ To extend MCP coverage beyond the current node, script, and navigation flows, we
 - **Status**: Audio bus introspection delivered via `list_audio_buses`, mutation command `configure_audio_bus`, node-level authoring with `author_audio_stream_player`, interactive music graph tooling through `author_interactive_music_graph`, dynamic layer generation via `generate_dynamic_music_layer`, offline waveform analysis with `analyze_waveform`, and importer automation through `batch_import_audio_assets`.
 
 ### 5. Rendering, Materials, & Assets
-- **Commands**: deliver `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, and `configure_environment`.
+- **Commands**: delivered `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, and `configure_environment` along with the `preview_environment_sun_settings` helper for fog sun previews.
 - **Dependencies**: RenderingServer, LightmapGI, meshoptimizer bindings.
-- **Notes**: capture shader compilation diagnostics and ensure fallback when offline.
+- **Notes**: shader previews surface uniform/default texture metadata while material and environment commands honour undo/redo transactions.
 
 ### 6. Project & Editor Automation
 - **Commands**: implement `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, and `snapshot_scene_state`.

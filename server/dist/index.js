@@ -68,6 +68,7 @@ import { animationTools } from './tools/animation_tools.js';
 import { xrTools } from './tools/xr_tools.js';
 import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
+import { renderingTools } from './tools/rendering_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { commandGuard } from './utils/command_guard.js';
 // Import resources
@@ -110,7 +111,7 @@ function main() {
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true).forEach(function (tool) {
                         registerTool(tool);
                     });
                     // Register all resources
