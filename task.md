@@ -1,6 +1,8 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Add EditorInterface-aware node create/delete flows with selection updates and structured responses.
+- [x] Support nested node property updates with typed conversion and transaction logging.
 - [x] Normalize GDScript indentation to resolve parser errors in command processors.
 - [x] Guard command identifier coercion in the MCP command handler.
 - [x] Execute server vitest suite to confirm MCP endpoints remain stable.
