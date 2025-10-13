@@ -263,6 +263,7 @@ To extend MCP coverage beyond the current node, script, and navigation flows, we
 - **Commands**: build `create_theme_override`, `configure_input_action_context`, `wire_signal_handler`, `layout_ui_grid`, and `validate_accessibility`.
 - **Dependencies**: ThemeDB, InputMap, editor signal utilities.
 - **Notes**: integrate accessibility scanning with Control focus and localization metadata.
+- **Status**: Completed — theme overrides, input contexts, signal wiring, layout automation, and accessibility validation are all exposed with undo-aware transactions, canonical logging, and matching server tools.
 
 ### 4. Audio & Media Pipelines
 - **Resources**: add `godot://audio/buses` exposing AudioServer routing.
