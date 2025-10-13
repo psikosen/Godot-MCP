@@ -193,37 +193,37 @@ func _process(_delta):
 							var send_result = client.ws.send_text(response_text)
 							print("[Client ", id, "] SENDING PING RESPONSE: ", response_text, " (result: ", send_result, ")")
 						
-                                                # Handle other MCP commands via command handler
-                                                elif data.has("method"):
-                                                        var method_name = data.get("method", "")
-                                                        var params = data.get("params", {})
-                                                        var req_id = data.get("id")
+						# Handle other MCP commands via command handler
+						elif data.has("method"):
+							var method_name = data.get("method", "")
+							var params = data.get("params", {})
+							var req_id = data.get("id")
 
-                                                        if method_name == "":
-                                                                print("[Client ", id, "] JSON-RPC method missing")
-                                                                continue
+							if method_name == "":
+								print("[Client ", id, "] JSON-RPC method missing")
+								continue
 
-                                                        var command_id := ""
-                                                        var has_id := data.has("id") and req_id != null
-                                                        if has_id:
-                                                                command_id = "jsonrpc_%s" % str(req_id)
-                                                                _jsonrpc_requests[command_id] = {
-                                                                        "request_id": req_id,
-                                                                        "client_id": id
-                                                                }
+							var command_id := ""
+							var has_id := data.has("id") and req_id != null
+							if has_id:
+								command_id = "jsonrpc_%s" % str(req_id)
+								_jsonrpc_requests[command_id] = {
+									"request_id": req_id,
+									"client_id": id
+								}
 
-                                                        if typeof(params) != TYPE_DICTIONARY:
-                                                                print("[Client ", id, "] JSON-RPC params not a dictionary, coercing to {}")
-                                                                params = {}
+							if typeof(params) != TYPE_DICTIONARY:
+								print("[Client ", id, "] JSON-RPC params not a dictionary, coercing to {}")
+								params = {}
 
-                                                        var command_payload := {
-                                                                "type": method_name,
-                                                                "params": params,
-                                                                "commandId": command_id
-                                                        }
+							var command_payload := {
+								"type": method_name,
+								"params": params,
+								"commandId": command_id
+							}
 
-                                                        print("[Client ", id, "] Routing JSON-RPC method ", method_name, " with commandId ", command_id)
-                                                        emit_signal("command_received", id, command_payload)
+							print("[Client ", id, "] Routing JSON-RPC method ", method_name, " with commandId ", command_id)
+							emit_signal("command_received", id, command_payload)
 					
 					# Handle legacy command format - This is what Claude Code uses
 					elif data.has("type"):
@@ -245,55 +245,55 @@ func _process(_delta):
 
 # Function for command handler to send responses back to clients
 func send_response(client_id: int, response: Dictionary) -> int:
-        if not clients.has(client_id):
-                print("Error: Client %d not found" % client_id)
-                return ERR_DOES_NOT_EXIST
+	if not clients.has(client_id):
+		print("Error: Client %d not found" % client_id)
+		return ERR_DOES_NOT_EXIST
 
-        var client = clients[client_id]
-        var command_id_value = response.get("commandId", "")
-        var command_id := command_id_value if typeof(command_id_value) == TYPE_STRING else str(command_id_value)
+	var client = clients[client_id]
+	var command_id_value = response.get("commandId", "")
+	var command_id := command_id_value if typeof(command_id_value) == TYPE_STRING else str(command_id_value)
 
-        if _jsonrpc_requests.has(command_id):
-                var request_meta = _jsonrpc_requests[command_id]
-                _jsonrpc_requests.erase(command_id)
+	if _jsonrpc_requests.has(command_id):
+		var request_meta = _jsonrpc_requests[command_id]
+		_jsonrpc_requests.erase(command_id)
 
-                var envelope := {
-                        "jsonrpc": "2.0",
-                        "id": request_meta.get("request_id")
-                }
+		var envelope := {
+			"jsonrpc": "2.0",
+			"id": request_meta.get("request_id")
+		}
 
-                if response.get("status", "") == "success":
-                        envelope["result"] = response.get("result")
-                else:
-                        envelope["error"] = {
-                                "code": -32000,
-                                "message": response.get("message", "Unknown error"),
-                                "data": response.get("result")
-                        }
+		if response.get("status", "") == "success":
+			envelope["result"] = response.get("result")
+		else:
+			envelope["error"] = {
+				"code": -32000,
+				"message": response.get("message", "Unknown error"),
+				"data": response.get("result")
+			}
 
-                var envelope_text = JSON.stringify(envelope)
-                if client.ws.get_ready_state() != WebSocketPeer.STATE_OPEN:
-                        print("Error: Client %d connection not open" % client_id)
-                        return ERR_UNAVAILABLE
+		var envelope_text = JSON.stringify(envelope)
+		if client.ws.get_ready_state() != WebSocketPeer.STATE_OPEN:
+			print("Error: Client %d connection not open" % client_id)
+			return ERR_UNAVAILABLE
 
-                var envelope_result = client.ws.send_text(envelope_text)
-                if envelope_result != OK:
-                        print("Error sending JSON-RPC response to client %d: %d" % [client_id, envelope_result])
-                return envelope_result
+		var envelope_result = client.ws.send_text(envelope_text)
+		if envelope_result != OK:
+			print("Error sending JSON-RPC response to client %d: %d" % [client_id, envelope_result])
+		return envelope_result
 
-        var json_text = JSON.stringify(response)
+	var json_text = JSON.stringify(response)
 
-        print("Sending response to client %d: %s" % [client_id, json_text])
+	print("Sending response to client %d: %s" % [client_id, json_text])
 
-        if client.ws.get_ready_state() != WebSocketPeer.STATE_OPEN:
-                print("Error: Client %d connection not open" % client_id)
-                return ERR_UNAVAILABLE
+	if client.ws.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		print("Error: Client %d connection not open" % client_id)
+		return ERR_UNAVAILABLE
 
-        var result = client.ws.send_text(json_text)
-        if result != OK:
-                print("Error sending response to client %d: %d" % [client_id, result])
+	var result = client.ws.send_text(json_text)
+	if result != OK:
+		print("Error sending response to client %d: %d" % [client_id, result])
 
-        return result
+	return result
 
 func is_server_active() -> bool:
 	return tcp_server.is_listening()
