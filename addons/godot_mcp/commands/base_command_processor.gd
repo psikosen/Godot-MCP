@@ -187,13 +187,13 @@ func _coerce_value_to_type(value, value_type: int, class_name: String = ""):
                 TYPE_RECT2I:
                         return _coerce_to_rect2i(value)
                 TYPE_NODE_PATH:
-                        return value if value is NodePath else NodePath(str(value))
+                        return value is NodePath ? value : NodePath(str(value))
                 TYPE_ARRAY, TYPE_DICTIONARY:
                         return value
                 TYPE_OBJECT:
                         if typeof(value) == TYPE_STRING and value.begins_with("res://"):
                                 var resource = ResourceLoader.load(value)
-                                return resource if resource else value
+                                return resource != null ? resource : value
                         return value
                 _:
                         return _parse_property_value(value)
@@ -260,7 +260,7 @@ func _coerce_to_color(value):
         if value is Array and value.size() >= 3:
                 var alpha := value.size() >= 4 ? value[3] : 1.0
                 return Color(value[0], value[1], value[2], alpha)
-        return Color(value) if typeof(value) == TYPE_STRING else _parse_property_value(value)
+        return typeof(value) == TYPE_STRING ? Color(value) : _parse_property_value(value)
 
 func _coerce_to_rect2(value):
         if value is Rect2:
@@ -316,7 +316,7 @@ func _coerce_value_to_match(existing_value, new_value):
                 TYPE_OBJECT:
                         if typeof(new_value) == TYPE_STRING and new_value.begins_with("res://"):
                                 var resource = ResourceLoader.load(new_value)
-                                return resource if resource else new_value
+                                return resource != null ? resource : new_value
                         return new_value
                 _:
                         return new_value

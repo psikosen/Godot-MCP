@@ -36,7 +36,7 @@ func _list_navigation_maps(client_id: int, params: Dictionary, command_id: Strin
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
-	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
+    var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
 	if not plugin:
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
@@ -74,7 +74,7 @@ func _list_navigation_agents(client_id: int, params: Dictionary, command_id: Str
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
-	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
+    var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
 	if not plugin:
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
