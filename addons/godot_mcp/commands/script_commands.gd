@@ -196,10 +196,10 @@ func _get_script_metadata(client_id: int, params: Dictionary, command_id: String
 		return _send_error(client_id, "Failed to load script: " + path, command_id)
 	
 	# Extract script metadata
-	var metadata = {
-		"path": path,
-		"language": "gdscript" if path.ends_with(".gd") else "csharp" if path.ends_with(".cs") else "unknown"
-	}
+        var metadata = {
+                "path": path,
+                "language": path.ends_with(".gd") ? "gdscript" : (path.ends_with(".cs") ? "csharp" : "unknown")
+        }
 	
 	# Attempt to get script class info
 	var class_name_str = ""

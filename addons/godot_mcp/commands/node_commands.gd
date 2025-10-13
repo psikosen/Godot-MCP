@@ -123,8 +123,8 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit node rename", command_id)
 
-		var updated_path = node.get_path()
-		var path_string = updated_path if typeof(updated_path) == TYPE_STRING else updated_path.to_string()
+                var updated_path = node.get_path()
+                var path_string = typeof(updated_path) == TYPE_STRING ? updated_path : updated_path.to_string()
 		_send_success(client_id, {
 			"previous_name": old_name,
 			"new_name": new_name,
@@ -446,8 +446,8 @@ func _configure_camera2d_limits(client_id: int, params: Dictionary, command_id: 
 			}, true)
 			return _send_error(client_id, "Failed to commit Camera2D limit configuration", command_id)
 
-		var updated_path = node.get_path()
-		var path_string = updated_path if typeof(updated_path) == TYPE_STRING else updated_path.to_string()
+                var updated_path = node.get_path()
+                var path_string = typeof(updated_path) == TYPE_STRING ? updated_path : updated_path.to_string()
 		_send_success(client_id, {
 			"node_path": path_string,
 			"transaction_id": transaction.transaction_id,
@@ -596,7 +596,7 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
                         transaction.rollback()
                         return _send_error(client_id, "Failed to commit node creation", command_id)
                 var created_path = node.get_path()
-                var path_string = created_path if typeof(created_path) == TYPE_STRING else str(created_path)
+                var path_string = typeof(created_path) == TYPE_STRING ? created_path : str(created_path)
                 response["node_path"] = path_string
                 response["status"] = "committed"
                 _send_success(client_id, response, command_id)
@@ -1200,8 +1200,8 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 		var row := idx / columns
 		var minimum := child.get_combined_minimum_size()
 		var current_size := child.size
-		var target_width := uniform_size.x if uniform_size.x > 0.0 else max(current_size.x, minimum.x)
-		var target_height := uniform_size.y if uniform_size.y > 0.0 else max(current_size.y, minimum.y)
+                var target_width := uniform_size.x > 0.0 ? uniform_size.x : max(current_size.x, minimum.x)
+                var target_height := uniform_size.y > 0.0 ? uniform_size.y : max(current_size.y, minimum.y)
 		var position := Vector2(column * (target_width + horizontal_gap), row * (target_height + vertical_gap))
 
 		var child_changes: Array = []
@@ -1407,7 +1407,7 @@ func _coerce_color(value) -> Color:
 				var r := float(arr[0])
 				var g := float(arr[1])
 				var b := float(arr[2])
-				var a := float(arr[3]) if arr.size() > 3 else 1.0
+                                var a := arr.size() > 3 ? float(arr[3]) : 1.0
 				return Color(r, g, b, a)
 		_:
 			return null
@@ -1504,7 +1504,7 @@ func _theme_override_remove_method(override_type: String) -> String:
 func _serialize_theme_override_value(value, override_type: String):
 	match override_type:
 		"color":
-			return value.to_html(true) if value is Color else value
+                return value is Color ? value.to_html(true) : value
 		"font", "stylebox", "icon":
 			if value is Resource:
 				return value.resource_path
@@ -1977,8 +1977,8 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 		var row := idx / columns
 		var minimum := child.get_combined_minimum_size()
 		var current_size := child.size
-		var target_width := uniform_size.x if uniform_size.x > 0.0 else max(current_size.x, minimum.x)
-		var target_height := uniform_size.y if uniform_size.y > 0.0 else max(current_size.y, minimum.y)
+                var target_width := uniform_size.x > 0.0 ? uniform_size.x : max(current_size.x, minimum.x)
+                var target_height := uniform_size.y > 0.0 ? uniform_size.y : max(current_size.y, minimum.y)
 		var position := Vector2(column * (target_width + horizontal_gap), row * (target_height + vertical_gap))
 
 		var child_changes: Array = []
@@ -2188,7 +2188,7 @@ func _coerce_color(value) -> Color:
 				var r := float(arr[0])
 				var g := float(arr[1])
 				var b := float(arr[2])
-				var a := float(arr[3]) if arr.size() > 3 else 1.0
+                                var a := arr.size() > 3 ? float(arr[3]) : 1.0
 				return Color(r, g, b, a)
 		_:
 			return null
@@ -2291,7 +2291,7 @@ func _theme_override_remove_method(override_type: String) -> String:
 func _serialize_theme_override_value(value, override_type: String):
 	match override_type:
 		"color":
-			return value.to_html(true) if value is Color else value
+                return value is Color ? value.to_html(true) : value
 		"font":
 			if value is Resource:
 				return value.resource_path

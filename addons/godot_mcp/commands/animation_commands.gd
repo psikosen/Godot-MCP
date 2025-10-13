@@ -1483,7 +1483,7 @@ func _serialize_animation_tree(tree: AnimationTree, include_nested: bool, includ
 		"process_mode": tree.process_mode,
 		"parameters": _serialize_variant(parameters_value),
 		"animation_player": anim_player_path,
-		"root_type": tree.tree_root.get_class() if tree.tree_root else "",
+                "root_type": tree.tree_root ? tree.tree_root.get_class() : "",
 		"state_machines": [],
 	}
 
@@ -1511,13 +1511,13 @@ func _collect_nested_state_machines(node: AnimationNode, include_nested: bool, i
 	return machines
 
 func _serialize_state_machine(state_machine: AnimationNodeStateMachine, label, include_nested: bool, include_graph: bool, include_transitions: bool) -> Dictionary:
-	var machine := {
-		"name": String(label if typeof(label) == TYPE_STRING and not String(label).is_empty() else state_machine.resource_name),
-		"start_node": String(state_machine.get("start_node")) if state_machine else "",
-		"states": [],
-		"transitions": [],
-		"allow_transition_to_self": state_machine.is_allow_transition_to_self() if state_machine.has_method("is_allow_transition_to_self") else false,
-	}
+        var machine := {
+                "name": String((typeof(label) == TYPE_STRING and not String(label).is_empty()) ? label : state_machine.resource_name),
+                "start_node": state_machine ? String(state_machine.get("start_node")) : "",
+                "states": [],
+                "transitions": [],
+                "allow_transition_to_self": state_machine.has_method("is_allow_transition_to_self") ? state_machine.is_allow_transition_to_self() : false,
+        }
 
 	var state_names := []
 	if state_machine.has_method("get_node_list"):
@@ -1583,7 +1583,7 @@ func _serialize_resource_properties(resource: Resource) -> Dictionary:
 	return data
 
 func _resolve_search_root(node_path: String) -> Node:
-	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
+        var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
 	if not plugin:
 		return null
 	var editor_interface = plugin.get_editor_interface()
@@ -1668,8 +1668,8 @@ func _serialize_variant(value):
 			if value is Node or value is Resource:
 				if value.has_method("serialize"):
 					return value.serialize()
-				if value is Resource:
-					return value.resource_path if value.resource_path != "" else value.resource_name
+                                if value is Resource:
+                                        return value.resource_path != "" ? value.resource_path : value.resource_name
 				if value is Node:
 					return _path_to_string(value)
 			return String(value)

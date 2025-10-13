@@ -209,7 +209,7 @@ func _open_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	
 	# Since we can't directly open scenes in tool scripts,
 	# we need to defer to the plugin which has access to EditorInterface
-	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
+        var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
 	
 	if plugin and plugin.has_method("get_editor_interface"):
 		var editor_interface = plugin.get_editor_interface()
@@ -444,7 +444,7 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 	root_node.free()
 	
 	# Try to open the scene in the editor
-	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
+        var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
 	if plugin and plugin.has_method("get_editor_interface"):
 		var editor_interface = plugin.get_editor_interface()
 		editor_interface.open_scene_from_path(path)
@@ -2044,7 +2044,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 		if loaded_resource is AudioStreamInteractive:
 			interactive_stream = loaded_resource
 		else:
-			context["loaded_type"] = loaded_resource.get_class() if loaded_resource else "null"
+                        context["loaded_type"] = loaded_resource ? loaded_resource.get_class() : "null"
 			_log("Existing resource is not an AudioStreamInteractive", function_name, context, true)
 			return _send_error(client_id, "Resource is not an AudioStreamInteractive: %s" % normalized_path, command_id)
 	else:
@@ -2347,8 +2347,8 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 			"hold_previous": hold_previous,
 			"status": existing_transition_lookup.has(transition_key) ? "updated" : "added",
 		}
-		if use_filler_clip:
-			transition_summary["filler_clip"] = filler_label if filler_label != "" else _interactive_clip_label(filler_clip_index, clip_display_names, clip_any_constant)
+                if use_filler_clip:
+                        transition_summary["filler_clip"] = filler_label != "" ? filler_label : _interactive_clip_label(filler_clip_index, clip_display_names, clip_any_constant)
 
 		transition_summaries.append(transition_summary)
 
@@ -2423,8 +2423,8 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		return _send_error(client_id, "Interactive music resource not found: %s" % normalized_path, command_id)
 
 	var loaded_resource = ResourceLoader.load(normalized_path)
-	if not (loaded_resource is AudioStreamInteractive):
-		context["loaded_type"] = loaded_resource.get_class() if loaded_resource else "null"
+        if not (loaded_resource is AudioStreamInteractive):
+                context["loaded_type"] = loaded_resource ? loaded_resource.get_class() : "null"
 		_log("Resource is not an AudioStreamInteractive", function_name, context, true)
 		return _send_error(client_id, "Resource is not an AudioStreamInteractive: %s" % normalized_path, command_id)
 
@@ -2800,20 +2800,20 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 		return _send_error(client_id, "Audio resource not found: %s" % normalized_path, command_id)
 
 	var audio_resource := ResourceLoader.load(normalized_path)
-	if audio_resource == null or not (audio_resource is AudioStream):
-		context["resource_type"] = audio_resource.get_class() if audio_resource else "null"
+        if audio_resource == null or not (audio_resource is AudioStream):
+                context["resource_type"] = audio_resource ? audio_resource.get_class() : "null"
 		_log("Resource is not an AudioStream", function_name, context, true)
 		return _send_error(client_id, "Resource is not an AudioStream: %s" % normalized_path, command_id)
 
-	var audio_stream: AudioStream = audio_resource
-	var mix_rate := float(audio_stream.get_mix_rate()) if audio_stream.has_method("get_mix_rate") else 0.0
-	var channel_count := audio_stream.get_channel_count() if audio_stream.has_method("get_channel_count") else 0
+        var audio_stream: AudioStream = audio_resource
+        var mix_rate := audio_stream.has_method("get_mix_rate") ? float(audio_stream.get_mix_rate()) : 0.0
+        var channel_count := audio_stream.has_method("get_channel_count") ? audio_stream.get_channel_count() : 0
 	if channel_count <= 0 and _has_property(audio_stream, "stereo"):
 		channel_count = bool(audio_stream.stereo) ? 2 : 1
 	if channel_count <= 0:
 		channel_count = 1
 
-	var duration_seconds := audio_stream.get_length() if audio_stream.has_method("get_length") else 0.0
+        var duration_seconds := audio_stream.has_method("get_length") ? audio_stream.get_length() : 0.0
 	var loop_enabled := _has_property(audio_stream, "loop") and bool(audio_stream.loop)
 
 	var metadata := {
@@ -2995,8 +2995,8 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 					channel_summaries.append({
 						"channel_index": channel_index,
 						"sample_count": sample_count,
-						"min_amplitude": channel_stats["min"] if sample_count > 0 else 0.0,
-						"max_amplitude": channel_stats["max"] if sample_count > 0 else 0.0,
+                                                "min_amplitude": sample_count > 0 ? channel_stats["min"] : 0.0,
+                                                "max_amplitude": sample_count > 0 ? channel_stats["max"] : 0.0,
 						"peak_amplitude": peak_amplitude,
 						"peak_db": peak_db,
 						"rms_amplitude": rms_amplitude,

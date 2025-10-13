@@ -1,12 +1,14 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Replace Python-style inline conditional expressions with ternary syntax throughout the MCP addon scripts to restore parser compatibility.
+- [x] Recompute command handler/server command ID coercion using ternaries to avoid inline conditional parsing failures.
+- [ ] Attempt Godot CLI validation of addon scripts (blocked: Godot executable not available in container).
 - [x] Add EditorInterface-aware node create/delete flows with selection updates and structured responses.
 - [x] Support nested node property updates with typed conversion and transaction logging.
 - [x] Normalize GDScript indentation to resolve parser errors in command processors.
 - [x] Guard command identifier coercion in the MCP command handler.
 - [x] Execute server vitest suite to confirm MCP endpoints remain stable.
-- [ ] Attempt Godot CLI validation of addon scripts (blocked: Godot executable not available in container).
 
 ## Current Execution Plan
 - [x] Audit existing MCP command processor coverage to confirm available operations.
