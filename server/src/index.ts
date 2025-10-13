@@ -125,13 +125,6 @@ async function main() {
     console.warn('Will retry connection when commands are executed');
   }
 
-  // Start the server
-  server.start({
-    transportType: 'stdio',
-  });
-
-  console.error('Godot MCP server started');
-
   // Handle cleanup
   const cleanup = () => {
     console.error('Shutting down Godot MCP server...');
@@ -142,6 +135,17 @@ async function main() {
 
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+
+  // Start the server - CRITICAL: Must be last, and no console output after this
+  // Any console.log/error after this point will corrupt the stdio MCP protocol
+  try {
+    await server.start({
+      transportType: 'stdio',
+    });
+  } catch (error) {
+    console.error('Failed to start MCP server:', error);
+    process.exit(1);
+  }
 }
 
 // Start the server

@@ -76,9 +76,8 @@ export class GodotConnection {
         this.ws.on('message', (data: Buffer) => {
           try {
             const response: GodotResponse = JSON.parse(data.toString());
-            console.error('Received response:', response);
             
-            // Handle command responses
+            // Handle command responses (logging removed to prevent stdio interference)
             if ('commandId' in response) {
               const commandId = response.commandId as string;
               const pendingCommand = this.commandQueue.get(commandId);

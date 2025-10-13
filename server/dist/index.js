@@ -88,7 +88,7 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, registerTool, godot, error_1, err, cleanup;
+        var server, registerTool, godot, error_1, err, cleanup, error_2;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -152,11 +152,6 @@ function main() {
                     console.warn('Will retry connection when commands are executed');
                     return [3 /*break*/, 4];
                 case 4:
-                    // Start the server
-                    server.start({
-                        transportType: 'stdio',
-                    });
-                    console.error('Godot MCP server started');
                     cleanup = function () {
                         console.error('Shutting down Godot MCP server...');
                         var godot = getGodotConnection();
@@ -165,7 +160,21 @@ function main() {
                     };
                     process.on('SIGINT', cleanup);
                     process.on('SIGTERM', cleanup);
-                    return [2 /*return*/];
+                    _a.label = 5;
+                case 5:
+                    _a.trys.push([5, 7, , 8]);
+                    return [4 /*yield*/, server.start({
+                            transportType: 'stdio',
+                        })];
+                case 6:
+                    _a.sent();
+                    return [3 /*break*/, 8];
+                case 7:
+                    error_2 = _a.sent();
+                    console.error('Failed to start MCP server:', error_2);
+                    process.exit(1);
+                    return [3 /*break*/, 8];
+                case 8: return [2 /*return*/];
             }
         });
     });

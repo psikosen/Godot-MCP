@@ -6,87 +6,34 @@ var _websocket_server
 var _command_processors = []
 
 func _ready():
-	print("Command handler initializing...")
+	print("=== COMMAND HANDLER INITIALIZING ===")
 	await get_tree().process_frame
 	_websocket_server = get_parent()
-	print("WebSocket server reference set: ", _websocket_server)
-	
-	# Initialize command processors
-	_initialize_command_processors()
-	
-	print("Command handler initialized and ready to process commands")
-
-func _initialize_command_processors():
-	# Create and add all command processors
-	var node_commands = MCPNodeCommands.new()
-	var script_commands = MCPScriptCommands.new()
-	var scene_commands = MCPSceneCommands.new() 
-        var project_commands = MCPProjectCommands.new()
-        var editor_commands = MCPEditorCommands.new()
-        var editor_script_commands = MCPEditorScriptCommands.new()  # Add our new processor
-        var navigation_commands = MCPNavigationCommands.new()
-        var animation_commands = MCPAnimationCommands.new()
-        var xr_commands = MCPXRCommands.new()
-        var multiplayer_commands = MCPMultiplayerCommands.new()
-        var compression_commands = MCPCompressionCommands.new()
-        var rendering_commands = MCPRenderingCommands.new()
-	
-	# Set server reference for all processors
-	node_commands._websocket_server = _websocket_server
-	script_commands._websocket_server = _websocket_server
-        scene_commands._websocket_server = _websocket_server
-        project_commands._websocket_server = _websocket_server
-        editor_commands._websocket_server = _websocket_server
-        editor_script_commands._websocket_server = _websocket_server  # Set server reference
-        navigation_commands._websocket_server = _websocket_server
-        animation_commands._websocket_server = _websocket_server
-        xr_commands._websocket_server = _websocket_server
-        multiplayer_commands._websocket_server = _websocket_server
-        compression_commands._websocket_server = _websocket_server
-        rendering_commands._websocket_server = _websocket_server
-	
-	# Add them to our processor list
-	_command_processors.append(node_commands)
-	_command_processors.append(script_commands)
-	_command_processors.append(scene_commands)
-        _command_processors.append(project_commands)
-        _command_processors.append(editor_commands)
-        _command_processors.append(editor_script_commands)  # Add to processor list
-        _command_processors.append(navigation_commands)
-        _command_processors.append(animation_commands)
-        _command_processors.append(xr_commands)
-        _command_processors.append(multiplayer_commands)
-        _command_processors.append(compression_commands)
-        _command_processors.append(rendering_commands)
-	
-	# Add them as children for proper lifecycle management
-	add_child(node_commands)
-	add_child(script_commands)
-	add_child(scene_commands)
-        add_child(project_commands)
-        add_child(editor_commands)
-        add_child(editor_script_commands)  # Add as child
-        add_child(navigation_commands)
-        add_child(animation_commands)
-        add_child(xr_commands)
-        add_child(multiplayer_commands)
-        add_child(compression_commands)
-        add_child(rendering_commands)
+	print("WebSocket server reference set")
+	print("=== COMMAND HANDLER READY ===")
 
 func _handle_command(client_id: int, command: Dictionary) -> void:
 	var command_type = command.get("type", "")
 	var params = command.get("params", {})
 	var command_id = command.get("commandId", "")
 	
-	print("Processing command: %s" % command_type)
+	print("Received command: %s with id: %s" % [command_type, command_id])
 	
-	# Try each processor until one handles the command
-	for processor in _command_processors:
-		if processor.process_command(client_id, command_type, params, command_id):
-			return
+	# Just echo back success for now - we're testing connectivity
+	_send_success(client_id, {"message": "Command received", "command": command_type}, command_id)
+
+func _send_success(client_id: int, result: Dictionary, command_id: String) -> void:
+	var response = {
+		"status": "success",
+		"result": result
+	}
 	
-	# If no processor handled the command, send an error
-	_send_error(client_id, "Unknown command: %s" % command_type, command_id)
+	if not command_id.is_empty():
+		response["commandId"] = command_id
+	
+	if _websocket_server:
+		_websocket_server.send_response(client_id, response)
+		print("Sent success response for command: %s" % command_id)
 
 func _send_error(client_id: int, message: String, command_id: String) -> void:
 	var response = {
@@ -97,5 +44,6 @@ func _send_error(client_id: int, message: String, command_id: String) -> void:
 	if not command_id.is_empty():
 		response["commandId"] = command_id
 	
-	_websocket_server.send_response(client_id, response)
+	if _websocket_server:
+		_websocket_server.send_response(client_id, response)
 	print("Error: %s" % message)

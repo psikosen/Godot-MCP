@@ -91,8 +91,7 @@ var GodotConnection = /** @class */ (function () {
                                 _this.ws.on('message', function (data) {
                                     try {
                                         var response = JSON.parse(data.toString());
-                                        console.error('Received response:', response);
-                                        // Handle command responses
+                                        // Handle command responses (logging removed to prevent stdio interference)
                                         if ('commandId' in response) {
                                             var commandId = response.commandId;
                                             var pendingCommand = _this.commandQueue.get(commandId);
