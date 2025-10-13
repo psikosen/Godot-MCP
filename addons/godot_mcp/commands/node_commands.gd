@@ -500,10 +500,10 @@ func _list_nodes_in_group(client_id: int, params: Dictionary, command_id: String
 	}, command_id)
 
 func _create_node(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path = params.get("parent_path", "/root")
-	var node_type = params.get("node_type", "Node")
-	var node_name = params.get("node_name", "NewNode")
-	var transaction_id = params.get("transaction_id", "")
+        var parent_path = params.get("parent_path", "/root")
+        var node_type = params.get("node_type", "Node")
+        var node_name = params.get("node_name", "NewNode")
+        var transaction_id = params.get("transaction_id", "")
 	
 	# Validation
 	if not ClassDB.class_exists(node_type):
@@ -525,23 +525,26 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not parent:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
 	
-	# Create the node
-	var node
-	if ClassDB.can_instantiate(node_type):
-		node = ClassDB.instantiate(node_type)
-	else:
-		return _send_error(client_id, "Cannot instantiate node of type: %s" % node_type, command_id)
+        # Create the node
+        var node
+        if ClassDB.can_instantiate(node_type):
+                node = ClassDB.instantiate(node_type)
+        else:
+                return _send_error(client_id, "Cannot instantiate node of type: %s" % node_type, command_id)
 
-	if not node:
-		return _send_error(client_id, "Failed to create node of type: %s" % node_type, command_id)
+        if not node:
+                return _send_error(client_id, "Failed to create node of type: %s" % node_type, command_id)
 
-	# Set the node name
-	node.name = node_name
+        # Set the node name
+        node.name = node_name
 
-	var transaction_metadata := {
-		"command": "create_node",
-		"node_type": node_type,
-		"node_name": node_name,
+        var parent_editor_path: String = str(parent.get_path())
+        var expected_child_path := parent_editor_path + "/" + node_name
+
+        var transaction_metadata := {
+                "command": "create_node",
+                "node_type": node_type,
+                "node_name": node_name,
 		"parent_path": parent_path,
 		"client_id": client_id,
 		"command_id": command_id,
@@ -558,30 +561,50 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for node creation", command_id)
 
-	transaction.add_do_method(parent, "add_child", [node])
-	transaction.add_do_method(node, "set_owner", [edited_scene_root])
-	transaction.add_undo_method(parent, "remove_child", [node])
-	transaction.add_undo_method(node, "queue_free")
-	transaction.add_do_reference(node)
-	transaction.register_on_commit(func():
-		_mark_scene_modified()
-	)
+        transaction.add_do_method(parent, "add_child", [node])
+        transaction.add_do_method(node, "set_owner", [edited_scene_root])
+        transaction.add_undo_method(parent, "remove_child", [node])
+        transaction.add_undo_method(node, "queue_free")
+        transaction.add_do_reference(node)
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                var selection := editor_interface.get_selection()
+                if selection:
+                        selection.clear()
+                        selection.add_node(node)
+                _log("Created node", "_create_node", {
+                        "node_path": str(node.get_path()),
+                        "node_type": node_type,
+                        "parent_path": parent_editor_path,
+                        "requested_parent_path": parent_path,
+                        "transaction_id": transaction.transaction_id,
+                        "system_section": DEFAULT_SYSTEM_SECTION,
+                        "line_num": __LINE__,
+                })
+        )
 
-	if transaction_id.is_empty():
-		if not transaction.commit():
-			transaction.rollback()
-			return _send_error(client_id, "Failed to commit node creation", command_id)
-		_send_success(client_id, {
-			"node_path": parent_path + "/" + node_name,
-			"transaction_id": transaction.transaction_id,
-			"status": "committed"
-		}, command_id)
-	else:
-		_send_success(client_id, {
-			"node_path": parent_path + "/" + node_name,
-			"transaction_id": transaction.transaction_id,
-			"status": "pending"
-		}, command_id)
+        var response := {
+                "node_type": node_type,
+                "node_name": node_name,
+                "parent_path": parent_editor_path,
+                "requested_parent_path": parent_path,
+                "transaction_id": transaction.transaction_id,
+        }
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit node creation", command_id)
+                var created_path = node.get_path()
+                var path_string = created_path if typeof(created_path) == TYPE_STRING else str(created_path)
+                response["node_path"] = path_string
+                response["status"] = "committed"
+                _send_success(client_id, response, command_id)
+        else:
+                response["expected_path"] = expected_child_path
+                response["node_path"] = expected_child_path
+                response["status"] = "pending"
+                _send_success(client_id, response, command_id)
 
 func _delete_node(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
@@ -638,112 +661,151 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 
 	transaction.add_do_method(parent, "remove_child", [node])
 	transaction.add_do_method(node, "queue_free")
-	transaction.add_undo_method(parent, "add_child", [node])
-	transaction.add_undo_method(parent, "move_child", [node, child_index])
-	transaction.add_undo_method(node, "set_owner", [edited_scene_root])
-	transaction.add_do_reference(node)
-	transaction.register_on_commit(func():
-		_mark_scene_modified()
-	)
+        transaction.add_undo_method(parent, "add_child", [node])
+        transaction.add_undo_method(parent, "move_child", [node, child_index])
+        transaction.add_undo_method(node, "set_owner", [edited_scene_root])
+        transaction.add_do_reference(node)
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                var selection := editor_interface.get_selection()
+                if selection:
+                        selection.remove_node(node)
+                        selection.add_node(parent)
+                _log("Deleted node", "_delete_node", {
+                        "deleted_node_path": node_path,
+                        "parent_path": str(parent.get_path()),
+                        "transaction_id": transaction.transaction_id,
+                        "system_section": DEFAULT_SYSTEM_SECTION,
+                        "line_num": __LINE__,
+                })
+        )
 
-	if transaction_id.is_empty():
-		if not transaction.commit():
-			transaction.rollback()
-			return _send_error(client_id, "Failed to commit node deletion", command_id)
-		_send_success(client_id, {
-			"deleted_node_path": node_path,
-			"transaction_id": transaction.transaction_id,
-			"status": "committed"
-		}, command_id)
-	else:
-		_send_success(client_id, {
-			"deleted_node_path": node_path,
-			"transaction_id": transaction.transaction_id,
-			"status": "pending"
-		}, command_id)
+        var response := {
+                "deleted_node_path": node_path,
+                "transaction_id": transaction.transaction_id,
+                "parent_path": str(parent.get_path()),
+        }
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit node deletion", command_id)
+                response["status"] = "committed"
+                _send_success(client_id, response, command_id)
+        else:
+                response["status"] = "pending"
+                _send_success(client_id, response, command_id)
 
 func _update_node_property(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path = params.get("node_path", "")
-	var property_name = params.get("property", "")
-	var property_value = params.get("value")
-	var transaction_id = params.get("transaction_id", "")
-	
-	# Validation
-	if node_path.is_empty():
-		return _send_error(client_id, "Node path cannot be empty", command_id)
-	
-	if property_name.is_empty():
-		return _send_error(client_id, "Property name cannot be empty", command_id)
-	
-	if property_value == null:
-		return _send_error(client_id, "Property value cannot be null", command_id)
-	
-	# Get editor plugin and interfaces
-	var plugin = Engine.get_meta("GodotMCPPlugin")
-	if not plugin:
-		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
-	
-	# Get the node using the editor node helper
-	var node = _get_editor_node(node_path)
-	if not node:
-		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
-	
-	# Check if the property exists
-	if not property_name in node:
-		return _send_error(client_id, "Property %s does not exist on node %s" % [property_name, node_path], command_id)
-	
-	# Parse property value for Godot types
-	var parsed_value = _parse_property_value(property_value)
-	
-	# Get current property value for undo
-	var old_value = node.get(property_name)
-	
-	var transaction_metadata := {
-		"command": "update_node_property",
-		"node_path": node_path,
-		"property": property_name,
-		"client_id": client_id,
-		"command_id": command_id,
-	}
+        var node_path = params.get("node_path", "")
+        var property_name = params.get("property", "")
+        var property_value = params.get("value")
+        var transaction_id = params.get("transaction_id", "")
 
-	var transaction
-	if transaction_id.is_empty():
-		transaction = SceneTransactionManager.begin_inline("Update Node Property", transaction_metadata)
-	else:
-		transaction = SceneTransactionManager.get_transaction(transaction_id)
-		if not transaction:
-			transaction = SceneTransactionManager.begin_registered(transaction_id, "Update Node Property", transaction_metadata)
+        if node_path.is_empty():
+                return _send_error(client_id, "Node path cannot be empty", command_id)
 
-	if not transaction:
-		return _send_error(client_id, "Failed to obtain scene transaction for property update", command_id)
+        if property_name.is_empty():
+                return _send_error(client_id, "Property name cannot be empty", command_id)
 
-	transaction.add_do_property(node, property_name, parsed_value)
-	transaction.add_undo_property(node, property_name, old_value)
-	transaction.register_on_commit(func():
-		_mark_scene_modified()
-	)
+        if property_value == null:
+                return _send_error(client_id, "Property value cannot be null", command_id)
 
-	if transaction_id.is_empty():
-		if not transaction.commit():
-			transaction.rollback()
-			return _send_error(client_id, "Failed to commit property update", command_id)
-		_send_success(client_id, {
-			"node_path": node_path,
-			"property": property_name,
-			"value": property_value,
-			"parsed_value": str(parsed_value),
-			"transaction_id": transaction.transaction_id,
-			"status": "committed"
-		}, command_id)
-	else:
-		_send_success(client_id, {
-			"node_path": node_path,
-			"property": property_name,
-			"value": property_value,
-			"parsed_value": str(parsed_value),
-			"transaction_id": transaction.transaction_id,
-			"status": "pending"
-		}, command_id)
+        var plugin = Engine.get_meta("GodotMCPPlugin")
+        if not plugin:
+                return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
+
+        var node = _get_editor_node(node_path)
+        if not node:
+                return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+        var property_segments: PackedStringArray = property_name.split(".")
+        var base_property_name: String = property_segments[0]
+        if not base_property_name in node:
+                return _send_error(client_id, "Property %s does not exist on node %s" % [base_property_name, node_path], command_id)
+
+        var old_base_value = node.get(base_property_name)
+        var conversion_result: Dictionary
+
+        if property_segments.size() == 1:
+                var parsed_value = _convert_property_value(node, base_property_name, property_value)
+                conversion_result = {
+                        "ok": true,
+                        "value": parsed_value,
+                        "leaf_previous": old_base_value,
+                        "leaf_value": parsed_value,
+                }
+        else:
+                var nested_path: Array = []
+                for i in range(1, property_segments.size()):
+                        nested_path.append(property_segments[i])
+                conversion_result = _apply_nested_property_value(old_base_value, nested_path, property_value)
+                if not conversion_result.get("ok", false):
+                        return _send_error(client_id, conversion_result.get("error", "Failed to update nested property"), command_id)
+
+        var updated_value = conversion_result.get("value")
+        var previous_leaf = conversion_result.get("leaf_previous")
+        var new_leaf_value = conversion_result.get("leaf_value")
+
+        var transaction_metadata := {
+                "command": "update_node_property",
+                "node_path": node_path,
+                "property": property_name,
+                "base_property": base_property_name,
+                "client_id": client_id,
+                "command_id": command_id,
+        }
+
+        var transaction
+        if transaction_id.is_empty():
+                transaction = SceneTransactionManager.begin_inline("Update Node Property", transaction_metadata)
+        else:
+                transaction = SceneTransactionManager.get_transaction(transaction_id)
+                if not transaction:
+                        transaction = SceneTransactionManager.begin_registered(transaction_id, "Update Node Property", transaction_metadata)
+
+        if not transaction:
+                return _send_error(client_id, "Failed to obtain scene transaction for property update", command_id)
+
+        transaction.add_do_property(node, base_property_name, updated_value)
+        transaction.add_undo_property(node, base_property_name, old_base_value)
+        transaction.register_on_commit(func():
+                _mark_scene_modified()
+                _log("Updated node property", "_update_node_property", {
+                        "node_path": node_path,
+                        "property": property_name,
+                        "base_property": base_property_name,
+                        "value": var_to_str(new_leaf_value),
+                        "previous_value": var_to_str(previous_leaf),
+                        "transaction_id": transaction.transaction_id,
+                        "system_section": DEFAULT_SYSTEM_SECTION,
+                        "line_num": __LINE__,
+                })
+        )
+
+        var response := {
+                "node_path": node_path,
+                "property_path": property_name,
+                "base_property": base_property_name,
+                "raw_value": property_value,
+                "new_value": var_to_str(new_leaf_value),
+                "previous_value": var_to_str(previous_leaf),
+                "transaction_id": transaction.transaction_id,
+        }
+
+        if property_segments.size() > 1:
+                response["component_path"] = ".".join(property_segments.slice(1, property_segments.size()))
+
+        if transaction_id.is_empty():
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit property update", command_id)
+                response["status"] = "committed"
+                response["applied_value"] = var_to_str(node.get(base_property_name))
+        else:
+                response["status"] = "pending"
+
+        _send_success(client_id, response, command_id)
 
 func _get_node_properties(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
