@@ -54,6 +54,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
     return to.concat(ar || Array.prototype.slice.call(from));
 };
+import 'dotenv/config';
 import { FastMCP } from 'fastmcp';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
@@ -70,6 +71,7 @@ import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
+import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
@@ -88,7 +90,7 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, registerTool, godot, error_1, err, cleanup, error_2;
+        var server, registerTool, launcher, error_1, err, cleanup, error_2;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -139,23 +141,28 @@ function main() {
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 3, , 4]);
-                    godot = getGodotConnection();
-                    return [4 /*yield*/, godot.connect()];
+                    console.error('Checking if Godot is running...');
+                    launcher = getGodotLauncher();
+                    return [4 /*yield*/, launcher.ensureGodotRunning()];
                 case 2:
                     _a.sent();
-                    console.error('Successfully connected to Godot WebSocket server');
+                    console.error('Godot editor is ready!');
                     return [3 /*break*/, 4];
                 case 3:
                     error_1 = _a.sent();
                     err = error_1;
-                    console.warn("Could not connect to Godot: ".concat(err.message));
-                    console.warn('Will retry connection when commands are executed');
+                    console.error("Failed to ensure Godot is running: ".concat(err.message));
+                    console.error('You may need to manually launch Godot with the project');
                     return [3 /*break*/, 4];
                 case 4:
                     cleanup = function () {
                         console.error('Shutting down Godot MCP server...');
                         var godot = getGodotConnection();
                         godot.disconnect();
+                        // Optionally stop Godot if we launched it
+                        // Uncomment the following lines if you want to auto-close Godot when stopping the server
+                        // const launcher = getGodotLauncher();
+                        // launcher.stop();
                         process.exit(0);
                     };
                     process.on('SIGINT', cleanup);

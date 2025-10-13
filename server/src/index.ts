@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { FastMCP } from 'fastmcp';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
@@ -14,6 +15,7 @@ import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
+import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
 
@@ -114,15 +116,18 @@ async function main() {
   server.addResource(scriptResource);
   server.addResource(scriptMetadataResource);
 
-  // Try to connect to Godot
+  // Ensure Godot is running - auto-launch if needed
   try {
-    const godot = getGodotConnection();
-    await godot.connect();
-    console.error('Successfully connected to Godot WebSocket server');
+    console.error('Checking if Godot is running...');
+    const launcher = getGodotLauncher();
+    await launcher.ensureGodotRunning();
+    console.error('Godot editor is ready!');
   } catch (error) {
     const err = error as Error;
-    console.warn(`Could not connect to Godot: ${err.message}`);
-    console.warn('Will retry connection when commands are executed');
+    console.error(`Failed to ensure Godot is running: ${err.message}`);
+    console.error('You may need to manually launch Godot with the project');
+    // Don't exit - continue with the server startup
+    // The connection will be retried when commands are executed
   }
 
   // Handle cleanup
@@ -130,6 +135,12 @@ async function main() {
     console.error('Shutting down Godot MCP server...');
     const godot = getGodotConnection();
     godot.disconnect();
+    
+    // Optionally stop Godot if we launched it
+    // Uncomment the following lines if you want to auto-close Godot when stopping the server
+    // const launcher = getGodotLauncher();
+    // launcher.stop();
+    
     process.exit(0);
   };
 
