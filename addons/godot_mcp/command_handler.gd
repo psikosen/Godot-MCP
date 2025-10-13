@@ -58,7 +58,11 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
 	var command_type: String = command.get("type", "")
 	var params: Dictionary = command.get("params", {})
 	var command_id_value = command.get("commandId", "")
-	var command_id := command_id_value if typeof(command_id_value) == TYPE_STRING else str(command_id_value)
+	var command_id := ""
+	if typeof(command_id_value) == TYPE_STRING:
+		command_id = command_id_value
+	else:
+		command_id = str(command_id_value) if command_id_value != null else ""
 
 	if command_type.is_empty():
 		_log("Missing command type", "_handle_command", 64, {
