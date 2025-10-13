@@ -1,6 +1,10 @@
 # Task Plan
 
 ## Current Execution Plan
+- [x] Audit existing MCP command processor coverage to confirm available operations.
+- [x] Reinstate command handler routing so processors execute incoming commands.
+- [x] Bridge JSON-RPC requests through the Godot MCP server and transform responses.
+- [x] Capture validation via automated tests or tooling runs for the restored pipeline.
 - [x] Deliver rendering and environment command processors covering material variants, shader previews, UV2 unwrapping, mesh LOD optimization, and environment configuration/preview flows.
 - [x] Extend the Godot addon with XR, multiplayer, and compression command processors plus structured logging hooks.
 - [x] Publish matching MCP server tool definitions and resources so the new commands are discoverable.
