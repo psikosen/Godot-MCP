@@ -204,7 +204,7 @@ func _process(_delta):
 								continue
 
 							var command_id := ""
-							var has_id := data.has("id") and req_id != null
+							var has_id: bool = data.has("id") and req_id != null
 							if has_id:
 								command_id = "jsonrpc_%s" % str(req_id)
 								_jsonrpc_requests[command_id] = {
@@ -250,8 +250,8 @@ func send_response(client_id: int, response: Dictionary) -> int:
 		return ERR_DOES_NOT_EXIST
 
 	var client = clients[client_id]
-        var command_id_value = response.get("commandId", "")
-        var command_id := typeof(command_id_value) == TYPE_STRING ? command_id_value : str(command_id_value)
+	var command_id_value = response.get("commandId", "")
+	var command_id: String = command_id_value if typeof(command_id_value) == TYPE_STRING else str(command_id_value)
 
 	if _jsonrpc_requests.has(command_id):
 		var request_meta = _jsonrpc_requests[command_id]

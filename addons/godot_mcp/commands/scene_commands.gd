@@ -70,10 +70,10 @@ const AUDIO_STREAM_PLAYER_TYPES := [
 ]
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
-match command_type:
-"save_scene":
-_save_scene(client_id, params, command_id)
-return true
+	match command_type:
+		"save_scene":
+			_save_scene(client_id, params, command_id)
+			return true
 		"open_scene":
 			_open_scene(client_id, params, command_id)
 			return true

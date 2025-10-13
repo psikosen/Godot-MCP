@@ -556,7 +556,7 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 			if String(track_path) == "":
 				continue
 
-			var track_type := skeleton is Skeleton3D ? Animation.TYPE_TRANSFORM3D : Animation.TYPE_TRANSFORM2D
+			var track_type := Animation.TYPE_TRANSFORM3D if skeleton is Skeleton3D else Animation.TYPE_TRANSFORM2D
 			var track_index := working_copy.find_track(track_path)
 			if track_index == -1:
 				track_index = working_copy.add_track(track_type)
