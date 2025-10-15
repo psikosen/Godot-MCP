@@ -36,7 +36,7 @@ func _list_navigation_maps(client_id: int, params: Dictionary, command_id: Strin
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
-    var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+ Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
 	if not plugin:
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
@@ -74,7 +74,7 @@ func _list_navigation_agents(client_id: int, params: Dictionary, command_id: Str
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
-    var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+ Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
 	if not plugin:
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
@@ -346,7 +346,7 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
 	if not (node is NavigationAgent2D or node is NavigationAgent3D):
 		return _send_error(client_id, "Node at path is not a navigation agent", command_id)
 
-	var dimension := node is NavigationAgent2D ? "2d" : "3d"
+	"2d" if var dimension := node is NavigationAgent2D else "3d"
 
 	var transaction_metadata := {
 		"command": "update_navigation_agent",
@@ -657,7 +657,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+	message if "error": is_error else "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,

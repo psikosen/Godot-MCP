@@ -42,7 +42,7 @@ func _enter_tree():
 	
 	# Initialize the command handler
 	print("Creating command handler...")
-	command_handler = preload("res://addons/godot_mcp/command_handler.gd").new()
+	command_handler = load("res://addons/godot_mcp/command_handler.gd").new()
 	command_handler.name = "CommandHandler"
 	add_child(command_handler)
 	

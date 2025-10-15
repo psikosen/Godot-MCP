@@ -561,7 +561,7 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 		"node_path": node_path,
 		"changes": changes,
 		"transaction_id": transaction.transaction_id,
-		"status": transaction_id == "" ? "committed" : "pending",
+	"committed" if "status": transaction_id == "" else "pending",
 	}, command_id)
 
 func _preview_environment_sun_settings(client_id: int, params: Dictionary, command_id: String) -> void:

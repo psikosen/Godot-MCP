@@ -44,7 +44,7 @@ func _get_scene_multiplayer() -> MultiplayerAPI:
 func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 	var api := _get_scene_multiplayer()
 	var has_peer := api.has_multiplayer_peer()
-        var peer := has_peer ? api.get_multiplayer_peer() : null
+ api.get_multiplayer_peer() if var peer := has_peer else null
 
 	var connected := []
 	if has_peer and api.has_method("get_peers"):
@@ -65,7 +65,7 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 
         if has_peer and peer != null:
                 state["peer_class"] = peer.get_class()
-                state["transfer_mode"] = peer.has_method("get_transfer_mode") ? peer.get_transfer_mode() : null
+ peer.get_transfer_mode() if state["transfer_mode"] = peer.has_method("get_transfer_mode") else null
 
 	_log_event("_get_multiplayer_state", "Captured multiplayer snapshot", state)
 	_send_success(client_id, state, command_id)
@@ -115,12 +115,12 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
         _log_event("_create_multiplayer_peer", "Configured multiplayer peer", {
                 "peer_type": peer_type,
                 "mode": mode,
-                "class": peer != null ? peer.get_class() : "",
+ peer.get_class() if "class": peer != null else "",
         })
         _send_success(client_id, {
                 "peer_type": peer_type,
                 "mode": mode,
-                "class": peer != null ? peer.get_class() : "",
+ peer.get_class() if "class": peer != null else "",
         }, command_id)
 
 func _teardown_multiplayer_peer(client_id: int, command_id: String) -> void:

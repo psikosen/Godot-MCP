@@ -2,8 +2,12 @@
 class_name MCPNodeCommands
 extends MCPBaseCommandProcessor
 
-const SceneTransactionManager := MCPSceneTransactionManager
-const ScriptUtils := preload("res://addons/godot_mcp/utils/script_utils.gd")
+var SceneTransactionManager
+var ScriptUtils
+
+func _init():
+	SceneTransactionManager = load("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
+	ScriptUtils = load("res://addons/godot_mcp/utils/script_utils.gd")
 const LOG_FILENAME := "addons/godot_mcp/commands/node_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "node_commands"
 
@@ -568,7 +572,7 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 		transaction.add_do_reference(node)
 		transaction.register_on_commit(func():
 				_mark_scene_modified()
-		var selection := editor_interface.get_selection()
+				var selection := editor_interface.get_selection()
 				if selection:
 						selection.clear()
 						selection.add_node(node)
@@ -595,8 +599,8 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 				if not transaction.commit():
 						transaction.rollback()
 						return _send_error(client_id, "Failed to commit node creation", command_id)
-		var created_path = node.get_path()
-		var path_string = created_path if typeof(created_path) == TYPE_STRING else str(created_path)
+				var created_path = node.get_path()
+				var path_string = created_path if typeof(created_path) == TYPE_STRING else str(created_path)
 				response["node_path"] = path_string
 				response["status"] = "committed"
 				_send_success(client_id, response, command_id)
@@ -667,7 +671,7 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 		transaction.add_do_reference(node)
 		transaction.register_on_commit(func():
 				_mark_scene_modified()
-		var selection := editor_interface.get_selection()
+				var selection := editor_interface.get_selection()
 				if selection:
 						selection.remove_node(node)
 						selection.add_node(parent)
@@ -728,7 +732,7 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 		var conversion_result: Dictionary
 
 		if property_segments.size() == 1:
-		var parsed_value = _convert_property_value(node, base_property_name, property_value)
+				var parsed_value = _convert_property_value(node, base_property_name, property_value)
 				conversion_result = {
 						"ok": true,
 						"value": parsed_value,
@@ -736,7 +740,7 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 						"leaf_value": parsed_value,
 				}
 		else:
-		var nested_path: Array = []
+				var nested_path: Array = []
 				for i in range(1, property_segments.size()):
 						nested_path.append(property_segments[i])
 				conversion_result = _apply_nested_property_value(old_base_value, nested_path, property_value)
@@ -1200,8 +1204,8 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 		var row := idx / columns
 		var minimum := child.get_combined_minimum_size()
 		var current_size := child.size
-		var target_width := uniform_size.x if uniform_size.x > 0.0 else max(current_size.x, minimum.x)
-		var target_height := uniform_size.y if uniform_size.y > 0.0 else max(current_size.y, minimum.y)
+				var target_width := uniform_size.x if uniform_size.x > 0.0 else max(current_size.x, minimum.x)
+				var target_height := uniform_size.y if uniform_size.y > 0.0 else max(current_size.y, minimum.y)
 		var position := Vector2(column * (target_width + horizontal_gap), row * (target_height + vertical_gap))
 
 		var child_changes: Array = []
@@ -1216,9 +1220,9 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 
 		if typeof(size_flags_param) == TYPE_DICTIONARY:
 			if size_flags_param.has("horizontal"):
-				child_changes.append_array(_capture_property_change(child, "size_flags_horizontal", int(size_flags_param["horizontal"])) )
+				child_changes.append_array(_capture_property_change(child, "size_flags_horizontal", int(size_flags_param["horizontal"])))
 			if size_flags_param.has("vertical"):
-				child_changes.append_array(_capture_property_change(child, "size_flags_vertical", int(size_flags_param["vertical"])) )
+				child_changes.append_array(_capture_property_change(child, "size_flags_vertical", int(size_flags_param["vertical"])))
 
 		if not child_changes.is_empty():
 			pending_child_changes.append({
@@ -1404,10 +1408,10 @@ func _coerce_color(value) -> Color:
 		TYPE_ARRAY:
 			var arr: Array = value
 			if arr.size() >= 3:
-		var r := float(arr[0])
-		var g := float(arr[1])
-		var b := float(arr[2])
-		var a := float(arr[3]) if arr.size() > 3 else 1.0
+				var r := float(arr[0])
+				var g := float(arr[1])
+				var b := float(arr[2])
+								var a := float(arr[3]) if arr.size() > 3 else 1.0
 				return Color(r, g, b, a)
 		_:
 			return null
@@ -1504,7 +1508,7 @@ func _theme_override_remove_method(override_type: String) -> String:
 func _serialize_theme_override_value(value, override_type: String):
 	match override_type:
 		"color":
-		return value.to_html(true) if value is Color else value
+				return value.to_html(true) if value is Color else value
 		"font", "stylebox", "icon":
 			if value is Resource:
 				return value.resource_path
@@ -1644,6 +1648,686 @@ func _is_interactive_control(control: Control) -> bool:
 		return true
 
 	return control is BaseButton or control is LineEdit or control is TextEdit or control is ItemList or control is Tree or control is OptionButton or control is SpinBox or control is Slider or control is ScrollBar or control is ColorPicker or control is ColorPickerButton
+func _create_theme_override(client_id: int, params: Dictionary, command_id: String) -> void:
+	var node_path: String = params.get("node_path", "")
+	var override_type := String(params.get("override_type", "")).to_lower()
+	var override_name: String = params.get("override_name", "")
+	var value = params.get("value")
+	var resource_path: String = params.get("resource_path", "")
+	var transaction_id: String = params.get("transaction_id", "")
+
+	if node_path.is_empty():
+		return _send_error(client_id, "Node path cannot be empty", command_id)
+
+	if override_type.is_empty():
+		return _send_error(client_id, "Override type cannot be empty", command_id)
+
+	if override_name.is_empty():
+		return _send_error(client_id, "Override name cannot be empty", command_id)
+
+	var node = _get_editor_node(node_path)
+	if not node:
+		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+	if not (node is Control):
+		return _send_error(client_id, "Theme overrides require a Control-derived node", command_id)
+
+	var control: Control = node
+	var parse_result := _parse_theme_override_value(override_type, value, resource_path)
+	if not parse_result.get("ok", false):
+		return _send_error(client_id, parse_result.get("error", "Unsupported theme override value"), command_id)
+
+	var parsed_value = parse_result.get("value")
+	var previous_state := _get_theme_override_state(control, override_type, override_name)
+	if previous_state.get("had_override", false) and _theme_override_values_equal(previous_state.get("value"), parsed_value):
+		_log("Theme override already matches requested value", "_create_theme_override", {
+			"node_path": node_path,
+			"override_type": override_type,
+			"override_name": override_name,
+			"system_section": "ui_theme",
+			"line_num": __LINE__,
+		})
+		return _send_success(client_id, {
+			"node_path": node_path,
+			"override_type": override_type,
+			"override_name": override_name,
+			"value": _serialize_theme_override_value(parsed_value, override_type),
+			"status": "no_change"
+		}, command_id)
+
+	var transaction_metadata := {
+		"command": "create_theme_override",
+		"node_path": node_path,
+		"override_type": override_type,
+		"override_name": override_name,
+		"client_id": client_id,
+		"command_id": command_id,
+	}
+
+	var transaction
+	if transaction_id.is_empty():
+		transaction = SceneTransactionManager.begin_inline("Create Theme Override", transaction_metadata)
+	else:
+		transaction = SceneTransactionManager.get_transaction(transaction_id)
+		if not transaction:
+			transaction = SceneTransactionManager.begin_registered(transaction_id, "Create Theme Override", transaction_metadata)
+
+	if not transaction:
+		_log("Failed to acquire scene transaction for theme override", "_create_theme_override", {
+			"node_path": node_path,
+			"override_type": override_type,
+			"system_section": "ui_theme",
+			"line_num": __LINE__,
+		}, true)
+		return _send_error(client_id, "Failed to obtain scene transaction for theme override", command_id)
+
+	_register_theme_override_transaction(transaction, control, override_type, override_name, parsed_value, previous_state)
+
+	var serialized_value := _serialize_theme_override_value(parsed_value, override_type)
+	var response := {
+		"node_path": node_path,
+		"override_type": override_type,
+		"override_name": override_name,
+		"value": serialized_value,
+		"transaction_id": transaction.transaction_id,
+	}
+
+	transaction.register_on_commit(func():
+		_mark_scene_modified()
+		_log("Applied theme override to control", "_create_theme_override", {
+			"node_path": node_path,
+			"override_type": override_type,
+			"override_name": override_name,
+			"value": serialized_value,
+			"transaction_id": transaction.transaction_id,
+			"system_section": "ui_theme",
+		})
+	)
+
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit theme override", command_id)
+
+		response["status"] = "committed"
+		return _send_success(client_id, response, command_id)
+
+	response["status"] = "pending"
+	_send_success(client_id, response, command_id)
+
+
+func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String) -> void:
+	var source_path: String = params.get("source_path", "")
+	var signal_name: String = params.get("signal_name", "")
+	var target_path: String = params.get("target_path", "")
+	var method_name: String = params.get("method_name", "")
+	var transaction_id: String = params.get("transaction_id", "")
+	var script_path: String = params.get("script_path", "")
+	var create_script: bool = params.get("create_script", false)
+	var binds_param = params.get("binds", [])
+	var arguments_param = params.get("arguments", [])
+	var deferred: bool = params.get("deferred", false)
+	var one_shot: bool = params.get("one_shot", false)
+	var reference_counted: bool = params.get("reference_counted", false)
+
+	if source_path.is_empty():
+		return _send_error(client_id, "Source path cannot be empty", command_id)
+
+	if signal_name.is_empty():
+		return _send_error(client_id, "Signal name cannot be empty", command_id)
+
+	if target_path.is_empty():
+		return _send_error(client_id, "Target path cannot be empty", command_id)
+
+	if method_name.is_empty():
+		return _send_error(client_id, "Method name cannot be empty", command_id)
+
+	var source_node = _get_editor_node(source_path)
+	if not source_node:
+		return _send_error(client_id, "Source node not found: %s" % source_path, command_id)
+
+	if not source_node.has_signal(signal_name):
+		return _send_error(client_id, "Signal %s is not declared on %s" % [signal_name, source_path], command_id)
+
+	var target_node = _get_editor_node(target_path)
+	if not target_node:
+		return _send_error(client_id, "Target node not found: %s" % target_path, command_id)
+
+	var binds: Array = []
+	if binds_param is Array:
+		binds = binds_param.duplicate(true)
+
+	var argument_names := _normalize_argument_names(arguments_param)
+
+	var flags := 0
+	if deferred:
+		flags |= Object.CONNECT_DEFERRED
+	if one_shot:
+		flags |= Object.CONNECT_ONE_SHOT
+	if reference_counted:
+		flags |= Object.CONNECT_REFERENCE_COUNTED
+
+	var script_resource_path := script_path
+	var stub_created := false
+	var created_script := false
+	var previous_script = target_node.get_script()
+
+	if script_resource_path.is_empty() and previous_script and previous_script.resource_path != "":
+		script_resource_path = previous_script.resource_path
+
+	if script_resource_path.is_empty():
+		if not create_script:
+			return _send_error(client_id, "Target node has no script. Provide script_path or enable create_script", command_id)
+		return _send_error(client_id, "Script path must be provided when create_script is true", command_id)
+
+	if not script_resource_path.begins_with("res://"):
+		return _send_error(client_id, "Script path must be within the project (res://)", command_id)
+
+	if create_script and not FileAccess.file_exists(script_resource_path):
+		var extends_type := target_node.get_class()
+		if not ScriptUtils.create_script_file(script_resource_path, "", extends_type):
+			return _send_error(client_id, "Failed to create script file at %s" % script_resource_path, command_id)
+		created_script = true
+
+	var script_resource: Script = null
+	if FileAccess.file_exists(script_resource_path):
+		script_resource = ResourceLoader.load(script_resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+
+	if not script_resource:
+		return _send_error(client_id, "Failed to load script resource at %s" % script_resource_path, command_id)
+
+	var stub_result := _ensure_signal_stub(script_resource_path, method_name, argument_names)
+	if not stub_result.get("ok", false):
+		return _send_error(client_id, stub_result.get("error", "Failed to ensure signal stub"), command_id)
+
+	stub_created = stub_result.get("stub_created", false) or created_script
+
+	if stub_created:
+		script_resource = ResourceLoader.load(script_resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+		if not script_resource:
+			return _send_error(client_id, "Failed to reload script resource after stub creation", command_id)
+
+	var callable := Callable(target_node, method_name)
+	if source_node.is_connected(signal_name, callable):
+		_log("Signal already connected", "_wire_signal_handler", {
+			"source_path": source_path,
+			"signal_name": signal_name,
+			"target_path": target_path,
+			"method_name": method_name,
+			"system_section": "ui_signals",
+			"line_num": __LINE__,
+		})
+		return _send_success(client_id, {
+			"source_path": source_path,
+			"signal_name": signal_name,
+			"target_path": target_path,
+			"method_name": method_name,
+			"script_path": script_resource_path,
+			"stub_created": stub_created,
+			"status": "already_connected"
+		}, command_id)
+
+	var transaction_metadata := {
+		"command": "wire_signal_handler",
+		"source_path": source_path,
+		"signal_name": signal_name,
+		"target_path": target_path,
+		"method_name": method_name,
+		"client_id": client_id,
+		"command_id": command_id,
+	}
+
+	var transaction
+	if transaction_id.is_empty():
+		transaction = SceneTransactionManager.begin_inline("Wire Signal Handler", transaction_metadata)
+	else:
+		transaction = SceneTransactionManager.get_transaction(transaction_id)
+		if not transaction:
+			transaction = SceneTransactionManager.begin_registered(transaction_id, "Wire Signal Handler", transaction_metadata)
+
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction for signal wiring", command_id)
+
+	if previous_script != script_resource:
+		transaction.add_do_property(target_node, "script", script_resource)
+		transaction.add_undo_property(target_node, "script", previous_script)
+
+	transaction.add_do_method(source_node, "connect", [signal_name, callable, binds, flags])
+	transaction.add_undo_method(source_node, "disconnect", [signal_name, callable])
+
+	var response := {
+		"source_path": source_path,
+		"signal_name": signal_name,
+		"target_path": target_path,
+		"method_name": method_name,
+		"script_path": script_resource_path,
+		"stub_created": stub_created,
+		"transaction_id": transaction.transaction_id,
+	}
+
+	transaction.register_on_commit(func():
+		_mark_scene_modified()
+		_log("Connected signal handler", "_wire_signal_handler", {
+			"source_path": source_path,
+			"signal_name": signal_name,
+			"target_path": target_path,
+			"method_name": method_name,
+			"flags": flags,
+			"binds": binds,
+			"stub_created": stub_created,
+			"transaction_id": transaction.transaction_id,
+			"system_section": "ui_signals",
+		})
+	)
+
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit signal wiring", command_id)
+
+		response["status"] = "committed"
+		return _send_success(client_id, response, command_id)
+
+	response["status"] = "pending"
+	_send_success(client_id, response, command_id)
+
+
+func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> void:
+	var container_path: String = params.get("container_path", "")
+	var transaction_id: String = params.get("transaction_id", "")
+	var columns: int = params.get("columns", 2)
+	var horizontal_gap := float(params.get("horizontal_gap", 16.0))
+	var vertical_gap := float(params.get("vertical_gap", 16.0))
+	var size_flags_param = params.get("size_flags", {})
+	var uniform_size := _parse_vector2_param(params.get("cell_size"))
+
+	if container_path.is_empty():
+		return _send_error(client_id, "Container path cannot be empty", command_id)
+
+	if columns <= 0:
+		return _send_error(client_id, "Columns must be greater than zero", command_id)
+
+	var node = _get_editor_node(container_path)
+	if not node:
+		return _send_error(client_id, "Container node not found: %s" % container_path, command_id)
+
+	if not (node is Control):
+		return _send_error(client_id, "Container must inherit from Control to layout children", command_id)
+
+	var container: Control = node
+	var controls: Array = []
+	for child in container.get_children():
+		if child is Control:
+			controls.append(child)
+
+	if controls.is_empty():
+		_log("No Control children found for layout", "_layout_ui_grid", {
+			"container_path": container_path,
+			"system_section": "ui_layout",
+			"line_num": __LINE__,
+		})
+		return _send_success(client_id, {
+			"container_path": container_path,
+			"updated_nodes": [],
+			"status": "no_controls"
+		}, command_id)
+
+	var pending_child_changes: Array = []
+	var layout_summary: Array = []
+
+	for idx in range(controls.size()):
+		var child: Control = controls[idx]
+		var column := idx % columns
+		var row := idx / columns
+		var minimum := child.get_combined_minimum_size()
+		var current_size := child.size
+				var target_width := uniform_size.x > 0.0 ? uniform_size.x : max(current_size.x, minimum.x)
+				var target_height := uniform_size.y > 0.0 ? uniform_size.y : max(current_size.y, minimum.y)
+		var position := Vector2(column * (target_width + horizontal_gap), row * (target_height + vertical_gap))
+
+		var child_changes: Array = []
+		child_changes.append_array(_capture_property_change(child, "anchor_left", 0.0))
+		child_changes.append_array(_capture_property_change(child, "anchor_right", 0.0))
+		child_changes.append_array(_capture_property_change(child, "anchor_top", 0.0))
+		child_changes.append_array(_capture_property_change(child, "anchor_bottom", 0.0))
+		child_changes.append_array(_capture_property_change(child, "offset_left", position.x))
+		child_changes.append_array(_capture_property_change(child, "offset_top", position.y))
+		child_changes.append_array(_capture_property_change(child, "offset_right", position.x + target_width))
+		child_changes.append_array(_capture_property_change(child, "offset_bottom", position.y + target_height))
+
+		if typeof(size_flags_param) == TYPE_DICTIONARY:
+			if size_flags_param.has("horizontal"):
+				child_changes.append_array(_capture_property_change(child, "size_flags_horizontal", int(size_flags_param["horizontal"])))
+			if size_flags_param.has("vertical"):
+				child_changes.append_array(_capture_property_change(child, "size_flags_vertical", int(size_flags_param["vertical"])))
+
+		if not child_changes.is_empty():
+			pending_child_changes.append({
+				"node": child,
+				"changes": child_changes,
+			})
+
+		layout_summary.append({
+			"node_path": _stringify_node_path(child.get_path()),
+			"column": column,
+			"row": row,
+			"position": position,
+			"size": Vector2(target_width, target_height),
+		})
+
+	var container_changes: Array = []
+	if container is GridContainer:
+		container_changes.append_array(_capture_property_change(container, "columns", columns))
+		container_changes.append_array(_capture_property_change(container, "h_separation", int(round(horizontal_gap))))
+		container_changes.append_array(_capture_property_change(container, "v_separation", int(round(vertical_gap))))
+
+	if pending_child_changes.is_empty() and container_changes.is_empty():
+		return _send_success(client_id, {
+			"container_path": container_path,
+			"updated_nodes": layout_summary,
+			"status": "no_change"
+		}, command_id)
+
+	var transaction_metadata := {
+		"command": "layout_ui_grid",
+		"container_path": container_path,
+		"client_id": client_id,
+		"command_id": command_id,
+	}
+
+	var transaction
+	if transaction_id.is_empty():
+		transaction = SceneTransactionManager.begin_inline("Layout UI Grid", transaction_metadata)
+	else:
+		transaction = SceneTransactionManager.get_transaction(transaction_id)
+		if not transaction:
+			transaction = SceneTransactionManager.begin_registered(transaction_id, "Layout UI Grid", transaction_metadata)
+
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction for UI layout", command_id)
+
+	for entry in pending_child_changes:
+		var child = entry["node"]
+		for change in entry["changes"]:
+			transaction.add_do_property(child, change.property, change.value)
+			transaction.add_undo_property(child, change.property, change.previous)
+
+	for change in container_changes:
+		transaction.add_do_property(container, change.property, change.value)
+		transaction.add_undo_property(container, change.property, change.previous)
+
+	var response := {
+		"container_path": container_path,
+		"updated_nodes": layout_summary,
+		"transaction_id": transaction.transaction_id,
+	}
+
+	transaction.register_on_commit(func():
+		_mark_scene_modified()
+		_log("Applied grid layout to controls", "_layout_ui_grid", {
+			"container_path": container_path,
+			"node_count": layout_summary.size(),
+			"transaction_id": transaction.transaction_id,
+			"system_section": "ui_layout",
+		})
+	)
+
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit UI layout", command_id)
+
+		response["status"] = "committed"
+		return _send_success(client_id, response, command_id)
+
+	response["status"] = "pending"
+	_send_success(client_id, response, command_id)
+
+
+func _validate_accessibility(client_id: int, params: Dictionary, command_id: String) -> void:
+	var root_path: String = params.get("root_path", "/root")
+	var include_hidden: bool = params.get("include_hidden", false)
+	var max_depth: int = params.get("max_depth", 0)
+
+	var root = _get_editor_node(root_path)
+	if not root:
+		return _send_error(client_id, "Root node not found: %s" % root_path, command_id)
+
+	var collected: Array = []
+	_collect_control_nodes(root, 0, max_depth, include_hidden, collected)
+
+	var issues: Array = []
+	for entry in collected:
+		var control: Control = entry["node"]
+		var node_issues := _analyze_accessibility(control)
+		if not node_issues.is_empty():
+			issues.append({
+				"node_path": entry["path"],
+				"node_name": control.name,
+				"type": control.get_class(),
+				"issues": node_issues,
+			})
+
+	var response := {
+		"root_path": root_path,
+		"issue_count": issues.size(),
+		"issues": issues,
+		"scanned_count": collected.size(),
+	}
+
+	_log("Completed accessibility scan", "_validate_accessibility", {
+		"root_path": root_path,
+		"issue_count": issues.size(),
+		"scanned_count": collected.size(),
+		"system_section": "ui_accessibility",
+		"line_num": __LINE__,
+	})
+
+	_send_success(client_id, response, command_id)
+
+
+func _register_theme_override_transaction(transaction, control: Control, override_type: String, override_name: String, value, previous_state: Dictionary) -> void:
+	var method_name := _theme_override_add_method(override_type)
+	var removal_method := _theme_override_remove_method(override_type)
+
+	transaction.add_do_method(control, method_name, [override_name, value])
+
+	if previous_state.get("had_override", false):
+		transaction.add_undo_method(control, method_name, [override_name, previous_state.get("value")])
+	else:
+		transaction.add_undo_method(control, removal_method, [override_name])
+
+
+func _parse_theme_override_value(override_type: String, value, resource_path: String) -> Dictionary:
+	match override_type:
+		"color":
+			var color = _coerce_color(value)
+			if color == null:
+				return {"ok": false, "error": "Color overrides require a valid color value"}
+			return {"ok": true, "value": color}
+		"constant":
+			if value == null:
+				return {"ok": false, "error": "Constant overrides require a numeric value"}
+			return {"ok": true, "value": int(round(float(value)))}
+		"font_size":
+			if value == null:
+				return {"ok": false, "error": "Font size overrides require an integer value"}
+			return {"ok": true, "value": int(round(float(value)))}
+		"font":
+			var font_resource = _load_theme_resource(resource_path, value, "Font")
+			if font_resource == null:
+				return {"ok": false, "error": "Font overrides require a valid Font resource path"}
+			return {"ok": true, "value": font_resource}
+		"stylebox":
+			var stylebox_resource = _load_theme_resource(resource_path, value, "StyleBox")
+			if stylebox_resource == null:
+				return {"ok": false, "error": "StyleBox overrides require a valid StyleBox resource path"}
+			return {"ok": true, "value": stylebox_resource}
+		"icon":
+			var texture_resource = _load_theme_resource(resource_path, value, "Texture2D")
+			if texture_resource == null:
+				return {"ok": false, "error": "Icon overrides require a valid Texture2D resource path"}
+			return {"ok": true, "value": texture_resource}
+		_:
+			return {"ok": false, "error": "Unsupported override_type: %s" % override_type}
+
+
+func _coerce_color(value) -> Color:
+	match typeof(value):
+		TYPE_NIL:
+			return null
+		TYPE_COLOR:
+			return value
+		TYPE_DICTIONARY:
+			var dict: Dictionary = value
+			return Color(dict.get("r", 0.0), dict.get("g", 0.0), dict.get("b", 0.0), dict.get("a", 1.0))
+		TYPE_STRING:
+			var str_value: String = value
+			if str_value.is_empty():
+				return null
+			return Color(str_value)
+		TYPE_ARRAY:
+			var arr: Array = value
+			if arr.size() >= 3:
+				var r := float(arr[0])
+				var g := float(arr[1])
+				var b := float(arr[2])
+								var a := arr.size() > 3 ? float(arr[3]) : 1.0
+				return Color(r, g, b, a)
+		_:
+			return null
+
+
+func _load_theme_resource(resource_path: String, fallback, expected_class: String) -> Resource:
+	var path_to_load := resource_path
+	if path_to_load.is_empty() and typeof(fallback) == TYPE_STRING:
+		path_to_load = String(fallback)
+
+	if path_to_load.is_empty():
+		return null
+
+	var resource = ResourceLoader.load(path_to_load, "", ResourceLoader.CACHE_MODE_REPLACE)
+	if resource and resource.is_class(expected_class):
+		return resource
+
+	return null
+
+
+func _get_theme_override_state(control: Control, override_type: String, override_name: String) -> Dictionary:
+	match override_type:
+		"color":
+			if control.has_theme_color_override(override_name):
+				return {"had_override": true, "value": control.get_theme_color(override_name)}
+			return {"had_override": false}
+		"constant":
+			if control.has_theme_constant_override(override_name):
+				return {"had_override": true, "value": control.get_theme_constant(override_name)}
+			return {"had_override": false}
+		"font":
+			if control.has_theme_font_override(override_name):
+				return {"had_override": true, "value": control.get_theme_font(override_name)}
+			return {"had_override": false}
+		"font_size":
+			if control.has_theme_font_size_override(override_name):
+				return {"had_override": true, "value": control.get_theme_font_size(override_name)}
+			return {"had_override": false}
+		"stylebox":
+			if control.has_theme_stylebox_override(override_name):
+				return {"had_override": true, "value": control.get_theme_stylebox(override_name)}
+			return {"had_override": false}
+		"icon":
+			if control.has_theme_icon_override(override_name):
+				return {"had_override": true, "value": control.get_theme_icon(override_name)}
+			return {"had_override": false}
+		_:
+			return {"had_override": false}
+
+
+func _theme_override_values_equal(a, b) -> bool:
+	if typeof(a) != typeof(b):
+		return false
+
+	if a is Resource and b is Resource:
+		return a.resource_path == b.resource_path
+
+	if typeof(a) == TYPE_COLOR:
+		return a == b
+
+	return a == b
+
+
+func _theme_override_add_method(override_type: String) -> String:
+	match override_type:
+		"color":
+			return "add_theme_color_override"
+		"constant":
+			return "add_theme_constant_override"
+		"font":
+			return "add_theme_font_override"
+		"font_size":
+			return "add_theme_font_size_override"
+		"stylebox":
+			return "add_theme_stylebox_override"
+		"icon":
+			return "add_theme_icon_override"
+		_:
+			return ""
+
+
+func _theme_override_remove_method(override_type: String) -> String:
+	match override_type:
+		"color":
+			return "remove_theme_color_override"
+		"constant":
+			return "remove_theme_constant_override"
+		"font":
+			return "remove_theme_font_override"
+		"font_size":
+			return "remove_theme_font_size_override"
+		"stylebox":
+			return "remove_theme_stylebox_override"
+		"icon":
+			return "remove_theme_icon_override"
+		_:
+			return ""
+
+
+func _serialize_theme_override_value(value, override_type: String):
+	match override_type:
+		"color":
+				return value is Color ? value.to_html(true) : value
+		"font":
+			if value is Resource:
+				return value.resource_path
+			return value
+		"stylebox":
+			if value is Resource:
+				return value.resource_path
+			return value
+		"icon":
+			if value is Resource:
+				return value.resource_path
+			return value
+		_:
+			return value
+
+
+func _ensure_signal_stub(script_path: String, method_name: String, argument_names: Array) -> Dictionary:
+	var file := FileAccess.open(script_path, FileAccess.READ)
+	if file == null:
+		return {"ok": false, "error": "Failed to open script for reading: %s" % script_path}
+
+	var content := file.get_as_text()
+	file = null
+
+	var regex := RegEx.new()
+	regex.compile("func\s+%s\s*\(" % method_name)
+	var matches = regex.search(content)
+	if matches:
+		return {"ok": true, "stub_created": false}
+
+	var stub_arguments := argument_names.join(", " )
+	var stub_line := "
 func %s(%s):
 	pass
 " % [method_name, stub_arguments]
@@ -1665,3 +2349,127 @@ func %s(%s):
 	return {"ok": true, "stub_created": true}
 
 
+func _normalize_argument_names(raw_arguments) -> Array:
+	var result: Array = []
+	if raw_arguments is Array:
+		for idx in range(raw_arguments.size()):
+			var candidate = raw_arguments[idx]
+			if typeof(candidate) == TYPE_STRING and not String(candidate).strip_edges().is_empty():
+				result.append(String(candidate).strip_edges())
+			else:
+				result.append("arg_%d" % idx)
+	else:
+		result = []
+
+	return result
+
+
+func _parse_vector2_param(value) -> Vector2:
+	if value is Vector2:
+		return value
+	if typeof(value) == TYPE_DICTIONARY:
+		return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
+	if typeof(value) == TYPE_ARRAY and value.size() >= 2:
+		return Vector2(float(value[0]), float(value[1]))
+	return Vector2.ZERO
+
+
+func _capture_property_change(node: Object, property_name: String, desired_value) -> Array:
+	if not property_name in node:
+		return []
+
+	var current_value = node.get(property_name)
+	if current_value == desired_value:
+		return []
+
+	return [{
+		"property": property_name,
+		"previous": current_value,
+		"value": desired_value,
+	}]
+
+
+func _stringify_node_path(path: NodePath) -> String:
+	if typeof(path) == TYPE_STRING:
+		return String(path)
+	return path.to_string()
+
+
+func _collect_control_nodes(node: Node, depth: int, max_depth: int, include_hidden: bool, accumulator: Array) -> void:
+	if node is Control:
+		var control: Control = node
+		if include_hidden or control.is_visible_in_tree():
+			accumulator.append({
+				"node": control,
+				"path": _stringify_node_path(control.get_path()),
+			})
+
+	if max_depth > 0 and depth >= max_depth:
+		return
+
+	for child in node.get_children():
+		if child is Node:
+			_collect_control_nodes(child, depth + 1, max_depth, include_hidden, accumulator)
+
+
+func _analyze_accessibility(control: Control) -> Array:
+	var issues: Array = []
+	var accessible_name := ""
+	var accessible_description := ""
+	var tooltip_text := ""
+	var control_text := ""
+
+	if "accessible_name" in control:
+		accessible_name = String(control.get("accessible_name"))
+	if "accessible_description" in control:
+		accessible_description = String(control.get("accessible_description"))
+	if "tooltip_text" in control:
+		tooltip_text = String(control.get("tooltip_text"))
+	if "text" in control:
+		control_text = String(control.get("text"))
+
+	var is_interactive := _is_interactive_control(control)
+
+	if is_interactive and control.focus_mode == Control.FOCUS_NONE:
+		issues.append("Interactive control has focus disabled")
+
+	var has_descriptor := not accessible_name.strip_edges().is_empty() or not accessible_description.strip_edges().is_empty() or not tooltip_text.strip_edges().is_empty() or not control_text.strip_edges().is_empty()
+	if is_interactive and not has_descriptor:
+		issues.append("Interactive control is missing accessible name, description, tooltip, or text")
+
+	if control is Label and control_text.strip_edges().is_empty() and accessible_description.strip_edges().is_empty():
+		issues.append("Label is missing text or accessible description")
+
+	if control is TextureButton and accessible_description.strip_edges().is_empty() and tooltip_text.strip_edges().is_empty():
+		issues.append("TextureButton should provide tooltip or accessible description for icon-only buttons")
+
+	return issues
+
+
+func _is_interactive_control(control: Control) -> bool:
+	if control.focus_mode != Control.FOCUS_NONE:
+		return true
+
+	return control is BaseButton or control is LineEdit or control is TextEdit or control is ItemList or control is Tree or control is OptionButton or control is SpinBox or control is Slider or control is ScrollBar or control is ColorPicker or control is ColorPickerButton
+
+
+func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
+	var payload := {
+		"filename": LOG_FILENAME,
+		"timestamp": Time.get_datetime_string_from_system(true, true),
+		"classname": "MCPNodeCommands",
+		"function": function_name,
+		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
+		"line_num": extra.get("line_num", 0),
+		"error": message if is_error else "",
+		"db_phase": extra.get("db_phase", "none"),
+		"method": extra.get("method", "NONE"),
+		"message": message,
+	}
+
+	for key in extra.keys():
+		if not payload.has(key):
+			payload[key] = extra[key]
+
+	print(JSON.stringify(payload))
+	print("[Continuous skepticism (Sherlock Protocol)] %s" % message)

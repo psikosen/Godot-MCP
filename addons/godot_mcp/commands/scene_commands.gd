@@ -209,7 +209,7 @@ func _open_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	
 	# Since we can't directly open scenes in tool scripts,
 	# we need to defer to the plugin which has access to EditorInterface
-        var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+ Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
 	
 	if plugin and plugin.has_method("get_editor_interface"):
 		var editor_interface = plugin.get_editor_interface()
@@ -338,7 +338,7 @@ func _get_physics_world_snapshot(client_id: int, _params: Dictionary, command_id
 		"method": "GET",
 	}
 
-	var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+	Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
 	if not plugin:
 		_log("GodotMCPPlugin not found while capturing physics world snapshot", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
@@ -444,7 +444,7 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 	root_node.free()
 	
 	# Try to open the scene in the editor
-        var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+ Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
 	if plugin and plugin.has_method("get_editor_interface"):
 		var editor_interface = plugin.get_editor_interface()
 		editor_interface.open_scene_from_path(path)
@@ -561,7 +561,7 @@ func _build_physics_world_snapshot(root: Node) -> Dictionary:
 			continue
 
 		var counts_ref: Dictionary = counts[dimension]
-		var space_map = dimension == "2d" ? spaces_2d : spaces_3d
+	var space_map = spaces_2d if dimension == "2d" else spaces_3d
 		var space_entry := _ensure_physics_space_entry(space_map, dimension, current, counts_ref)
 		var entry := {}
 
@@ -636,7 +636,7 @@ func _ensure_physics_space_entry(space_map: Dictionary, dimension: String, node:
 	if space_map.has(space_id):
 		return space_map[space_id]
 
-	var numeric_id := space_rid.is_valid() ? str(space_rid.get_id()) : "unassigned"
+	str(space_rid.get_id()) if var numeric_id := space_rid.is_valid() else "unassigned"
 	var label := "%s Space %s" % [dimension.to_upper(), numeric_id]
 	if numeric_id == "unassigned":
 		label = "%s Space (unassigned)" % dimension.to_upper()
@@ -1364,7 +1364,7 @@ func _rebuild_physics_shapes(client_id: int, params: Dictionary, command_id: Str
 				mesh = loaded
 				mesh_source = mesh_resource_path
 			else:
-				context["loaded_resource_type"] = loaded ? loaded.get_class() : "null"
+	loaded.get_class() if context["loaded_resource_type"] = loaded else "null"
 				_log("Resource is not a Mesh", function_name, context, true)
 				return _send_error(client_id, "Resource is not a Mesh: %s" % mesh_resource_path, command_id)
 		else:
@@ -1383,7 +1383,7 @@ func _rebuild_physics_shapes(client_id: int, params: Dictionary, command_id: Str
 				mesh = candidate
 				mesh_source = _node_path_to_string(mesh_node, mesh_node_path)
 			else:
-				context["candidate_type"] = candidate ? candidate.get_class() : "null"
+	candidate.get_class() if context["candidate_type"] = candidate else "null"
 				_log("Mesh node does not expose a Mesh resource", function_name, context, true)
 				return _send_error(client_id, "Mesh node does not expose a Mesh resource", command_id)
 		elif mesh_node is Mesh:
@@ -1595,7 +1595,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		_log("Audio stream player type does not expose a stream property", function_name, context, true)
 		return _send_error(client_id, "Audio stream player type must expose a `stream` property", command_id)
 
-	var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+	Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
 	if not plugin:
 		var context := {
 			"command": "author_audio_stream_player",
@@ -1839,15 +1839,15 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 			return _send_error(client_id, "Audio stream player does not expose a stream property", command_id)
 
 		var old_stream = node.get("stream")
-		var new_stream_value = stream_null_requested ? null : stream_resource
+	var new_stream_value = null if stream_null_requested else stream_resource
 		if old_stream != new_stream_value:
 			property_changes.append({
 				"property": "stream",
-				"input_value": stream_null_requested ? null : stream_path_for_change,
-				"parsed_value": stream_null_requested ? null : stream_path_for_change,
+	null if "input_value": stream_null_requested else stream_path_for_change,
+	null if "parsed_value": stream_null_requested else stream_path_for_change,
 				"old_value": old_stream,
 				"new_value": new_stream_value,
-				"stream_path": stream_null_requested ? "" : stream_path_for_change,
+	"" if "stream_path": stream_null_requested else stream_path_for_change,
 			})
 		else:
 			stream_requested = false
@@ -1878,7 +1878,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 
 	var transaction_metadata := {
 		"command": "author_audio_stream_player",
-		"mode": was_created ? "create" : "configure",
+	"create" if "mode": was_created else "configure",
 		"requested_path": requested_node_path,
 		"player_type": player_type,
 		"client_id": client_id,
@@ -1931,7 +1931,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		"client_id": client_id,
 		"requested_path": requested_node_path,
 		"player_type": node.get_class(),
-		"mode": was_created ? "create" : "configure",
+	"create" if "mode": was_created else "configure",
 		"transaction_id": transaction.transaction_id,
 		"change_count": serialized_changes.size(),
 	}
@@ -1990,7 +1990,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 	if not resolved_parent_path.is_empty():
 		response["parent_path"] = resolved_parent_path
 	if stream_requested or stream_null_requested or stream_path_for_change != "":
-		response["stream_path"] = stream_null_requested ? "" : stream_path_for_change
+	"" if response["stream_path"] = stream_null_requested else stream_path_for_change
 		response["stream_cleared"] = stream_null_requested
 
 	_send_success(client_id, response, command_id)
@@ -2044,7 +2044,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 		if loaded_resource is AudioStreamInteractive:
 			interactive_stream = loaded_resource
 		else:
-                        context["loaded_type"] = loaded_resource ? loaded_resource.get_class() : "null"
+ loaded_resource.get_class() if context["loaded_type"] = loaded_resource else "null"
 			_log("Existing resource is not an AudioStreamInteractive", function_name, context, true)
 			return _send_error(client_id, "Resource is not an AudioStreamInteractive: %s" % normalized_path, command_id)
 	else:
@@ -2345,10 +2345,10 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 			"fade_beats": fade_beats,
 			"use_filler_clip": use_filler_clip,
 			"hold_previous": hold_previous,
-			"status": existing_transition_lookup.has(transition_key) ? "updated" : "added",
+	"updated" if "status": existing_transition_lookup.has(transition_key) else "added",
 		}
                 if use_filler_clip:
-                        transition_summary["filler_clip"] = filler_label != "" ? filler_label : _interactive_clip_label(filler_clip_index, clip_display_names, clip_any_constant)
+ filler_label if transition_summary["filler_clip"] = filler_label != "" else _interactive_clip_label(filler_clip_index, clip_display_names, clip_any_constant)
 
 		transition_summaries.append(transition_summary)
 
@@ -2381,7 +2381,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 		"clip_count": requested_clip_count,
 		"clips": clip_summaries,
 		"transitions": transition_summaries,
-		"status": was_created ? "created" : "updated",
+	"created" if "status": was_created else "updated",
 	}
 
 	context["clip_count"] = requested_clip_count
@@ -2424,7 +2424,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 
 	var loaded_resource = ResourceLoader.load(normalized_path)
         if not (loaded_resource is AudioStreamInteractive):
-                context["loaded_type"] = loaded_resource ? loaded_resource.get_class() : "null"
+ loaded_resource.get_class() if context["loaded_type"] = loaded_resource else "null"
 		_log("Resource is not an AudioStreamInteractive", function_name, context, true)
 		return _send_error(client_id, "Resource is not an AudioStreamInteractive: %s" % normalized_path, command_id)
 
@@ -2524,7 +2524,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 
 	if layer_index >= clip_display_names.size():
 		clip_display_names.resize(layer_index + 1)
-		clip_display_names[layer_index] = layer_name.is_empty() ? str(layer_index) : layer_name
+	str(layer_index) if clip_display_names[layer_index] = layer_name.is_empty() else layer_name
 
 	if not layer_name.is_empty():
 		interactive_stream.set_clip_name(layer_index, layer_name)
@@ -2540,7 +2540,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		"index": layer_index,
 		"label": layer_label,
 		"was_created": created_layer,
-		"status": created_layer ? "created" : "updated",
+	"created" if "status": created_layer else "updated",
 	}
 	if not layer_name.is_empty():
 		layer_summary["name"] = layer_name
@@ -2565,7 +2565,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		entry_type_context["entry_transition_type"] = typeof(entry_transition_param)
 		_log("Entry transition configuration must be a dictionary", function_name, entry_type_context, true)
 		return _send_error(client_id, "Entry transition configuration must be a dictionary", command_id)
-	var entry_config: Dictionary = typeof(entry_transition_param) == TYPE_DICTIONARY ? (entry_transition_param as Dictionary) : {}
+	(entry_transition_param as Dictionary) if var entry_config: Dictionary = typeof(entry_transition_param) == TYPE_DICTIONARY else {}
 
 	var exit_transition_param = params.get("exit_transition", {})
 	if typeof(exit_transition_param) != TYPE_DICTIONARY and typeof(exit_transition_param) != TYPE_NIL:
@@ -2573,7 +2573,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		exit_type_context["exit_transition_type"] = typeof(exit_transition_param)
 		_log("Exit transition configuration must be a dictionary", function_name, exit_type_context, true)
 		return _send_error(client_id, "Exit transition configuration must be a dictionary", command_id)
-	var exit_config: Dictionary = typeof(exit_transition_param) == TYPE_DICTIONARY ? (exit_transition_param as Dictionary) : {}
+	(exit_transition_param as Dictionary) if var exit_config: Dictionary = typeof(exit_transition_param) == TYPE_DICTIONARY else {}
 
 	context["entry_transition"] = entry_config.duplicate(true)
 	context["exit_transition"] = exit_config.duplicate(true)
@@ -2801,19 +2801,19 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 
 	var audio_resource := ResourceLoader.load(normalized_path)
         if audio_resource == null or not (audio_resource is AudioStream):
-                context["resource_type"] = audio_resource ? audio_resource.get_class() : "null"
+ audio_resource.get_class() if context["resource_type"] = audio_resource else "null"
 		_log("Resource is not an AudioStream", function_name, context, true)
 		return _send_error(client_id, "Resource is not an AudioStream: %s" % normalized_path, command_id)
 
         var audio_stream: AudioStream = audio_resource
-        var mix_rate := audio_stream.has_method("get_mix_rate") ? float(audio_stream.get_mix_rate()) : 0.0
-        var channel_count := audio_stream.has_method("get_channel_count") ? audio_stream.get_channel_count() : 0
+ float(audio_stream.get_mix_rate()) if var mix_rate := audio_stream.has_method("get_mix_rate") else 0.0
+ audio_stream.get_channel_count() if var channel_count := audio_stream.has_method("get_channel_count") else 0
 	if channel_count <= 0 and _has_property(audio_stream, "stereo"):
-		channel_count = bool(audio_stream.stereo) ? 2 : 1
+	2 if channel_count = bool(audio_stream.stereo) else 1
 	if channel_count <= 0:
 		channel_count = 1
 
-        var duration_seconds := audio_stream.has_method("get_length") ? audio_stream.get_length() : 0.0
+ audio_stream.get_length() if var duration_seconds := audio_stream.has_method("get_length") else 0.0
 	var loop_enabled := _has_property(audio_stream, "loop") and bool(audio_stream.loop)
 
 	var metadata := {
@@ -2848,10 +2848,10 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 				limited_reason = "Audio stream contains no PCM frames"
 			else:
 				analysis_mode = "pcm_samples"
-				var bytes_per_sample := format == AudioStreamSample.FORMAT_16_BITS ? 2 : 1
+	var bytes_per_sample = 2 if = format == AudioStreamSample.FORMAT_16_BITS else 1
 				var total_values := data.size() / bytes_per_sample
 				if channel_count <= 0:
-					channel_count = sample_stream.stereo ? 2 : 1
+	2 if channel_count = sample_stream.stereo else 1
 					if channel_count <= 0:
 						channel_count = 1
 				sample_frames = int(total_values / max(channel_count, 1))
@@ -2968,13 +2968,13 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 				for channel_index in channel_count:
 					var channel_stats: Dictionary = stats[channel_index]
 					var sample_count := int(channel_stats["samples"])
-					var mean_amplitude := sample_count > 0 ? channel_stats["sum"] / sample_count : 0.0
-					var rms_amplitude := sample_count > 0 ? sqrt(channel_stats["sum_sq"] / sample_count) : 0.0
+	channel_stats["sum"] / var mean_amplitude = sample_count if = sample_count > 0 else 0.0
+	sqrt(channel_stats["sum_sq"] / sample_count) if var rms_amplitude := sample_count > 0 else 0.0
 					var peak_amplitude := channel_stats["peak"]
 					var peak_db := _amplitude_to_decibels(peak_amplitude)
 					var rms_db := _amplitude_to_decibels(rms_amplitude)
 					var crest_factor := peak_db - rms_db
-					var silence_ratio := sample_count > 0 ? float(channel_stats["silent"]) / sample_count : 0.0
+	float(channel_stats["silent"]) / var silence_ratio = sample_count if = sample_count > 0 else 0.0
 					var zero_crossing_rate := 0.0
 					if duration_seconds > 0.0:
 						zero_crossing_rate = float(channel_stats["zero_crossings"]) / duration_seconds
@@ -2995,8 +2995,8 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 					channel_summaries.append({
 						"channel_index": channel_index,
 						"sample_count": sample_count,
-                                                "min_amplitude": sample_count > 0 ? channel_stats["min"] : 0.0,
-                                                "max_amplitude": sample_count > 0 ? channel_stats["max"] : 0.0,
+ channel_stats["min"] if "min_amplitude": sample_count > 0 else 0.0,
+ channel_stats["max"] if "max_amplitude": sample_count > 0 else 0.0,
 						"peak_amplitude": peak_amplitude,
 						"peak_db": peak_db,
 						"rms_amplitude": rms_amplitude,
@@ -3580,7 +3580,7 @@ func _stringify_variant(value) -> String:
 		TYPE_NIL:
 			return "null"
 		TYPE_BOOL:
-			return value ? "true" : "false"
+	"true" if return value else "false"
 		TYPE_DICTIONARY, TYPE_ARRAY:
 			return JSON.stringify(value)
 		TYPE_OBJECT:
@@ -3972,7 +3972,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 		var metadata_dict: Dictionary = metadata_param
 		for meta_key in metadata_dict.keys():
 			var meta_value = metadata_dict[meta_key]
-			var existing_meta := material.has_meta(meta_key) ? material.get_meta(meta_key) : null
+	material.get_meta(meta_key) if var existing_meta := material.has_meta(meta_key) else null
 			if existing_meta == meta_value:
 				continue
 			material.set_meta(meta_key, meta_value)
@@ -4096,8 +4096,8 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			change_records.append({
 				"type": "shader_reference",
 				"property": "shader",
-				"input_value": shader_path.is_empty() ? "inline" : shader_path,
-				"parsed_value": shader_path.is_empty() ? "inline" : shader_path,
+	"inline" if "input_value": shader_path.is_empty() else shader_path,
+	"inline" if "parsed_value": shader_path.is_empty() else shader_path,
 				"new_value": new_shader_path,
 				"old_value": previous_path,
 				"new_type": shader_resource.get_class(),
@@ -4106,7 +4106,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 
 	var glslang_metadata = glslang_config.get("metadata", {})
 	if typeof(glslang_metadata) == TYPE_DICTIONARY and not glslang_metadata.is_empty():
-		var previous_metadata := material.has_meta("glslang_metadata") ? material.get_meta("glslang_metadata") : {}
+	material.get_meta("glslang_metadata") if var previous_metadata := material.has_meta("glslang_metadata") else {}
 		if previous_metadata != glslang_metadata:
 			material.set_meta("glslang_metadata", glslang_metadata.duplicate(true))
 			change_records.append({
@@ -4309,7 +4309,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 					_log("Material cannot accept requested lightmapper scalar", function_name, scalar_payload, true)
 					return _send_error(client_id, "Material cannot accept lightmapper scalar: %s" % String(scalar_name), command_id)
 
-		var previous_lightmapper_meta := material.has_meta("lightmapper_rd") ? material.get_meta("lightmapper_rd") : {}
+	material.get_meta("lightmapper_rd") if var previous_lightmapper_meta := material.has_meta("lightmapper_rd") else {}
 		var sanitized_lightmapper_meta := _sanitize_metadata_dictionary(lightmapper_config)
 		if previous_lightmapper_meta != sanitized_lightmapper_meta:
 			material.set_meta("lightmapper_rd", sanitized_lightmapper_meta)
@@ -4349,7 +4349,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 					"screen_ratio": float(lod_dict.get("screen_ratio", lod_dict.get("ratio", 0.0))),
 				})
 			if not lod_summaries.is_empty():
-				var previous_lods := material.has_meta("meshoptimizer_lods") ? material.get_meta("meshoptimizer_lods") : []
+	material.get_meta("meshoptimizer_lods") if var previous_lods := material.has_meta("meshoptimizer_lods") else []
 				if previous_lods != lod_summaries:
 					material.set_meta("meshoptimizer_lods", lod_summaries)
 					change_records.append({
@@ -4361,7 +4361,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 						"new_type": "Array",
 						"old_type": "Array",
 					})
-		var previous_meshoptimizer_meta := material.has_meta("meshoptimizer_metadata") ? material.get_meta("meshoptimizer_metadata") : {}
+	material.get_meta("meshoptimizer_metadata") if var previous_meshoptimizer_meta := material.has_meta("meshoptimizer_metadata") else {}
 		var sanitized_meshoptimizer_meta := _sanitize_metadata_dictionary(meshoptimizer_config)
 		if previous_meshoptimizer_meta != sanitized_meshoptimizer_meta:
 			material.set_meta("meshoptimizer_metadata", sanitized_meshoptimizer_meta)
@@ -4408,7 +4408,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 		"material_type": material.get_class(),
 		"created_new": created_new,
 		"changes": change_records,
-		"status": created_new ? "created" : "updated",
+	"created" if "status": created_new else "updated",
 	}, command_id)
 
 func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -4680,7 +4680,7 @@ func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String
 
 		var position_vector: Vector3i = parsed_position["vector"]
 		var position_dict: Dictionary = parsed_position["components"].duplicate(true)
-		var previous_item := node.has_method("get_cell_item") ? node.get_cell_item(position_vector) : GridMap.INVALID_CELL_ITEM
+	node.get_cell_item(position_vector) if var previous_item := node.has_method("get_cell_item") else GridMap.INVALID_CELL_ITEM
 		var previous_orientation := 0
 		if node.has_method("get_cell_item_orientation"):
 			previous_orientation = node.get_cell_item_orientation(position_vector)
@@ -4928,7 +4928,7 @@ func _clear_gridmap_cells(client_id: int, params: Dictionary, command_id: String
 
 		var position_vector: Vector3i = parsed_position["vector"]
 		var position_dict: Dictionary = parsed_position["components"].duplicate(true)
-		var previous_item := node.has_method("get_cell_item") ? node.get_cell_item(position_vector) : GridMap.INVALID_CELL_ITEM
+	node.get_cell_item(position_vector) if var previous_item := node.has_method("get_cell_item") else GridMap.INVALID_CELL_ITEM
 		if previous_item == GridMap.INVALID_CELL_ITEM:
 			continue
 
@@ -5076,7 +5076,7 @@ func _convert_to_int(value, fallback):
 		TYPE_FLOAT:
 			return int(round(value))
 		TYPE_BOOL:
-			return value ? 1 : 0
+	1 if return value else 0
 		TYPE_STRING:
 			return int(value)
 		_:
@@ -5089,7 +5089,7 @@ func _convert_to_float(value, fallback):
 		TYPE_INT:
 			return float(value)
 		TYPE_BOOL:
-			return value ? 1.0 : 0.0
+	1.0 if return value else 0.0
 		TYPE_STRING:
 			return float(value)
 		_:
@@ -5132,7 +5132,7 @@ func _to_int(value) -> Variant:
 		TYPE_FLOAT:
 			return int(round(value))
 		TYPE_BOOL:
-			return value ? 1 : 0
+	1 if return value else 0
 		TYPE_STRING, TYPE_STRING_NAME:
 			var text := String(value).strip_edges()
 			if text.is_empty():
@@ -5208,7 +5208,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+	message if "error": is_error else "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,

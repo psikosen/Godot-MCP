@@ -180,7 +180,7 @@ func _get_project_info(client_id: int, _params: Dictionary, command_id: String) 
 		"project_version": project_version,
 		"project_path": project_path,
 		"godot_version": structured_version,
-                "current_scene": get_tree().edited_scene_root ? get_tree().edited_scene_root.scene_file_path : ""
+ get_tree().edited_scene_root.scene_file_path if "current_scene": get_tree().edited_scene_root else ""
 	}, command_id)
 
 func _list_project_files(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -339,7 +339,7 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 			var effect := AudioServer.get_bus_effect(bus_index, effect_index)
                         var effect_data := {
                                 "index": effect_index,
-                                "type": effect ? effect.get_class() : "Unknown",
+ effect.get_class() if "type": effect else "Unknown",
                                 "enabled": AudioServer.is_bus_effect_enabled(bus_index, effect_index)
                         }
 
@@ -1058,7 +1058,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+	message if "error": is_error else "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,

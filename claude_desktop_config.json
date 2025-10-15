@@ -1,14 +1,14 @@
 {
   "mcpServers": {
-	"godot-mcp": {
-	  "command": "node",
-	  "args": [
-		"--experimental-modules",
-		"/Users/Shared/Godot/godot-mcp/server/dist/index.js"
-	  ],
-	  "env": {
-		"MCP_TRANSPORT": "stdio"
-	  }
-	}
+    "godot-mcp": {
+      "command": "node",
+      "args": [
+        "--experimental-modules",
+        "/Users/raymondgonzalez/mcp/Godot-MCP/server/dist/index.js"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
   }
 }

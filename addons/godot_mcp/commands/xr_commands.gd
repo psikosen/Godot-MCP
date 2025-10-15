@@ -51,12 +51,12 @@ func _list_xr_interfaces(client_id: int, command_id: String) -> void:
                         "name": String(xr_interface.get_name()),
                         "is_initialized": xr_interface.is_initialized(),
                         "is_primary": xr_interface == primary,
-                        "tracking_status": xr_interface.has_method("get_tracking_status") ? xr_interface.get_tracking_status() : "unknown",
-                        "capabilities": xr_interface.has_method("get_capabilities") ? xr_interface.get_capabilities() : 0,
+ xr_interface.get_tracking_status() if "tracking_status": xr_interface.has_method("get_tracking_status") else "unknown",
+ xr_interface.get_capabilities() if "capabilities": xr_interface.has_method("get_capabilities") else 0,
                 }
 
                 if xr_interface.has_method("supports_play_area") and xr_interface.supports_play_area():
-                        data["play_area"] = xr_interface.has_method("get_play_area") ? xr_interface.get_play_area() : null
+ xr_interface.get_play_area() if data["play_area"] = xr_interface.has_method("get_play_area") else null
 
 		interfaces.append(data)
 

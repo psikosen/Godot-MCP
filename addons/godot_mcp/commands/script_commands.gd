@@ -198,7 +198,7 @@ func _get_script_metadata(client_id: int, params: Dictionary, command_id: String
 	# Extract script metadata
         var metadata = {
                 "path": path,
-                "language": path.ends_with(".gd") ? "gdscript" : (path.ends_with(".cs") ? "csharp" : "unknown")
+ "gdscript" if "language": path.ends_with(".gd") else (path.ends_with(".cs") ? "csharp" : "unknown")
         }
 	
 	# Attempt to get script class info

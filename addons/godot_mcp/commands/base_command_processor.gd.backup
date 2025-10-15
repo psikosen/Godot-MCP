@@ -258,7 +258,7 @@ func _coerce_to_color(value):
 	if value is Dictionary:
 	        return Color(value.get("r", 0.0), value.get("g", 0.0), value.get("b", 0.0), value.get("a", 1.0))
 	if value is Array and value.size() >= 3:
-	value[3] if var alpha := value.size() >= 4 else 1.0
+	        var alpha := value.size() >= 4 ? value[3] : 1.0
 	        return Color(value[0], value[1], value[2], alpha)
 	return Color(value) if typeof(value) == TYPE_STRING else _parse_property_value(value)
 
