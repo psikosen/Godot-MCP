@@ -1,6 +1,8 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Add explicit preloads for MCP command processors in the command handler to resolve editor parse errors.
+- [ ] Run a Godot CLI lint/check to validate MCP scripts load cleanly after the preload changes (blocked: Godot binary missing in container).
 - [x] Diagnose Godot MCP startup errors related to `command_handler.gd` preloading and typed variable inference.
 - [x] Update GDScript typing and resource loading so `mcp_server.gd` and `command_handler.gd` parse without errors.
 - [x] Run server-side tests/lints to verify stability after parser fixes.

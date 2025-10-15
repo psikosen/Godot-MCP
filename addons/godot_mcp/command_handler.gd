@@ -5,6 +5,71 @@ extends Node
 const LOG_FILENAME := "addons/godot_mcp/command_handler.gd"
 const LOG_SECTION := "command_handler"
 
+const _MCP_BASE_COMMAND_PROCESSOR_SCRIPT := preload("res://addons/godot_mcp/commands/base_command_processor.gd")
+
+const COMMAND_PROCESSOR_DEFINITIONS := [
+        {
+                "name": "MCPNodeCommands",
+                "path": "res://addons/godot_mcp/commands/node_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/node_commands.gd"),
+        },
+        {
+                "name": "MCPScriptCommands",
+                "path": "res://addons/godot_mcp/commands/script_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/script_commands.gd"),
+        },
+        {
+                "name": "MCPSceneCommands",
+                "path": "res://addons/godot_mcp/commands/scene_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/scene_commands.gd"),
+        },
+        {
+                "name": "MCPProjectCommands",
+                "path": "res://addons/godot_mcp/commands/project_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/project_commands.gd"),
+        },
+        {
+                "name": "MCPEditorCommands",
+                "path": "res://addons/godot_mcp/commands/editor_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/editor_commands.gd"),
+        },
+        {
+                "name": "MCPEditorScriptCommands",
+                "path": "res://addons/godot_mcp/commands/editor_script_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/editor_script_commands.gd"),
+        },
+        {
+                "name": "MCPNavigationCommands",
+                "path": "res://addons/godot_mcp/commands/navigation_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/navigation_commands.gd"),
+        },
+        {
+                "name": "MCPAnimationCommands",
+                "path": "res://addons/godot_mcp/commands/animation_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/animation_commands.gd"),
+        },
+        {
+                "name": "MCPXRCommands",
+                "path": "res://addons/godot_mcp/commands/xr_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/xr_commands.gd"),
+        },
+        {
+                "name": "MCPMultiplayerCommands",
+                "path": "res://addons/godot_mcp/commands/multiplayer_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/multiplayer_commands.gd"),
+        },
+        {
+                "name": "MCPCompressionCommands",
+                "path": "res://addons/godot_mcp/commands/compression_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/compression_commands.gd"),
+        },
+        {
+                "name": "MCPRenderingCommands",
+                "path": "res://addons/godot_mcp/commands/rendering_commands.gd",
+                "script": preload("res://addons/godot_mcp/commands/rendering_commands.gd"),
+        },
+]
+
 var MCPNodeCommands
 var MCPScriptCommands
 var MCPSceneCommands
@@ -31,28 +96,13 @@ func _ready():
         })
 
 func _load_processor_classes() -> void:
-        var class_specs := [
-                {"name": "MCPNodeCommands", "path": "res://addons/godot_mcp/commands/node_commands.gd"},
-                {"name": "MCPScriptCommands", "path": "res://addons/godot_mcp/commands/script_commands.gd"},
-                {"name": "MCPSceneCommands", "path": "res://addons/godot_mcp/commands/scene_commands.gd"},
-                {"name": "MCPProjectCommands", "path": "res://addons/godot_mcp/commands/project_commands.gd"},
-                {"name": "MCPEditorCommands", "path": "res://addons/godot_mcp/commands/editor_commands.gd"},
-                {"name": "MCPEditorScriptCommands", "path": "res://addons/godot_mcp/commands/editor_script_commands.gd"},
-                {"name": "MCPNavigationCommands", "path": "res://addons/godot_mcp/commands/navigation_commands.gd"},
-                {"name": "MCPAnimationCommands", "path": "res://addons/godot_mcp/commands/animation_commands.gd"},
-                {"name": "MCPXRCommands", "path": "res://addons/godot_mcp/commands/xr_commands.gd"},
-                {"name": "MCPMultiplayerCommands", "path": "res://addons/godot_mcp/commands/multiplayer_commands.gd"},
-                {"name": "MCPCompressionCommands", "path": "res://addons/godot_mcp/commands/compression_commands.gd"},
-                {"name": "MCPRenderingCommands", "path": "res://addons/godot_mcp/commands/rendering_commands.gd"},
-        ]
-
         var loaded_count := 0
-        for class_spec in class_specs:
-                var script: Script = load(class_spec["path"])
+        for class_spec in COMMAND_PROCESSOR_DEFINITIONS:
+                var script: Script = class_spec.get("script")
                 if script == null:
                         _log("Failed to load command processor class", "_load_processor_classes", 53, {
                                 "class_name": class_spec["name"],
-                                "path": class_spec["path"]
+                                "path": class_spec.get("path", "")
                         }, true)
                         set(class_spec["name"], null)
                         continue
@@ -62,7 +112,7 @@ func _load_processor_classes() -> void:
 
         _log("Loaded command processor classes", "_load_processor_classes", 63, {
                 "loaded_count": loaded_count,
-                "requested_count": class_specs.size()
+                "requested_count": COMMAND_PROCESSOR_DEFINITIONS.size()
         })
 
 func _initialize_processors() -> void:
