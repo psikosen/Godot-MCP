@@ -1,6 +1,9 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Investigate the Godot parser error when preloading `command_handler.gd` from `mcp_server.gd`.
+- [x] Update the command handler script so Godot can instantiate it without hitting the preload failure.
+- [ ] Run `gdlint` on the updated scripts to confirm they parse cleanly (blocked: gdtoolkit 4.1.0 crashes on `PatternStr.raw`).
 - [x] Diagnose Godot MCP startup errors related to `command_handler.gd` preloading and typed variable inference.
 - [x] Update GDScript typing and resource loading so `mcp_server.gd` and `command_handler.gd` parse without errors.
 - [x] Run server-side tests/lints to verify stability after parser fixes.
