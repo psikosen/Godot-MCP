@@ -2,6 +2,7 @@
 
 ## Latest Session Tasks
 - [x] Replace invalid inline conditional expressions with Godot 4 ternary syntax across affected MCP addon scripts.
+- [x] Restore runtime loading of MCP command processor classes in the command handler so Godot can execute incoming commands.
 - [x] Normalize indentation to tabs in modified command processors to satisfy Godot parser expectations.
 - [x] Run available automated tests or lint scripts to validate the MCP addon after fixes.
 - [x] Replace Python-style inline conditional expressions with ternary syntax throughout the MCP addon scripts to restore parser compatibility.

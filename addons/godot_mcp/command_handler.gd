@@ -2,6 +2,20 @@
 class_name MCPCommandHandler
 extends Node
 
+# Load all command processor classes - using absolute paths with load() to avoid circular dependencies
+var MCPNodeCommands
+var MCPScriptCommands
+var MCPSceneCommands
+var MCPProjectCommands
+var MCPEditorCommands
+var MCPEditorScriptCommands
+var MCPNavigationCommands
+var MCPAnimationCommands
+var MCPXRCommands
+var MCPMultiplayerCommands
+var MCPCompressionCommands
+var MCPRenderingCommands
+
 const LOG_FILENAME := "addons/godot_mcp/command_handler.gd"
 const LOG_SECTION := "command_handler"
 
@@ -9,10 +23,24 @@ var _websocket_server
 var _command_processors: Array[MCPBaseCommandProcessor] = []
 
 func _ready():
+	# Load command processor classes at runtime to avoid circular dependencies
+	MCPNodeCommands = load("res://addons/godot_mcp/commands/node_commands.gd")
+	MCPScriptCommands = load("res://addons/godot_mcp/commands/script_commands.gd")
+	MCPSceneCommands = load("res://addons/godot_mcp/commands/scene_commands.gd")
+	MCPProjectCommands = load("res://addons/godot_mcp/commands/project_commands.gd")
+	MCPEditorCommands = load("res://addons/godot_mcp/commands/editor_commands.gd")
+	MCPEditorScriptCommands = load("res://addons/godot_mcp/commands/editor_script_commands.gd")
+	MCPNavigationCommands = load("res://addons/godot_mcp/commands/navigation_commands.gd")
+	MCPAnimationCommands = load("res://addons/godot_mcp/commands/animation_commands.gd")
+	MCPXRCommands = load("res://addons/godot_mcp/commands/xr_commands.gd")
+	MCPMultiplayerCommands = load("res://addons/godot_mcp/commands/multiplayer_commands.gd")
+	MCPCompressionCommands = load("res://addons/godot_mcp/commands/compression_commands.gd")
+	MCPRenderingCommands = load("res://addons/godot_mcp/commands/rendering_commands.gd")
+
 	await get_tree().process_frame
 	_websocket_server = get_parent()
 	_initialize_processors()
-	_log("Command handler ready", "_ready", 18, {
+	_log("Command handler ready", "_ready", 43, {
 		"processor_count": _command_processors.size()
 	})
 
@@ -34,14 +62,14 @@ func _initialize_processors() -> void:
 
 	for processor_class in processor_classes:
 		if processor_class == null:
-			_log("Processor class unavailable", "_initialize_processors", 35, {
+			_log("Processor class unavailable", "_initialize_processors", 65, {
 				"warning": true
 			}, true)
 			continue
 
 		var processor: MCPBaseCommandProcessor = processor_class.new()
 		if processor == null:
-			_log("Failed to instantiate processor", "_initialize_processors", 42, {
+			_log("Failed to instantiate processor", "_initialize_processors", 72, {
 				"processor_class": str(processor_class)
 			}, true)
 			continue
@@ -61,11 +89,11 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
 	var command_id := ""
 	if typeof(command_id_value) == TYPE_STRING:
 		command_id = command_id_value
-		else:
-				command_id = command_id_value != null ? str(command_id_value) : ""
+	else:
+		command_id = command_id_value != null ? str(command_id_value) : ""
 
 	if command_type.is_empty():
-		_log("Missing command type", "_handle_command", 64, {
+		_log("Missing command type", "_handle_command", 96, {
 			"client_id": client_id,
 			"command": command
 		}, true)
@@ -73,13 +101,13 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
 		return
 
 	if typeof(params) != TYPE_DICTIONARY:
-		_log("Coercing parameters to dictionary", "_handle_command", 73, {
+		_log("Coercing parameters to dictionary", "_handle_command", 104, {
 			"client_id": client_id,
 			"command_id": command_id
 		})
 		params = {}
 
-	_log("Routing command", "_handle_command", 79, {
+	_log("Routing command", "_handle_command", 110, {
 		"client_id": client_id,
 		"command_type": command_type,
 		"command_id": command_id
@@ -91,7 +119,7 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
 			continue
 
 		if not processor.has_method("process_command"):
-			_log("Processor missing process_command", "_handle_command", 90, {
+			_log("Processor missing process_command", "_handle_command", 122, {
 				"processor": processor.name
 			}, true)
 			continue
@@ -102,7 +130,7 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
 			break
 
 	if not handled:
-		_log("No processor handled command", "_handle_command", 101, {
+		_log("No processor handled command", "_handle_command", 133, {
 			"client_id": client_id,
 			"command_type": command_type,
 			"command_id": command_id
@@ -110,7 +138,7 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
 		_send_error(client_id, "Unsupported command: %s" % command_type, command_id)
 
 func _on_command_completed(client_id: int, command_type: String, result: Dictionary, command_id: String, processor: MCPBaseCommandProcessor) -> void:
-	_log("Processor completed command", "_on_command_completed", 110, {
+	_log("Processor completed command", "_on_command_completed", 141, {
 		"client_id": client_id,
 		"command_type": command_type,
 		"command_id": command_id,
@@ -128,7 +156,7 @@ func _send_success(client_id: int, result: Dictionary, command_id: String) -> vo
 
 	if _websocket_server:
 		_websocket_server.send_response(client_id, response)
-		_log("Sent success response", "_send_success", 124, {
+		_log("Sent success response", "_send_success", 159, {
 			"client_id": client_id,
 			"command_id": command_id
 		})
@@ -144,7 +172,7 @@ func _send_error(client_id: int, message: String, command_id: String) -> void:
 
 	if _websocket_server:
 		_websocket_server.send_response(client_id, response)
-	_log("Error response sent", "_send_error", 137, {
+	_log("Error response sent", "_send_error", 175, {
 		"client_id": client_id,
 		"command_id": command_id,
 		"message": message
