@@ -54,10 +54,10 @@ func _load_processor_classes() -> void:
                                 "class_name": class_spec["name"],
                                 "path": class_spec["path"]
                         }, true)
-                        set(class_spec["name"], null)
+                        self.set(class_spec["name"], null)
                         continue
 
-                set(class_spec["name"], script)
+                self.set(class_spec["name"], script)
                 loaded_count += 1
 
         _log("Loaded command processor classes", "_load_processor_classes", 63, {
