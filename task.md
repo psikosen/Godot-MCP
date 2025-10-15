@@ -12,6 +12,8 @@
 - [x] Normalize GDScript indentation to resolve parser errors in command processors.
 - [x] Guard command identifier coercion in the MCP command handler.
 - [x] Execute server vitest suite to confirm MCP endpoints remain stable.
+- [x] Restore runtime loading of MCP command processor scripts in `command_handler.gd`.
+- [ ] Run automated tests after reinstating command processor loading to ensure stability (blocked: missing `websockets` dependency for pytest collection).
 
 ## Current Execution Plan
 - [x] Audit existing MCP command processor coverage to confirm available operations.
