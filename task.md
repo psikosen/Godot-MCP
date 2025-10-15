@@ -1,6 +1,9 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Diagnose Godot MCP startup errors related to `command_handler.gd` preloading and typed variable inference.
+- [x] Update GDScript typing and resource loading so `mcp_server.gd` and `command_handler.gd` parse without errors.
+- [x] Run server-side tests/lints to verify stability after parser fixes.
 - [x] Replace the inline `?` conditional in `addons/godot_mcp/mcp_server.gd` with Godot's ternary syntax to resolve the parse error.
 - [x] Run automated tests to ensure the MCP addon remains stable after the ternary syntax fix.
 - [x] Investigate the GDScript parse errors reported for `mcp_server.gd` and `command_handler.gd`.
