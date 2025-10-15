@@ -1,6 +1,9 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Investigate the reported preload failure for `command_handler.gd` in the MCP server startup logs.
+- [x] Replace any legacy inline conditional syntax that prevents `command_handler.gd` from parsing under Godot 4.
+- [x] Run the available automated test suite to ensure no regressions after the parser fix.
 - [x] Add explicit preloads for MCP command processors in the command handler to resolve editor parse errors.
 - [x] Run a Godot CLI lint/check to validate MCP scripts load cleanly after the preload changes *(fails: multiple pre-existing parse errors across MCP command scripts when executed with Godot v4.2.2 headless)*.
 - [x] Diagnose Godot MCP startup errors related to `command_handler.gd` preloading and typed variable inference.
