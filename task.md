@@ -1,6 +1,8 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Replace the inline `?` conditional in `addons/godot_mcp/mcp_server.gd` with Godot's ternary syntax to resolve the parse error.
+- [x] Run automated tests to ensure the MCP addon remains stable after the ternary syntax fix.
 - [x] Investigate the GDScript parse errors reported for `mcp_server.gd` and `command_handler.gd`.
 - [x] Correct the stray indentation block in `addons/godot_mcp/mcp_server.gd` so the parser no longer encounters unexpected indents.
 - [x] Normalize indentation in `addons/godot_mcp/command_handler.gd` to use spaces consistently within affected functions.
