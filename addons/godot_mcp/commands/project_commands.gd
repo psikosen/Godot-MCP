@@ -180,7 +180,7 @@ func _get_project_info(client_id: int, _params: Dictionary, command_id: String) 
 		"project_version": project_version,
 		"project_path": project_path,
 		"godot_version": structured_version,
- get_tree().edited_scene_root.scene_file_path if "current_scene": get_tree().edited_scene_root else ""
+				"current_scene": get_tree().edited_scene_root ? get_tree().edited_scene_root.scene_file_path : ""
 	}, command_id)
 
 func _list_project_files(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -337,11 +337,11 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 
 		for effect_index in range(effect_count):
 			var effect := AudioServer.get_bus_effect(bus_index, effect_index)
-                        var effect_data := {
-                                "index": effect_index,
- effect.get_class() if "type": effect else "Unknown",
-                                "enabled": AudioServer.is_bus_effect_enabled(bus_index, effect_index)
-                        }
+						var effect_data := {
+								"index": effect_index,
+								"type": effect ? effect.get_class() : "Unknown",
+								"enabled": AudioServer.is_bus_effect_enabled(bus_index, effect_index)
+						}
 
 			if effect and effect is Resource:
 				effect_data["resource_path"] = effect.resource_path
@@ -1058,7 +1058,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-	message if "error": is_error else "",
+		"error": is_error ? message : "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
