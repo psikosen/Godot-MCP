@@ -291,7 +291,7 @@ func _collect_theme_styleboxes(theme: Theme, type_name: String) -> Array:
 		var stylebox = theme.get_stylebox(style_name, type_name)
 		styleboxes.append({
 			"name": String(style_name),
-	stylebox.get_class() if "class": stylebox != null else "",
+			"class": stylebox != null ? stylebox.get_class() : "",
 			"resource": _serialize_resource(stylebox),
 		})
 	return styleboxes
@@ -831,7 +831,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-	message if "error": is_error else "",
+		"error": is_error ? message : "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,

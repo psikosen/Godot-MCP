@@ -556,7 +556,7 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 			if String(track_path) == "":
 				continue
 
-			var track_type := Animation.TYPE_TRANSFORM3D if skeleton is Skeleton3D else Animation.TYPE_TRANSFORM2D
+			var track_type := skeleton is Skeleton3D ? Animation.TYPE_TRANSFORM3D : Animation.TYPE_TRANSFORM2D
 			var track_index := working_copy.find_track(track_path)
 			if track_index == -1:
 				track_index = working_copy.add_track(track_type)
@@ -765,7 +765,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		max_time = max(max_time, end_time)
 
 	working_copy.length = max(working_copy.length, max_time)
-	Animation.LOOP_LINEAR if working_copy.loop_mode = loop else Animation.LOOP_NONE
+	working_copy.loop_mode = loop ? Animation.LOOP_LINEAR : Animation.LOOP_NONE
 
 	var metadata := {
 		"command": "generate_tween_sequence",
@@ -1483,7 +1483,7 @@ func _serialize_animation_tree(tree: AnimationTree, include_nested: bool, includ
 		"process_mode": tree.process_mode,
 		"parameters": _serialize_variant(parameters_value),
 		"animation_player": anim_player_path,
- tree.tree_root.get_class() if "root_type": tree.tree_root else "",
+				"root_type": tree.tree_root ? tree.tree_root.get_class() : "",
 		"state_machines": [],
 	}
 
@@ -1511,13 +1511,13 @@ func _collect_nested_state_machines(node: AnimationNode, include_nested: bool, i
 	return machines
 
 func _serialize_state_machine(state_machine: AnimationNodeStateMachine, label, include_nested: bool, include_graph: bool, include_transitions: bool) -> Dictionary:
-        var machine := {
- label if "name": String((typeof(label) == TYPE_STRING and not String(label).is_empty()) else state_machine.resource_name),
- String(state_machine.get("start_node")) if "start_node": state_machine else "",
-                "states": [],
-                "transitions": [],
- state_machine.is_allow_transition_to_self() if "allow_transition_to_self": state_machine.has_method("is_allow_transition_to_self") else false,
-        }
+		var machine := {
+				"name": String((typeof(label) == TYPE_STRING and not String(label).is_empty()) ? label : state_machine.resource_name),
+				"start_node": state_machine ? String(state_machine.get("start_node")) : "",
+				"states": [],
+				"transitions": [],
+				"allow_transition_to_self": state_machine.has_method("is_allow_transition_to_self") ? state_machine.is_allow_transition_to_self() : false,
+		}
 
 	var state_names := []
 	if state_machine.has_method("get_node_list"):
@@ -1583,7 +1583,7 @@ func _serialize_resource_properties(resource: Resource) -> Dictionary:
 	return data
 
 func _resolve_search_root(node_path: String) -> Node:
- Engine.get_meta("GodotMCPPlugin") if var plugin = Engine.has_meta("GodotMCPPlugin") else null
+		var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
 	if not plugin:
 		return null
 	var editor_interface = plugin.get_editor_interface()
@@ -1668,8 +1668,8 @@ func _serialize_variant(value):
 			if value is Node or value is Resource:
 				if value.has_method("serialize"):
 					return value.serialize()
-                                if value is Resource:
- value.resource_path if return value.resource_path != "" else value.resource_name
+								if value is Resource:
+										return value.resource_path != "" ? value.resource_path : value.resource_name
 				if value is Node:
 					return _path_to_string(value)
 			return String(value)
@@ -1692,7 +1692,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-	message if "error": is_error else "",
+		"error": is_error ? message : "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
