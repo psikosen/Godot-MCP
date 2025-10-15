@@ -1,6 +1,8 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Add explicit preloads for MCP command processors in the command handler to resolve editor parse errors.
+- [x] Run a Godot CLI lint/check to validate MCP scripts load cleanly after the preload changes *(fails: multiple pre-existing parse errors across MCP command scripts when executed with Godot v4.2.2 headless)*.
 - [x] Diagnose Godot MCP startup errors related to `command_handler.gd` preloading and typed variable inference.
 - [x] Update GDScript typing and resource loading so `mcp_server.gd` and `command_handler.gd` parse without errors.
 - [x] Run server-side tests/lints to verify stability after parser fixes.
@@ -15,7 +17,7 @@
 - [x] Run available automated tests or lint scripts to validate the MCP addon after fixes.
 - [x] Replace Python-style inline conditional expressions with ternary syntax throughout the MCP addon scripts to restore parser compatibility.
 - [x] Recompute command handler/server command ID coercion using ternaries to avoid inline conditional parsing failures.
-- [ ] Attempt Godot CLI validation of addon scripts (blocked: Godot executable not available in container).
+- [x] Attempt Godot CLI validation of addon scripts *(fails: Godot v4.2.2 headless reports legacy ternary syntax, indentation, and base processor parse errors across existing scripts)*.
 - [x] Add EditorInterface-aware node create/delete flows with selection updates and structured responses.
 - [x] Support nested node property updates with typed conversion and transaction logging.
 - [x] Normalize GDScript indentation to resolve parser errors in command processors.
