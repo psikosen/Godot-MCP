@@ -161,7 +161,7 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
         if typeof(command_id_value) == TYPE_STRING:
                 command_id = command_id_value
         else:
-                command_id = command_id_value != null ? str(command_id_value) : ""
+                command_id = str(command_id_value) if command_id_value != null else ""
 
         if command_type.is_empty():
                 _log("Missing command type", "_handle_command", 117, {
