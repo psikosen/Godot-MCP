@@ -66,67 +66,67 @@ func _load_processor_classes() -> void:
         })
 
 func _initialize_processors() -> void:
-	var processor_classes: Array = [
-		MCPNodeCommands,
-		MCPScriptCommands,
-		MCPSceneCommands,
-		MCPProjectCommands,
-		MCPEditorCommands,
-		MCPEditorScriptCommands,
-		MCPNavigationCommands,
-		MCPAnimationCommands,
-		MCPXRCommands,
-		MCPMultiplayerCommands,
-		MCPCompressionCommands,
-		MCPRenderingCommands,
-	]
+        var processor_classes: Array = [
+                MCPNodeCommands,
+                MCPScriptCommands,
+                MCPSceneCommands,
+                MCPProjectCommands,
+                MCPEditorCommands,
+                MCPEditorScriptCommands,
+                MCPNavigationCommands,
+                MCPAnimationCommands,
+                MCPXRCommands,
+                MCPMultiplayerCommands,
+                MCPCompressionCommands,
+                MCPRenderingCommands,
+        ]
 
-	for processor_class in processor_classes:
-		if processor_class == null:
+        for processor_class in processor_classes:
+                if processor_class == null:
                         _log("Processor class unavailable", "_initialize_processors", 86, {
                                 "warning": true
                         }, true)
-			continue
+                        continue
 
-		var processor: MCPBaseCommandProcessor = processor_class.new()
-		if processor == null:
+                var processor: MCPBaseCommandProcessor = processor_class.new()
+                if processor == null:
                         _log("Failed to instantiate processor", "_initialize_processors", 93, {
                                 "processor_class": str(processor_class)
                         }, true)
-			continue
+                        continue
 
-		processor._websocket_server = _websocket_server
-		processor.name = processor.get_class()
-		add_child(processor)
-		processor.command_completed.connect(func(client_id, command_type, result, command_id):
-			_on_command_completed(client_id, command_type, result, command_id, processor)
-		)
-		_command_processors.append(processor)
+                processor._websocket_server = _websocket_server
+                processor.name = processor.get_class()
+                add_child(processor)
+                processor.command_completed.connect(func(client_id, command_type, result, command_id):
+                        _on_command_completed(client_id, command_type, result, command_id, processor)
+                )
+                _command_processors.append(processor)
 
 func _handle_command(client_id: int, command: Dictionary) -> void:
-	var command_type: String = command.get("type", "")
-	var params: Dictionary = command.get("params", {})
-	var command_id_value = command.get("commandId", "")
-	var command_id := ""
+        var command_type: String = command.get("type", "")
+        var params: Dictionary = command.get("params", {})
+        var command_id_value = command.get("commandId", "")
+        var command_id := ""
         if typeof(command_id_value) == TYPE_STRING:
                 command_id = command_id_value
         else:
                 command_id = command_id_value != null ? str(command_id_value) : ""
 
-	if command_type.is_empty():
+        if command_type.is_empty():
                 _log("Missing command type", "_handle_command", 117, {
                         "client_id": client_id,
                         "command": command
                 }, true)
-		_send_error(client_id, "Command type is required", command_id)
-		return
+                _send_error(client_id, "Command type is required", command_id)
+                return
 
-	if typeof(params) != TYPE_DICTIONARY:
+        if typeof(params) != TYPE_DICTIONARY:
                 _log("Coercing parameters to dictionary", "_handle_command", 125, {
                         "client_id": client_id,
                         "command_id": command_id
                 })
-		params = {}
+                params = {}
 
         _log("Routing command", "_handle_command", 131, {
                 "client_id": client_id,
@@ -134,29 +134,29 @@ func _handle_command(client_id: int, command: Dictionary) -> void:
                 "command_id": command_id
         })
 
-	var handled := false
-	for processor in _command_processors:
-		if processor == null:
-			continue
+        var handled := false
+        for processor in _command_processors:
+                if processor == null:
+                        continue
 
-		if not processor.has_method("process_command"):
+                if not processor.has_method("process_command"):
                         _log("Processor missing process_command", "_handle_command", 143, {
                                 "processor": processor.name
                         }, true)
-			continue
+                        continue
 
-		var result = processor.process_command(client_id, command_type, params, command_id)
-		if result:
-			handled = true
-			break
+                var result = processor.process_command(client_id, command_type, params, command_id)
+                if result:
+                        handled = true
+                        break
 
-	if not handled:
+        if not handled:
                 _log("No processor handled command", "_handle_command", 154, {
                         "client_id": client_id,
                         "command_type": command_type,
                         "command_id": command_id
                 }, true)
-		_send_error(client_id, "Unsupported command: %s" % command_type, command_id)
+                _send_error(client_id, "Unsupported command: %s" % command_type, command_id)
 
 func _on_command_completed(client_id: int, command_type: String, result: Dictionary, command_id: String, processor: MCPBaseCommandProcessor) -> void:
         _log("Processor completed command", "_on_command_completed", 162, {
@@ -167,32 +167,32 @@ func _on_command_completed(client_id: int, command_type: String, result: Diction
         })
 
 func _send_success(client_id: int, result: Dictionary, command_id: String) -> void:
-	var response = {
-		"status": "success",
-		"result": result
-	}
+        var response = {
+                "status": "success",
+                "result": result
+        }
 
-	if not command_id.is_empty():
-		response["commandId"] = command_id
+        if not command_id.is_empty():
+                response["commandId"] = command_id
 
-	if _websocket_server:
-		_websocket_server.send_response(client_id, response)
+        if _websocket_server:
+                _websocket_server.send_response(client_id, response)
                 _log("Sent success response", "_send_success", 180, {
                         "client_id": client_id,
                         "command_id": command_id
                 })
 
 func _send_error(client_id: int, message: String, command_id: String) -> void:
-	var response = {
-		"status": "error",
-		"message": message
-	}
+        var response = {
+                "status": "error",
+                "message": message
+        }
 
-	if not command_id.is_empty():
-		response["commandId"] = command_id
+        if not command_id.is_empty():
+                response["commandId"] = command_id
 
-	if _websocket_server:
-		_websocket_server.send_response(client_id, response)
+        if _websocket_server:
+                _websocket_server.send_response(client_id, response)
         _log("Error response sent", "_send_error", 196, {
                 "client_id": client_id,
                 "command_id": command_id,
@@ -200,24 +200,24 @@ func _send_error(client_id: int, message: String, command_id: String) -> void:
         }, true)
 
 func _log(message: String, function_name: String, line_number: int, extra: Dictionary = {}, is_error: bool = false) -> void:
-	var log_entry := {
-		"filename": LOG_FILENAME,
-		"timestamp": Time.get_datetime_string_from_system(),
-		"classname": "MCPCommandHandler",
-		"function": function_name,
-		"system_section": LOG_SECTION,
-		"line_num": line_number,
-		"error": is_error,
-		"db_phase": "none",
-		"method": "NONE",
-		"message": message
-	}
+        var log_entry := {
+                "filename": LOG_FILENAME,
+                "timestamp": Time.get_datetime_string_from_system(),
+                "classname": "MCPCommandHandler",
+                "function": function_name,
+                "system_section": LOG_SECTION,
+                "line_num": line_number,
+                "error": is_error,
+                "db_phase": "none",
+                "method": "NONE",
+                "message": message
+        }
 
-	for key in extra.keys():
-		log_entry[key] = extra[key]
+        for key in extra.keys():
+                log_entry[key] = extra[key]
 
-	print(JSON.stringify(log_entry))
-	var derived_message := "[Continuous skepticism (Sherlock Protocol)] %s" % message
-	if extra.size() > 0:
-		derived_message += " | " + JSON.stringify(extra)
-	print(derived_message)
+        print(JSON.stringify(log_entry))
+        var derived_message := "[Continuous skepticism (Sherlock Protocol)] %s" % message
+        if extra.size() > 0:
+                derived_message += " | " + JSON.stringify(extra)
+        print(derived_message)

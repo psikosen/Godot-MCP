@@ -1,6 +1,10 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Investigate the GDScript parse errors reported for `mcp_server.gd` and `command_handler.gd`.
+- [x] Correct the stray indentation block in `addons/godot_mcp/mcp_server.gd` so the parser no longer encounters unexpected indents.
+- [x] Normalize indentation in `addons/godot_mcp/command_handler.gd` to use spaces consistently within affected functions.
+- [ ] Run available automated lint/test scripts to confirm the MCP addon loads without indentation issues (blocked: legacy `verify_fixes.sh` flags legitimate ternary usage and exits non-zero).
 - [x] Replace invalid inline conditional expressions with Godot 4 ternary syntax across affected MCP addon scripts.
 - [x] Normalize indentation to tabs in modified command processors to satisfy Godot parser expectations.
 - [x] Run available automated tests or lint scripts to validate the MCP addon after fixes.
