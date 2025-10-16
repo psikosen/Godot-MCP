@@ -1,6 +1,10 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Remove duplicate backup GDScript files causing MCP global class conflicts.
+- [x] Validate MCP command handler loads without backup script interference by ensuring only one MCPCommandHandler global class remains.
+- [ ] Run automated tests or linters relevant to MCP addon changes (verify_fixes.sh currently fails due to intentional use of ternary operators).
+
 - [x] Investigate the reported preload failure for `command_handler.gd` in the MCP server startup logs.
 - [x] Replace any legacy inline conditional syntax that prevents `command_handler.gd` from parsing under Godot 4.
 - [x] Run the available automated test suite to ensure no regressions after the parser fix.
