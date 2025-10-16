@@ -1,6 +1,10 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Investigate Godot 4.4.1 parse errors preventing MCP command processors from loading.
+- [x] Normalize MCP base command processor indentation so class registration succeeds in Godot 4.
+- [ ] Run available automated checks to confirm the MCP addon parses after indentation fixes. *(blocked: pytest requires missing 'websockets' dependency).*
+
 - [x] Remove duplicate backup GDScript files causing MCP global class conflicts.
 - [x] Validate MCP command handler loads without backup script interference by ensuring only one MCPCommandHandler global class remains.
 - [ ] Run automated tests or linters relevant to MCP addon changes (verify_fixes.sh currently fails due to intentional use of ternary operators).
