@@ -119,12 +119,12 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	)
 
 	if transaction_id.is_empty():
-		if not transaction.commit():
-			transaction.rollback()
-			return _send_error(client_id, "Failed to commit node rename", command_id)
+                if not transaction.commit():
+                        transaction.rollback()
+                        return _send_error(client_id, "Failed to commit node rename", command_id)
 
-				var updated_path = node.get_path()
-				var path_string = typeof(updated_path) == TYPE_STRING ? updated_path : updated_path.to_string()
+                var updated_path = node.get_path()
+                var path_string = typeof(updated_path) == TYPE_STRING ? updated_path : updated_path.to_string()
 		_send_success(client_id, {
 			"previous_name": old_name,
 			"new_name": new_name,

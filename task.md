@@ -1,6 +1,9 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Restore indentation within `_parse_property_value` so `base_command_processor.gd` registers its global class correctly.
+- [x] Align `_rename_node` commit handling indentation in `node_commands.gd` to avoid parser failures.
+- [ ] Run headless plugin load smoke test after indentation fixes *(blocked: Godot CLI binary unavailable in environment).* 
 - [x] Investigate Godot 4.4.1 parse errors preventing MCP command processors from loading.
 - [x] Normalize MCP base command processor indentation so class registration succeeds in Godot 4.
 - [ ] Run available automated checks to confirm the MCP addon parses after indentation fixes. *(blocked: pytest requires missing 'websockets' dependency).*
