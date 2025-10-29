@@ -1,6 +1,10 @@
 # Task Plan
 
 ## Latest Session Tasks
+- [x] Review MCP script resources for placeholder paths and document required updates.
+- [x] Implement parameterized script content and metadata resources with completions.
+- [x] Register the new resource templates, rebuild the server package, and update automated tests.
+- [x] Run `npm run test` within `server/` to confirm the updated resources compile and pass checks.
 - [x] Restore indentation within `_parse_property_value` so `base_command_processor.gd` registers its global class correctly.
 - [x] Align `_rename_node` commit handling indentation in `node_commands.gd` to avoid parser failures.
 - [ ] Run headless plugin load smoke test after indentation fixes *(blocked: Godot CLI binary unavailable in environment).* 

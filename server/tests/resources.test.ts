@@ -32,7 +32,11 @@ vi.mock('../dist/utils/project_indexer.js', () => ({
 }));
 
 const { sceneListResource, sceneStructureResource } = await import('../dist/resources/scene_resources.js');
-const { scriptResource, scriptListResource, scriptMetadataResource } = await import('../dist/resources/script_resources.js');
+const {
+  scriptResourceTemplate,
+  scriptListResource,
+  scriptMetadataResourceTemplate,
+} = await import('../dist/resources/script_resources.js');
 const {
   projectStructureResource,
   projectSettingsResource,
@@ -74,7 +78,7 @@ describe('Godot MCP resources', () => {
 
   it('loads a script resource with metadata', async () => {
     mockSendCommand.mockResolvedValueOnce({ content: 'print("hi")', script_path: 'res://default_script.gd' });
-    const result = await scriptResource.load();
+    const result = await scriptResourceTemplate.load({ path: 'res://default_script.gd' });
 
     expect(mockSendCommand).toHaveBeenCalledWith('get_script', { path: 'res://default_script.gd' });
     expect(result.text).toContain('print');
@@ -91,10 +95,20 @@ describe('Godot MCP resources', () => {
 
   it('loads script metadata', async () => {
     mockSendCommand.mockResolvedValueOnce({ classes: [] });
-    const result = await scriptMetadataResource.load();
+    const result = await scriptMetadataResourceTemplate.load({ path: 'res://default_script.gd' });
 
     expect(mockSendCommand).toHaveBeenCalledWith('get_script_metadata', { path: 'res://default_script.gd' });
     expect(result.text).toContain('classes');
+  });
+
+  it('suggests script path completions for templates', async () => {
+    mockSendCommand.mockResolvedValueOnce({ files: ['res://player.gd', 'res://hud/ui.cs'] });
+    const argument = scriptResourceTemplate.arguments[0];
+    const completion = await argument.complete?.('player');
+
+    expect(mockSendCommand).toHaveBeenCalledWith('list_project_files', { extensions: ['.gd', '.cs'] });
+    expect(completion?.values).toContain('res://player.gd');
+    expect(completion?.total).toBe(1);
   });
 
   it('loads project structure data', async () => {

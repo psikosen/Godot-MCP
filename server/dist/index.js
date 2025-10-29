@@ -75,7 +75,7 @@ import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
-import { scriptResource, scriptListResource, scriptMetadataResource } from './resources/script_resources.js';
+import { scriptResourceTemplate, scriptListResource, scriptMetadataResourceTemplate } from './resources/script_resources.js';
 import { projectStructureResource, projectSettingsResource, projectResourcesResource, projectIndexResource, } from './resources/project_resources.js';
 import { audioBusResource } from './resources/audio_resources.js';
 import { physicsWorldResource } from './resources/physics_resources.js';
@@ -136,8 +136,8 @@ function main() {
                     server.addResource(selectedNodeResource);
                     server.addResource(currentScriptResource);
                     server.addResource(sceneStructureResource);
-                    server.addResource(scriptResource);
-                    server.addResource(scriptMetadataResource);
+                    server.addResourceTemplate(scriptResourceTemplate);
+                    server.addResourceTemplate(scriptMetadataResourceTemplate);
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 3, , 4]);

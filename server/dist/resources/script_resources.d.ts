@@ -1,14 +1,13 @@
-import { Resource } from 'fastmcp';
+import { Resource, ResourceTemplate } from 'fastmcp';
 /**
- * Resource that provides the content of a specific script
- * Note: As a Resource (not ResourceTemplate), it cannot handle dynamic paths
+ * Resource template that provides the content of a specific script
  */
-export declare const scriptResource: Resource;
+export declare const scriptResourceTemplate: ResourceTemplate;
 /**
  * Resource that provides a list of all scripts in the project
  */
 export declare const scriptListResource: Resource;
 /**
- * Resource that provides metadata for a specific script, including classes and methods
+ * Resource template that provides metadata for a specific script, including classes and methods
  */
-export declare const scriptMetadataResource: Resource;
+export declare const scriptMetadataResourceTemplate: ResourceTemplate;

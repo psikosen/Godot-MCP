@@ -24,10 +24,10 @@ import {
   sceneListResource, 
   sceneStructureResource 
 } from './resources/scene_resources.js';
-import { 
-  scriptResource, 
+import {
+  scriptResourceTemplate,
   scriptListResource,
-  scriptMetadataResource 
+  scriptMetadataResourceTemplate
 } from './resources/script_resources.js';
 import {
   projectStructureResource,
@@ -113,8 +113,8 @@ async function main() {
   server.addResource(selectedNodeResource);
   server.addResource(currentScriptResource);
   server.addResource(sceneStructureResource);
-  server.addResource(scriptResource);
-  server.addResource(scriptMetadataResource);
+  server.addResourceTemplate(scriptResourceTemplate);
+  server.addResourceTemplate(scriptMetadataResourceTemplate);
 
   // Ensure Godot is running - auto-launch if needed
   try {
