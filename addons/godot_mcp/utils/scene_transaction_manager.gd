@@ -111,12 +111,38 @@ class SceneTransaction extends RefCounted:
 
 		_undo_redo.create_action(action_name)
 		if metadata.size() > 0:
-			_undo_redo.set_action_metadata(metadata)
+			# Godot EditorUndoRedoManager does not expose metadata APIs in every version.
+			# Preserve compatibility by applying metadata only when the method exists.
+			if _undo_redo.has_method("set_action_metadata"):
+				_undo_redo.set_action_metadata(metadata)
+			else:
+				MCPSceneTransactionManager._log(
+					"Skipping action metadata; set_action_metadata unavailable",
+					"SceneTransaction.commit",
+					{
+						"transaction_id": transaction_id,
+						"action_name": action_name,
+					}
+				)
 
 		for entry in _do_methods:
-			_undo_redo.add_do_method(entry.target, entry.method, entry.args...)
+			var args = entry.args
+			match args.size():
+				0: _undo_redo.add_do_method(entry.target, entry.method)
+				1: _undo_redo.add_do_method(entry.target, entry.method, args[0])
+				2: _undo_redo.add_do_method(entry.target, entry.method, args[0], args[1])
+				3: _undo_redo.add_do_method(entry.target, entry.method, args[0], args[1], args[2])
+				4: _undo_redo.add_do_method(entry.target, entry.method, args[0], args[1], args[2], args[3])
+				_: push_warning("Too many arguments for undo/redo method")
 		for entry in _undo_methods:
-			_undo_redo.add_undo_method(entry.target, entry.method, entry.args...)
+			var args = entry.args
+			match args.size():
+				0: _undo_redo.add_undo_method(entry.target, entry.method)
+				1: _undo_redo.add_undo_method(entry.target, entry.method, args[0])
+				2: _undo_redo.add_undo_method(entry.target, entry.method, args[0], args[1])
+				3: _undo_redo.add_undo_method(entry.target, entry.method, args[0], args[1], args[2])
+				4: _undo_redo.add_undo_method(entry.target, entry.method, args[0], args[1], args[2], args[3])
+				_: push_warning("Too many arguments for undo/redo method")
 		for entry in _do_properties:
 			_undo_redo.add_do_property(entry.target, entry.property, entry.value)
 		for entry in _undo_properties:
@@ -303,7 +329,7 @@ static func _log(message: String, function_name: String, extra: Dictionary = {},
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+		"error": message if is_error else "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
@@ -314,4 +340,3 @@ static func _log(message: String, function_name: String, extra: Dictionary = {},
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
-	print("[Continuous skepticism (Sherlock Protocol)] %s" % message)

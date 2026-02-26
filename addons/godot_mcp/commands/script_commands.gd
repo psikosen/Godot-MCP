@@ -1,6 +1,6 @@
 @tool
 class_name MCPScriptCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
@@ -178,7 +178,7 @@ func _get_script(client_id: int, params: Dictionary, command_id: String) -> void
 	}, command_id)
 
 func _get_script_metadata(client_id: int, params: Dictionary, command_id: String) -> void:
-	var path = params.get("path", "")
+	var path: String = params.get("path", "")
 	
 	# Validation
 	if path.is_empty():
@@ -196,10 +196,10 @@ func _get_script_metadata(client_id: int, params: Dictionary, command_id: String
 		return _send_error(client_id, "Failed to load script: " + path, command_id)
 	
 	# Extract script metadata
-		var metadata = {
-				"path": path,
-				"language": path.ends_with(".gd") ? "gdscript" : (path.ends_with(".cs") ? "csharp" : "unknown")
-		}
+	var metadata := {
+		"path": path,
+		"language": "gdscript" if path.ends_with(".gd") else ("csharp" if path.ends_with(".cs") else "unknown")
+	}
 	
 	# Attempt to get script class info
 	var class_name_str = ""

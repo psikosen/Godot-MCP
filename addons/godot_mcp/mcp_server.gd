@@ -4,8 +4,8 @@ extends EditorPlugin
 var tcp_server := TCPServer.new()
 var port := 9080
 var handshake_timeout := 3000 # ms
-var debug_mode := true
-var log_detailed := true  # Enable detailed logging
+var debug_mode := false
+var log_detailed := false
 var command_handler = null  # Command handler reference
 
 signal client_connected(id)
@@ -42,18 +42,28 @@ func _enter_tree():
 	
 	# Initialize the command handler
 	print("Creating command handler...")
-	command_handler = preload("res://addons/godot_mcp/command_handler.gd").new()
+	var handler_script: Script = load("res://addons/godot_mcp/command_handler.gd")
+	if handler_script == null:
+		printerr("Failed to load command handler script")
+		return
+	# Instantiate the command handler directly from the loaded script to avoid
+	# reliance on class registration ordering during editor startup
+	command_handler = handler_script.new()
 	command_handler.name = "CommandHandler"
 	add_child(command_handler)
-	
+
+	# Force immediate initialization since _ready() won't be called until next frame
+	if command_handler.has_method("initialize"):
+		command_handler.initialize(self)
+
 	# Connect signals
 	print("Connecting command handler signals...")
 	self.connect("command_received", Callable(command_handler, "_handle_command"))
 	
-	# Start WebSocket server
-	var err = tcp_server.listen(port)
+	# Start WebSocket server - explicitly bind to IPv4 to avoid IPv6 issues
+	var err = tcp_server.listen(port, "127.0.0.1")
 	if err == OK:
-		print("Listening on port", port)
+		print("Listening on IPv4 127.0.0.1:", port)
 		set_process(true)
 	else:
 		printerr("Failed to listen on port", port, "error:", err)
@@ -168,7 +178,8 @@ func _process(_delta):
 				var packet = client.ws.get_packet()
 				var text = packet.get_string_from_utf8()
 				
-				print("[Client ", id, "] RECEIVED RAW DATA: ", text)
+				if log_detailed:
+					print("[Client ", id, "] RECEIVED RAW DATA: ", text)
 				
 				# Parse as JSON
 				var json = JSON.new()
@@ -222,7 +233,8 @@ func _process(_delta):
 								"commandId": command_id
 							}
 
-							print("[Client ", id, "] Routing JSON-RPC method ", method_name, " with commandId ", command_id)
+							if log_detailed:
+								print("[Client ", id, "] Routing JSON-RPC method ", method_name, " with commandId ", command_id)
 							emit_signal("command_received", id, command_payload)
 					
 					# Handle legacy command format - This is what Claude Code uses
@@ -231,7 +243,8 @@ func _process(_delta):
 						var params = data.get("params", {})
 						var cmd_id = data.get("commandId", "")
 						
-						print("[Client ", id, "] Processing command: ", cmd_type)
+						if log_detailed:
+							print("[Client ", id, "] Processing command: ", cmd_type)
 						
 						# Route command to command handler via signal
 						# The command handler will handle the response via send_response
@@ -288,8 +301,6 @@ func send_response(client_id: int, response: Dictionary) -> int:
 		return envelope_result
 
 	var json_text = JSON.stringify(response)
-
-	print("Sending response to client %d: %s" % [client_id, json_text])
 
 	if client.ws.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		print("Error: Client %d connection not open" % client_id)

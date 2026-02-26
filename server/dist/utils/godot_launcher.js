@@ -35,12 +35,44 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 import { spawn } from 'child_process';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { getGodotConnection } from './godot_connection.js';
 // Get __dirname equivalent in ES modules
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = dirname(__filename);
+/**
+ * Validates that a Godot project exists at the specified path
+ */
+function validateProjectPath(projectPath) {
+    var projectFile = join(projectPath, 'project.godot');
+    return existsSync(projectFile);
+}
+/**
+ * Attempts to auto-detect a Godot project in common locations
+ */
+function autoDetectProject() {
+    // Try parent directory of the server (where project.godot typically is)
+    var parentDir = resolve(__dirname, '../../../');
+    if (validateProjectPath(parentDir)) {
+        console.error("Auto-detected Godot project at: ".concat(parentDir));
+        return parentDir;
+    }
+    // Try the current working directory
+    var cwd = process.cwd();
+    if (validateProjectPath(cwd)) {
+        console.error("Auto-detected Godot project at: ".concat(cwd));
+        return cwd;
+    }
+    // Try the Godot-MCP directory specifically
+    var godotMcpDir = resolve(__dirname, '../../../../');
+    if (validateProjectPath(godotMcpDir)) {
+        console.error("Auto-detected Godot project at: ".concat(godotMcpDir));
+        return godotMcpDir;
+    }
+    return null;
+}
 /**
  * Manages launching and monitoring the Godot editor
  */
@@ -52,13 +84,17 @@ var GodotLauncher = /** @class */ (function () {
      * @param maxStartupTime Maximum time to wait for Godot to start in ms
      */
     function GodotLauncher(projectPath, godotExecutable, maxStartupTime) {
-        if (projectPath === void 0) { projectPath = resolve(__dirname, '../../../'); }
         if (godotExecutable === void 0) { godotExecutable = '/Applications/Godot.app/Contents/MacOS/Godot'; }
         if (maxStartupTime === void 0) { maxStartupTime = 30000; }
         this.godotProcess = null;
         this.projectPath = projectPath;
         this.godotExecutable = godotExecutable;
         this.maxStartupTime = maxStartupTime;
+        // Validate project path on construction
+        if (!validateProjectPath(this.projectPath)) {
+            throw new Error("Invalid Godot project path: ".concat(this.projectPath, "\n") +
+                "No project.godot file found. Please set GODOT_PROJECT_PATH environment variable to a valid Godot project directory.");
+        }
     }
     /**
      * Checks if Godot is running and the WebSocket server is accessible
@@ -95,6 +131,10 @@ var GodotLauncher = /** @class */ (function () {
                 switch (_a.label) {
                     case 0:
                         console.error("Launching Godot editor with project: ".concat(this.projectPath));
+                        // Verify project exists before launching
+                        if (!validateProjectPath(this.projectPath)) {
+                            throw new Error("Cannot launch Godot: project.godot not found at ".concat(this.projectPath));
+                        }
                         // Launch Godot with the project path
                         // Use --editor flag to open the editor, and pass the project path
                         this.godotProcess = spawn(this.godotExecutable, ['--editor', this.projectPath], {
@@ -190,10 +230,25 @@ var launcherInstance = null;
  */
 export function getGodotLauncher() {
     if (!launcherInstance) {
-        var projectPath = process.env.GODOT_PROJECT_PATH || resolve(__dirname, '../../../');
+        console.error('=== Godot Launcher Configuration ===');
+        // Try to get project path from environment or auto-detect
+        var projectPath = process.env.GODOT_PROJECT_PATH;
+        if (!projectPath) {
+            console.error('GODOT_PROJECT_PATH not set, attempting auto-detection...');
+            var detected = autoDetectProject();
+            projectPath = detected || undefined;
+            if (!projectPath) {
+                throw new Error('Could not find Godot project!\n' +
+                    'Please set the GODOT_PROJECT_PATH environment variable to your Godot project directory.\n' +
+                    'Example: export GODOT_PROJECT_PATH="/path/to/your/godot/project"');
+            }
+        }
+        else if (!validateProjectPath(projectPath)) {
+            throw new Error("Invalid GODOT_PROJECT_PATH: ".concat(projectPath, "\n") +
+                'The specified path does not contain a project.godot file.');
+        }
         var godotExecutable = process.env.GODOT_EXECUTABLE || '/Applications/Godot.app/Contents/MacOS/Godot';
         var maxStartupTime = parseInt(process.env.GODOT_STARTUP_TIMEOUT || '30000', 10);
-        console.error('=== Godot Launcher Configuration ===');
         console.error("Project Path: ".concat(projectPath));
         console.error("Godot Executable: ".concat(godotExecutable));
         console.error("Max Startup Time: ".concat(maxStartupTime, "ms"));

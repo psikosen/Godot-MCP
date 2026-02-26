@@ -13,7 +13,6 @@ var _websocket_server = null
 func process_command(
 	client_id: int, command_type: String, params: Dictionary, command_id: String
 ) -> bool:
-	push_error("BaseCommandProcessor.process_command called directly")
 	return false
 
 
@@ -103,44 +102,44 @@ func _get_undo_redo():
 # Helper function to parse property values from string to proper Godot types
 func _parse_property_value(value):
 	# Only try to parse strings that look like they could be Godot types
-        if (
-                typeof(value) == TYPE_STRING
-                and (
-                        value.begins_with("Vector")
-                        or value.begins_with("Transform")
-                        or value.begins_with("Rect")
-                        or value.begins_with("Color")
-                        or value.begins_with("Quat")
-                        or value.begins_with("Basis")
-                        or value.begins_with("Plane")
-                        or value.begins_with("AABB")
-                        or value.begins_with("Projection")
-                        or value.begins_with("Callable")
-                        or value.begins_with("Signal")
-                        or value.begins_with("PackedVector")
-                        or value.begins_with("PackedString")
-                        or value.begins_with("PackedFloat")
-                        or value.begins_with("PackedInt")
-                        or value.begins_with("PackedColor")
-                        or value.begins_with("PackedByteArray")
-                        or value.begins_with("Dictionary")
-                        or value.begins_with("Array")
-                )
-        ):
-                var expression = Expression.new()
-                var error = expression.parse(value, [])
+	if (
+		typeof(value) == TYPE_STRING
+		and (
+			value.begins_with("Vector")
+			or value.begins_with("Transform")
+			or value.begins_with("Rect")
+			or value.begins_with("Color")
+			or value.begins_with("Quat")
+			or value.begins_with("Basis")
+			or value.begins_with("Plane")
+			or value.begins_with("AABB")
+			or value.begins_with("Projection")
+			or value.begins_with("Callable")
+			or value.begins_with("Signal")
+			or value.begins_with("PackedVector")
+			or value.begins_with("PackedString")
+			or value.begins_with("PackedFloat")
+			or value.begins_with("PackedInt")
+			or value.begins_with("PackedColor")
+			or value.begins_with("PackedByteArray")
+			or value.begins_with("Dictionary")
+			or value.begins_with("Array")
+		)
+	):
+		var expression = Expression.new()
+		var error = expression.parse(value, [])
 
-                if error == OK:
-                        var result = expression.execute([], null, true)
-                        if not expression.has_execute_failed():
-                                print("Successfully parsed %s as %s" % [value, result])
-                                return result
-                        else:
-                                print("Failed to execute expression for: %s" % value)
-                else:
-                        print("Failed to parse expression: %s (Error: %d)" % [value, error])
+		if error == OK:
+			var result = expression.execute([], null, true)
+			if not expression.has_execute_failed():
+				print("Successfully parsed %s as %s" % [value, result])
+				return result
+			else:
+				print("Failed to execute expression for: %s" % value)
+		else:
+			print("Failed to parse expression: %s (Error: %d)" % [value, error])
 
-# Otherwise, return value as is
+	# Otherwise, return value as is
 	return value
 
 
@@ -157,11 +156,11 @@ func _convert_property_value(target: Object, property_name: String, value):
 		return _parse_property_value(value)
 
 	var property_type: int = property_info.get("type", TYPE_NIL)
-	var class_name: String = property_info.get("class_name", "")
-	return _coerce_value_to_type(value, property_type, class_name)
+	var property_class_name: String = property_info.get("class_name", "")
+	return _coerce_value_to_type(value, property_type, property_class_name)
 
 
-func _coerce_value_to_type(value, value_type: int, class_name: String = ""):
+func _coerce_value_to_type(value, value_type: int, property_class_name: String = ""):
 	match value_type:
 		TYPE_NIL:
 			return value
@@ -278,7 +277,7 @@ func _coerce_to_color(value):
 			value.get("r", 0.0), value.get("g", 0.0), value.get("b", 0.0), value.get("a", 1.0)
 		)
 	if value is Array and value.size() >= 3:
-		var alpha := value[3] if value.size() >= 4 else 1.0
+		var alpha: float = float(value[3]) if value.size() >= 4 else 1.0
 		return Color(value[0], value[1], value[2], alpha)
 	return Color(value) if typeof(value) == TYPE_STRING else _parse_property_value(value)
 
@@ -401,96 +400,100 @@ func _apply_nested_property_value(base_value, path: Array, new_value):
 			if remaining.size() > 0:
 				return {"ok": false, "error": "Vector2 only supports single-level components"}
 			var vector2_value: Vector2 = base_value
-			var previous_component
+			var previous_component: float
+			var new_component: float = float(new_value)
 			match key:
 				"x":
 					previous_component = vector2_value.x
-					vector2_value.x = float(new_value)
+					vector2_value.x = new_component
 				"y":
 					previous_component = vector2_value.y
-					vector2_value.y = float(new_value)
+					vector2_value.y = new_component
 				_:
 					return {"ok": false, "error": "Unsupported Vector2 component: %s" % key}
 			return {
 				"ok": true,
 				"value": vector2_value,
 				"leaf_previous": previous_component,
-				"leaf_value": vector2_value.get(key),
+				"leaf_value": new_component,
 			}
 		TYPE_VECTOR3:
 			if remaining.size() > 0:
 				return {"ok": false, "error": "Vector3 only supports single-level components"}
 			var vector3_value: Vector3 = base_value
-			var previous_vector3_component
+			var previous_vector3_component: float
+			var new_vector3_component: float = float(new_value)
 			match key:
 				"x":
 					previous_vector3_component = vector3_value.x
-					vector3_value.x = float(new_value)
+					vector3_value.x = new_vector3_component
 				"y":
 					previous_vector3_component = vector3_value.y
-					vector3_value.y = float(new_value)
+					vector3_value.y = new_vector3_component
 				"z":
 					previous_vector3_component = vector3_value.z
-					vector3_value.z = float(new_value)
+					vector3_value.z = new_vector3_component
 				_:
 					return {"ok": false, "error": "Unsupported Vector3 component: %s" % key}
 			return {
 				"ok": true,
 				"value": vector3_value,
 				"leaf_previous": previous_vector3_component,
-				"leaf_value": vector3_value.get(key),
+				"leaf_value": new_vector3_component,
 			}
 		TYPE_VECTOR4:
 			if remaining.size() > 0:
 				return {"ok": false, "error": "Vector4 only supports single-level components"}
 			var vector4_value: Vector4 = base_value
-			var previous_vector4_component
+			var previous_vector4_component: float
+			var new_vector4_component: float = float(new_value)
 			match key:
 				"x":
 					previous_vector4_component = vector4_value.x
-					vector4_value.x = float(new_value)
+					vector4_value.x = new_vector4_component
 				"y":
 					previous_vector4_component = vector4_value.y
-					vector4_value.y = float(new_value)
+					vector4_value.y = new_vector4_component
 				"z":
 					previous_vector4_component = vector4_value.z
-					vector4_value.z = float(new_value)
+					vector4_value.z = new_vector4_component
 				"w":
 					previous_vector4_component = vector4_value.w
-					vector4_value.w = float(new_value)
+					vector4_value.w = new_vector4_component
 				_:
 					return {"ok": false, "error": "Unsupported Vector4 component: %s" % key}
 			return {
 				"ok": true,
 				"value": vector4_value,
 				"leaf_previous": previous_vector4_component,
-				"leaf_value": vector4_value.get(key),
+				"leaf_value": new_vector4_component,
 			}
 		TYPE_COLOR:
 			if remaining.size() > 0:
 				return {"ok": false, "error": "Color only supports single-level components"}
 			var color_value: Color = base_value
-			var previous_color_component
+			var previous_color_component: float
+			var new_color_component: float = float(new_value)
 			match key:
 				"r":
 					previous_color_component = color_value.r
-					color_value.r = float(new_value)
+					color_value.r = new_color_component
 				"g":
 					previous_color_component = color_value.g
-					color_value.g = float(new_value)
+					color_value.g = new_color_component
 				"b":
 					previous_color_component = color_value.b
-					color_value.b = float(new_value)
+					color_value.b = new_color_component
 				"a":
 					previous_color_component = color_value.a
-					color_value.a = float(new_value)
+					color_value.a = new_color_component
 				_:
 					return {"ok": false, "error": "Unsupported Color component: %s" % key}
 			return {
 				"ok": true,
 				"value": color_value,
 				"leaf_previous": previous_color_component,
-				"leaf_value": color_value.get(key),
+				"leaf_value": new_color_component,
 			}
 		_:
 			return {

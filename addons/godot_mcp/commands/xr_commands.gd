@@ -1,6 +1,6 @@
 @tool
 class_name MCPXRCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/xr_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "xr_commands"
@@ -36,7 +36,6 @@ func _log_event(action: String, message: String, context := {}):
 		"context": context,
 	}
 	print(JSON.stringify(entry))
-	print("[Continuous skepticism (Sherlock Protocol)]", message)
 
 func _list_xr_interfaces(client_id: int, command_id: String) -> void:
 	var interfaces := []
@@ -47,16 +46,16 @@ func _list_xr_interfaces(client_id: int, command_id: String) -> void:
 		if xr_interface == null:
 			continue
 
-				var data := {
-						"name": String(xr_interface.get_name()),
-						"is_initialized": xr_interface.is_initialized(),
-						"is_primary": xr_interface == primary,
-						"tracking_status": xr_interface.has_method("get_tracking_status") ? xr_interface.get_tracking_status() : "unknown",
-						"capabilities": xr_interface.has_method("get_capabilities") ? xr_interface.get_capabilities() : 0,
-				}
+		var data = {
+			"name": String(xr_interface.get_name()),
+			"is_initialized": xr_interface.is_initialized(),
+			"is_primary": xr_interface == primary,
+			"tracking_status": (xr_interface.get_tracking_status() if xr_interface.has_method("get_tracking_status") else "unknown"),
+			"capabilities": (xr_interface.get_capabilities() if xr_interface.has_method("get_capabilities") else 0),
+		}
 
-				if xr_interface.has_method("supports_play_area") and xr_interface.supports_play_area():
-						data["play_area"] = xr_interface.has_method("get_play_area") ? xr_interface.get_play_area() : null
+		if xr_interface.has_method("supports_play_area") and xr_interface.supports_play_area():
+			data["play_area"] = (xr_interface.get_play_area() if xr_interface.has_method("get_play_area") else null)
 
 		interfaces.append(data)
 
@@ -76,14 +75,14 @@ func _initialize_xr_interface(client_id: int, params: Dictionary, command_id: St
 	if xr_interface == null:
 		return _send_error(client_id, "XR interface not found: %s" % interface_name, command_id)
 
-	if not XRServer.initialize_interface(xr_interface):
+	if not xr_interface.initialize():
 		return _send_error(client_id, "Failed to initialize XR interface: %s" % interface_name, command_id)
 
 	if make_primary:
 		XRServer.set_primary_interface(xr_interface)
 
 	if xr_interface.has_method("start_session") and params.get("start_session", true):
-		var session_error := xr_interface.start_session()
+		var session_error = xr_interface.start_session()
 		if session_error != OK and session_error != ERR_UNAVAILABLE:
 			_log_event("_initialize_xr_interface", "XR session start reported error", {"interface": interface_name, "code": session_error})
 
@@ -105,7 +104,7 @@ func _shutdown_xr_interface(client_id: int, params: Dictionary, command_id: Stri
 	if xr_interface.has_method("end_session"):
 		xr_interface.end_session()
 
-	XRServer.shutdown_interface(xr_interface)
+	# XRServer.shutdown_interface(xr_interface)
 
 	if XRServer.get_primary_interface() == xr_interface:
 			XRServer.set_primary_interface(null)
@@ -124,7 +123,7 @@ func _save_xr_project_settings(client_id: int, params: Dictionary, command_id: S
 		for entry in settings_param:
 			if typeof(entry) != TYPE_DICTIONARY:
 				continue
-			var path := entry.get("path", "")
+			var path = entry.get("path", "")
 			if path.is_empty():
 				continue
 			ProjectSettings.set_setting(path, entry.get("value"))

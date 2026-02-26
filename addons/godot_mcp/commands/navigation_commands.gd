@@ -1,8 +1,8 @@
 @tool
 class_name MCPNavigationCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
-const SceneTransactionManager := MCPSceneTransactionManager
+var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
 const LOG_FILENAME := "addons/godot_mcp/commands/navigation_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "navigation_commands"
 
@@ -36,7 +36,7 @@ func _list_navigation_maps(client_id: int, params: Dictionary, command_id: Strin
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
-	var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
 	if not plugin:
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
@@ -74,7 +74,7 @@ func _list_navigation_agents(client_id: int, params: Dictionary, command_id: Str
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
-	var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
 	if not plugin:
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
@@ -346,7 +346,7 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
 	if not (node is NavigationAgent2D or node is NavigationAgent3D):
 		return _send_error(client_id, "Node at path is not a navigation agent", command_id)
 
-	var dimension := node is NavigationAgent2D ? "2d" : "3d"
+	var dimension := "2d" if node is NavigationAgent2D else "3d"
 
 	var transaction_metadata := {
 		"command": "update_navigation_agent",
@@ -451,7 +451,7 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 		if typeof(region_paths_param) == TYPE_ARRAY:
 			requested_region_paths = region_paths_param.duplicate()
 		else:
-			context["region_paths_type"] = Variant.get_type_name(typeof(region_paths_param))
+			context["region_paths_type"] = type_string(typeof(region_paths_param))
 			_log("region_paths must be an array of node paths", function_name, context, true)
 			return _send_error(client_id, "region_paths must be an array of node paths", command_id)
 	elif region_paths_param is Array:
@@ -657,7 +657,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+		"error": (message if is_error else ""),
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
@@ -668,4 +668,3 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
-	print("[Continuous skepticism (Sherlock Protocol)] %s" % message)

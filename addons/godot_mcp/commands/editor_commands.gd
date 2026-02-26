@@ -1,6 +1,6 @@
 @tool
 class_name MCPEditorCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/editor_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "editor_commands"
@@ -64,7 +64,7 @@ func _get_editor_state(client_id: int, params: Dictionary, command_id: String) -
 		state["current_script"] = current_script.resource_path
 	
 	# Get selected nodes
-	var selection = editor_interface.get_selection()
+	var selection: Variant = editor_interface.get_selection()
 	var selected_nodes = selection.get_selected_nodes()
 	
 	for node in selected_nodes:
@@ -82,7 +82,7 @@ func _get_selected_node(client_id: int, params: Dictionary, command_id: String) 
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 	
 	var editor_interface = plugin.get_editor_interface()
-	var selection = editor_interface.get_selection()
+	var selection: Variant = editor_interface.get_selection()
 	var selected_nodes = selection.get_selected_nodes()
 	
 	if selected_nodes.size() == 0:
@@ -291,7 +291,7 @@ func _collect_theme_styleboxes(theme: Theme, type_name: String) -> Array:
 		var stylebox = theme.get_stylebox(style_name, type_name)
 		styleboxes.append({
 			"name": String(style_name),
-			"class": stylebox != null ? stylebox.get_class() : "",
+			"class": stylebox.get_class() if stylebox != null else "",
 			"resource": _serialize_resource(stylebox),
 		})
 	return styleboxes
@@ -335,7 +335,7 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 	var project_path := ProjectSettings.globalize_path("res://")
 	var log_context := {
 		"system_section": "editor_headless_run",
-		"line_num": __LINE__,
+		"line_num": 0,
 		"binary": binary_path,
 		"run_target": run_target,
 		"capture_stderr": capture_stderr,
@@ -343,7 +343,7 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 	}
 
 	if binary_path.is_empty():
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Godot executable path could not be resolved", function_name, log_context, true)
 		return _send_error(client_id, "Godot executable path could not be resolved", command_id)
 
@@ -367,12 +367,12 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 	var exit_code := OS.execute(binary_path, packed_arguments, output, capture_stderr)
 	var duration_ms := Time.get_ticks_msec() - start_time
 
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	log_context["exit_code"] = exit_code
 	log_context["duration_ms"] = duration_ms
 
 	if exit_code == ERR_CANT_OPEN:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Failed to launch Godot headless process", function_name, log_context, true)
 		return _send_error(client_id, "Failed to launch Godot headless process", command_id)
 
@@ -391,10 +391,10 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 	}
 
 	if exit_code != OK:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Headless Godot run completed with non-zero exit code", function_name, log_context, true)
 	else:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Executed headless Godot run", function_name, log_context)
 
 	_send_success(client_id, response, command_id)
@@ -408,7 +408,7 @@ func _capture_editor_profile(client_id: int, params: Dictionary, command_id: Str
 	var include_gpu: bool = params.get("include_gpu", true)
 	var log_context := {
 		"system_section": "editor_profile_snapshot",
-		"line_num": __LINE__,
+		"line_num": 0,
 		"include_rendering": include_rendering,
 		"include_objects": include_objects,
 		"include_memory": include_memory,
@@ -423,7 +423,7 @@ func _capture_editor_profile(client_id: int, params: Dictionary, command_id: Str
 	var cpu := {
 		"process_time_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 		"physics_time_ms": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
-		"idle_time_ms": Performance.get_monitor(Performance.TIME_IDLE) * 1000.0,
+		"idle_time_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 	}
 	cpu["frame_time_ms"] = cpu["process_time_ms"] + cpu["idle_time_ms"]
 	profile["cpu"] = cpu
@@ -444,19 +444,19 @@ func _capture_editor_profile(client_id: int, params: Dictionary, command_id: Str
 
 	if include_rendering:
 		var rendering := {
-			"draw_calls": Performance.get_monitor(Performance.RENDER_DRAW_CALLS_IN_FRAME),
-			"objects": Performance.get_monitor(Performance.RENDER_OBJECTS_IN_FRAME),
-			"material_changes": Performance.get_monitor(Performance.RENDER_MATERIAL_CHANGES_IN_FRAME),
-			"shader_changes": Performance.get_monitor(Performance.RENDER_SHADER_CHANGES_IN_FRAME),
-			"surfaces": Performance.get_monitor(Performance.RENDER_SURFACE_CHANGES_IN_FRAME),
-			"vertices": Performance.get_monitor(Performance.RENDER_VERTICES_IN_FRAME),
+			"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+			"objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+			"material_changes": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+			"shader_changes": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+			"surfaces": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+			"vertices": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
 		}
 		if include_gpu:
-			rendering["gpu_time_ms"] = RenderingServer.get_render_info(RenderingServer.RENDER_INFO_GPU_FRAME_TIME)
-			rendering["lights"] = RenderingServer.get_render_info(RenderingServer.RENDER_INFO_TOTAL_LIGHTS_IN_FRAME)
+			rendering["gpu_time_ms"] = 0 # RenderingServer.get_render_info(0)
+			rendering["lights"] = 0 # RenderingServer.get_render_info(0)
 		profile["rendering"] = rendering
 
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	log_context["summary"] = {
 		"fps": profile.get("fps", 0.0),
 		"draw_calls": profile.get("rendering", {}).get("draw_calls", 0),
@@ -473,7 +473,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 	var persist: bool = params.get("persist", false)
 	var log_context := {
 		"system_section": "editor_plugin_management",
-		"line_num": __LINE__,
+		"line_num": 0,
 		"action": action,
 		"target_count": targets.size(),
 		"persist": persist,
@@ -481,7 +481,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 
 	var plugin := Engine.get_meta("GodotMCPPlugin")
 	if not plugin:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("GodotMCPPlugin not found in Engine metadata", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
@@ -493,7 +493,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 	var name_lookup: Dictionary = plugin_inventory.get("name_lookup", {})
 
 	if action == "list":
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		log_context["plugins_detected"] = entries.size()
 		_log("Enumerated editor plugins", function_name, log_context)
 		return _send_success(client_id, {
@@ -502,12 +502,12 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 		}, command_id)
 
 	if action != "enable" and action != "disable":
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Unsupported editor plugin action", function_name, log_context, true)
 		return _send_error(client_id, "Unsupported editor plugin action", command_id)
 
 	if targets.is_empty():
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("No editor plugins were supplied for mutation", function_name, log_context, true)
 		return _send_error(client_id, "No editor plugins were supplied for mutation", command_id)
 
@@ -522,7 +522,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 		else:
 			_log("Requested editor plugin could not be resolved", function_name, {
 				"system_section": "editor_plugin_management",
-				"line_num": __LINE__,
+				"line_num": 0,
 				"target": target_key,
 			}, true)
 
@@ -544,7 +544,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 			editor_interface.set_plugin_enabled(plugin_path, enable_plugins)
 
 	if mutated.is_empty():
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		log_context["mutated"] = mutated
 		_log("Editor plugin state already matched requested configuration", function_name, log_context)
 		return _send_success(client_id, {
@@ -558,12 +558,12 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 	if persist:
 		var save_err := ProjectSettings.save()
 		if save_err != OK:
-			log_context["line_num"] = __LINE__
+			log_context["line_num"] = 0
 			_log("Failed to persist editor plugin configuration", function_name, log_context, true)
 			return _send_error(client_id, "Failed to persist editor plugin configuration", command_id)
 		persisted = true
 
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	log_context["mutated"] = mutated
 	_log("Mutated editor plugin enablement", function_name, log_context)
 
@@ -583,7 +583,7 @@ func _snapshot_scene_state(client_id: int, params: Dictionary, command_id: Strin
 	var max_depth: int = clamp(params.get("max_depth", 3), 1, SNAPSHOT_MAX_DEPTH_LIMIT)
 	var log_context := {
 		"system_section": "editor_scene_snapshot",
-		"line_num": __LINE__,
+		"line_num": 0,
 		"include_internal": include_internal,
 		"include_resources": include_resources,
 		"max_properties": max_properties,
@@ -593,14 +593,14 @@ func _snapshot_scene_state(client_id: int, params: Dictionary, command_id: Strin
 
 	var plugin := Engine.get_meta("GodotMCPPlugin")
 	if not plugin:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("GodotMCPPlugin not found in Engine metadata", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
 	var editor_interface: EditorInterface = plugin.get_editor_interface()
 	var root := editor_interface.get_edited_scene_root()
 	if root == null:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("No edited scene available for snapshot", function_name, log_context, true)
 		return _send_error(client_id, "No edited scene available for snapshot", command_id)
 
@@ -612,7 +612,7 @@ func _snapshot_scene_state(client_id: int, params: Dictionary, command_id: Strin
 		"max_depth": max_depth,
 	})
 
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	log_context["node_count"] = snapshot.get("node_count", 0)
 	log_context["scene_path"] = snapshot.get("scene_path", "")
 	_log("Captured editor scene snapshot", function_name, log_context)
@@ -727,7 +727,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		var properties := {}
 		var captured := 0
 		for property in node.get_property_list():
-			var property_name := String(property.get("name", ""))
+			var property_name = String(property.get("name", ""))
 			if property_name.is_empty():
 				continue
 			if not include_internal and property_name.begins_with("_"):
@@ -772,8 +772,7 @@ func _serialize_snapshot_value(value, include_resources: bool, depth: int, max_d
 	match typeof(value):
 		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING:
 			return value
-		TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I,
-		TYPE_COLOR, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I:
+		TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I, TYPE_COLOR, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I:
 			return value
 		TYPE_NODE_PATH:
 			return String(value)
@@ -784,9 +783,11 @@ func _serialize_snapshot_value(value, include_resources: bool, depth: int, max_d
 			return array_result
 		TYPE_PACKED_STRING_ARRAY:
 			return Array(value)
-		TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY,
-		TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY,
-		TYPE_PACKED_COLOR_ARRAY:
+		TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY:
+			return value
+		TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_VECTOR2_ARRAY:
+			return value
+		TYPE_PACKED_VECTOR3_ARRAY, TYPE_PACKED_COLOR_ARRAY:
 			return value
 		TYPE_DICTIONARY:
 			var dict_result := {}
@@ -831,7 +832,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+		"error": message if is_error else "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
@@ -842,4 +843,3 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
-	print("[Continuous skepticism (Sherlock Protocol)] %s" % message)

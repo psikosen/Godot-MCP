@@ -12,7 +12,7 @@ export declare class GodotLauncher {
      * @param godotExecutable Path or command to launch Godot (default: 'godot' or '/Applications/Godot.app/Contents/MacOS/Godot')
      * @param maxStartupTime Maximum time to wait for Godot to start in ms
      */
-    constructor(projectPath?: string, godotExecutable?: string, maxStartupTime?: number);
+    constructor(projectPath: string, godotExecutable?: string, maxStartupTime?: number);
     /**
      * Checks if Godot is running and the WebSocket server is accessible
      */

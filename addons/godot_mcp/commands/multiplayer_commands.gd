@@ -1,6 +1,6 @@
 @tool
 class_name MCPMultiplayerCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/multiplayer_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "multiplayer_commands"
@@ -36,7 +36,6 @@ func _log_event(action: String, message: String, context := {}):
 		"context": context,
 	}
 	print(JSON.stringify(entry))
-	print("[Continuous skepticism (Sherlock Protocol)]", message)
 
 func _get_scene_multiplayer() -> MultiplayerAPI:
 	return get_tree().get_multiplayer()
@@ -44,7 +43,7 @@ func _get_scene_multiplayer() -> MultiplayerAPI:
 func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 	var api := _get_scene_multiplayer()
 	var has_peer := api.has_multiplayer_peer()
-		var peer := has_peer ? api.get_multiplayer_peer() : null
+	var peer := (api.get_multiplayer_peer() if has_peer else null)
 
 	var connected := []
 	if has_peer and api.has_method("get_peers"):
@@ -63,9 +62,9 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 		"accepts_new_connections": allow_join,
 	}
 
-		if has_peer and peer != null:
-				state["peer_class"] = peer.get_class()
-				state["transfer_mode"] = peer.has_method("get_transfer_mode") ? peer.get_transfer_mode() : null
+	if has_peer and peer != null:
+		state["peer_class"] = peer.get_class()
+	state["transfer_mode"] = (peer.get_transfer_mode() if peer.has_method("get_transfer_mode") else null)
 
 	_log_event("_get_multiplayer_state", "Captured multiplayer snapshot", state)
 	_send_success(client_id, state, command_id)
@@ -93,8 +92,8 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 			var ws_peer := WebSocketMultiplayerPeer.new()
 			if mode == "server":
 				var port := int(params.get("port", 9080))
-				var protocols := PackedStringArray(params.get("protocols", []))
-				error_code = ws_peer.create_server(port, protocols)
+				var bind_address := String(params.get("bind_address", "*"))
+				error_code = ws_peer.create_server(port, bind_address)
 			else:
 				var url := String(params.get("url", "ws://127.0.0.1:9080"))
 				error_code = ws_peer.create_client(url)
@@ -115,12 +114,12 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 		_log_event("_create_multiplayer_peer", "Configured multiplayer peer", {
 				"peer_type": peer_type,
 				"mode": mode,
-				"class": peer != null ? peer.get_class() : "",
+				"class": (peer.get_class() if peer != null else ""),
 		})
 		_send_success(client_id, {
 				"peer_type": peer_type,
 				"mode": mode,
-				"class": peer != null ? peer.get_class() : "",
+				"class": (peer.get_class() if peer != null else ""),
 		}, command_id)
 
 func _teardown_multiplayer_peer(client_id: int, command_id: String) -> void:
