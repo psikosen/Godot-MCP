@@ -196,6 +196,230 @@ var previewSunSchema = environmentCommonSchema
     path: ['environment_path'],
 })
     .describe('Preview fog sun scattering overrides and optionally apply them to the Environment resource.');
+var proceduralPlanetSchema = z
+    .object({
+    texture_width: z.number().int().min(64).max(4096).optional().describe('Generated texture width (default 1024).'),
+    texture_height: z.number().int().min(32).max(4096).optional().describe('Generated texture height (default 512).'),
+    radius: z.number().positive().optional().describe('Sphere radius used for the generated planet mesh (default 1.0).'),
+    radial_segments: z.number().int().min(8).max(512).optional().describe('Sphere mesh radial segments (default 96).'),
+    rings: z.number().int().min(8).max(256).optional().describe('Sphere mesh rings/latitudinal subdivisions (default 64).'),
+    seed: z.number().int().optional().describe('Deterministic seed for the elevation and humidity noise fields.'),
+    base_frequency: z.number().positive().optional().describe('Base frequency for spherical 3D noise sampling (default 2.2).'),
+    octaves: z.number().int().min(1).max(12).optional().describe('Fractal octave count used for layered terrain noise (default 6).'),
+    lacunarity: z.number().min(1).max(4).optional().describe('Frequency multiplier between octaves (default 2.0).'),
+    persistence: z.number().min(0.05).max(1).optional().describe('Amplitude multiplier between octaves (default 0.5).'),
+    sea_level: z.number().min(-0.95).max(0.95).optional().describe('Sea level threshold in normalized elevation space [-1, 1] (default 0).'),
+    roughness: z.number().min(0).max(1).optional().describe('Material roughness value for the generated planet material (default 0.95).'),
+    metallic: z.number().min(0).max(1).optional().describe('Material metallic value for the generated planet material (default 0).'),
+    specular_intensity: z.number().min(0).max(1).optional().describe('Specular strength applied to water regions (default 0.8).'),
+    normal_strength: z.number().min(0).max(40).optional().describe('Normal map intensity derived from the generated elevation map (default 5).'),
+    create_node: z.boolean().optional().describe('Create a MeshInstance3D in the currently edited scene (default true).'),
+    parent_path: z.string().optional().describe('Parent node path used when create_node is true (default "/root").'),
+    node_name: z.string().optional().describe('MeshInstance3D name used when creating the planet node (default "ProceduralPlanet").'),
+    save_mesh_path: z.string().optional().describe('Optional path for saving the generated SphereMesh resource.'),
+    save_material_path: z.string().optional().describe('Optional path for saving the generated StandardMaterial3D resource.'),
+    save_albedo_path: z.string().optional().describe('Optional path for saving the generated albedo texture/image.'),
+    save_height_path: z.string().optional().describe('Optional path for saving the generated height texture/image.'),
+    save_normal_path: z.string().optional().describe('Optional path for saving the generated normal texture/image.'),
+    save_specular_path: z.string().optional().describe('Optional path for saving the generated specular texture/image.'),
+})
+    .describe('Generate a procedural planet from seamless spherical noise, biome color bands, and optional scene/resource output.');
+var proceduralPlanetOceanSchema = z
+    .object({
+    mesh_mode: z
+        .enum(['planet_shell', 'single_tile'])
+        .optional()
+        .describe('Ocean mesh mode: full spherical shell for planets or a single tile for editor blockouts (default planet_shell).'),
+    ocean_radius: z.number().positive().optional().describe('Sphere radius when mesh_mode is planet_shell (default 1.03).'),
+    radial_segments: z.number().int().min(8).max(512).optional().describe('Sphere radial segments when mesh_mode is planet_shell.'),
+    rings: z.number().int().min(8).max(256).optional().describe('Sphere rings when mesh_mode is planet_shell.'),
+    tile_size: z.number().positive().optional().describe('Plane size when mesh_mode is single_tile (default 2.0).'),
+    tile_subdivide_width: z.number().int().min(1).max(256).optional().describe('Plane subdivisions on width when mesh_mode is single_tile.'),
+    tile_subdivide_depth: z.number().int().min(1).max(256).optional().describe('Plane subdivisions on depth when mesh_mode is single_tile.'),
+    wave_scale: z.number().positive().optional().describe('Noise scale controlling wave pattern size.'),
+    wave_speed: z.number().min(0).optional().describe('Animation speed multiplier for wave motion.'),
+    wave_height: z.number().min(0).optional().describe('Vertex displacement amplitude for waves.'),
+    foam_strength: z.number().min(0).max(2).optional().describe('Strength of crest/foam highlights.'),
+    fresnel_power: z.number().positive().optional().describe('Fresnel exponent for edge reflectance.'),
+    depth_absorption: z.number().positive().optional().describe('View-depth color blend factor between deep and shallow water.'),
+    roughness: z.number().min(0).max(1).optional().describe('Water material roughness.'),
+    metallic: z.number().min(0).max(1).optional().describe('Water material metallic value.'),
+    alpha: z.number().min(0).max(1).optional().describe('Water alpha/transparency value.'),
+    seed: z.number().optional().describe('Noise seed offset for wave field variation.'),
+    deep_color: dictionarySchema.optional().describe('Deep water color as dictionary (r,g,b,a).'),
+    shallow_color: dictionarySchema.optional().describe('Shallow water color as dictionary (r,g,b,a).'),
+    foam_color: dictionarySchema.optional().describe('Foam highlight color as dictionary (r,g,b,a).'),
+    create_node: z.boolean().optional().describe('Create a MeshInstance3D in the currently edited scene (default true).'),
+    planet_node_path: z.string().optional().describe('Optional planet node path to align the ocean shell transform.'),
+    parent_path: z.string().optional().describe('Optional parent path for the generated ocean node.'),
+    node_name: z.string().optional().describe('Node name when create_node is true (default PlanetOcean).'),
+    save_shader_path: z.string().optional().describe('Optional path for saving the generated Shader resource.'),
+    save_material_path: z.string().optional().describe('Optional path for saving the generated ShaderMaterial resource.'),
+})
+    .describe('Generate animated procedural ocean shading inspired by Shadertoy-style wave fields for planets or single editor tiles.');
+var createPlanetShellSchema = z
+    .object({
+    radius: z.number().positive().optional(),
+    radial_segments: z.number().int().min(8).max(512).optional(),
+    rings: z.number().int().min(8).max(256).optional(),
+    color: dictionarySchema.optional(),
+    roughness: z.number().min(0).max(1).optional(),
+    metallic: z.number().min(0).max(1).optional(),
+    create_node: z.boolean().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+    save_mesh_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+})
+    .describe('Create a simple planet shell mesh and material with optional scene instancing and resource saving.');
+var createOceanTileSchema = z
+    .object({
+    tile_size: z.number().positive().optional(),
+    tile_subdivide_width: z.number().int().min(1).max(256).optional(),
+    tile_subdivide_depth: z.number().int().min(1).max(256).optional(),
+    wave_scale: z.number().positive().optional(),
+    wave_speed: z.number().min(0).optional(),
+    wave_height: z.number().min(0).optional(),
+    foam_strength: z.number().min(0).max(2).optional(),
+    fresnel_power: z.number().positive().optional(),
+    depth_absorption: z.number().positive().optional(),
+    roughness: z.number().min(0).max(1).optional(),
+    metallic: z.number().min(0).max(1).optional(),
+    alpha: z.number().min(0).max(1).optional(),
+    seed: z.number().optional(),
+    deep_color: dictionarySchema.optional(),
+    shallow_color: dictionarySchema.optional(),
+    foam_color: dictionarySchema.optional(),
+    create_node: z.boolean().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+    save_shader_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+})
+    .describe('Create a single procedural animated ocean tile suitable for editor blockouts.');
+var triplanarTerrainSchema = z
+    .object({
+    node_path: z.string().min(1),
+    rock_texture_path: z.string().optional(),
+    grass_texture_path: z.string().optional(),
+    snow_texture_path: z.string().optional(),
+    texture_scale: z.number().positive().optional(),
+    snow_height: z.number().min(0).max(1).optional(),
+    blend_softness: z.number().min(0.01).max(0.5).optional(),
+    roughness: z.number().min(0).max(1).optional(),
+    metallic: z.number().min(0).max(1).optional(),
+    save_shader_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+})
+    .describe('Apply a triplanar terrain ShaderMaterial to a MeshInstance3D.');
+var cloudLayerSchema = z
+    .object({
+    cloud_radius: z.number().positive().optional(),
+    radial_segments: z.number().int().min(8).max(512).optional(),
+    rings: z.number().int().min(8).max(256).optional(),
+    cloud_density: z.number().min(0).max(1).optional(),
+    cloud_scale: z.number().positive().optional(),
+    cloud_speed: z.number().min(0).optional(),
+    cloud_alpha: z.number().min(0).max(1).optional(),
+    cloud_color: dictionarySchema.optional(),
+    create_node: z.boolean().optional(),
+    planet_node_path: z.string().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+    save_shader_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+})
+    .describe('Generate a lightweight procedural cloud shell for a planet.');
+var atmosphereGlowSchema = z
+    .object({
+    radius: z.number().positive().optional(),
+    radial_segments: z.number().int().min(8).max(512).optional(),
+    rings: z.number().int().min(8).max(256).optional(),
+    glow_color: dictionarySchema.optional(),
+    fresnel_power: z.number().positive().optional(),
+    intensity: z.number().min(0).optional(),
+    alpha: z.number().min(0).max(1).optional(),
+    create_node: z.boolean().optional(),
+    planet_node_path: z.string().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+    save_shader_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+})
+    .describe('Create a simple fresnel atmosphere glow shell around a planet.');
+var craterScatterSchema = z
+    .object({
+    count: z.number().int().min(1).max(2048).optional(),
+    planet_radius: z.number().positive().optional(),
+    crater_min_radius: z.number().positive().optional(),
+    crater_max_radius: z.number().positive().optional(),
+    crater_depth: z.number().min(0.05).max(1).optional(),
+    seed: z.number().int().optional(),
+    crater_color: dictionarySchema.optional(),
+    create_node: z.boolean().optional(),
+    planet_node_path: z.string().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+})
+    .describe('Scatter simple crater proxy meshes across a spherical surface.');
+var ringSystemSchema = z
+    .object({
+    inner_radius: z.number().positive().optional(),
+    outer_radius: z.number().positive().optional(),
+    alpha: z.number().min(0).max(1).optional(),
+    banding: z.number().min(0).max(1).optional(),
+    seed: z.number().optional(),
+    ring_color: dictionarySchema.optional(),
+    tilt_degrees: z.union([z.number(), dictionarySchema, z.array(z.number())]).optional(),
+    create_node: z.boolean().optional(),
+    planet_node_path: z.string().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+    save_shader_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+})
+    .describe('Create a ring system plane with radial mask and subtle procedural banding.');
+var starfieldSkyboxSchema = z
+    .object({
+    width: z.number().int().min(64).max(4096).optional(),
+    height: z.number().int().min(32).max(2048).optional(),
+    star_count: z.number().int().min(1).max(200000).optional(),
+    seed: z.number().int().optional(),
+    background_top: dictionarySchema.optional(),
+    background_bottom: dictionarySchema.optional(),
+    apply_to_environment: z.boolean().optional(),
+    environment_path: z.string().optional(),
+    world_environment: z.string().optional(),
+    node_path: z.string().optional(),
+    save_image_path: z.string().optional(),
+    save_material_path: z.string().optional(),
+    save_sky_path: z.string().optional(),
+    save_environment_path: z.string().optional(),
+    save_environment: z.boolean().optional(),
+})
+    .describe('Generate a procedural starfield panorama sky and optionally apply it to an Environment.');
+var moonProxySchema = z
+    .object({
+    radius: z.number().positive().optional(),
+    distance: z.number().positive().optional(),
+    orbit_speed_deg_per_sec: z.number().optional(),
+    inclination_degrees: z.number().optional(),
+    color: dictionarySchema.optional(),
+    create_node: z.boolean().optional(),
+    planet_node_path: z.string().optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+})
+    .describe('Create a moon mesh with an orbit pivot proxy for lightweight planetary setups.');
+var planetPresetQuickstartSchema = z
+    .object({
+    preset: z.enum(['earthlike', 'desert', 'ice', 'lava']).optional(),
+    parent_path: z.string().optional(),
+    node_name: z.string().optional(),
+    planet_radius: z.number().positive().optional(),
+    include_moon: z.boolean().optional(),
+})
+    .describe('Generate a minimal preset planet setup including shell, ocean, clouds, atmosphere, and optional moon.');
 var formatMaterialVariantResponse = function (result) {
     var _a, _b;
     var source = (_a = result.source_material) !== null && _a !== void 0 ? _a : 'res://unknown.tres';
@@ -307,6 +531,90 @@ var formatSunPreviewResponse = function (result) {
     }
     if (lines.length === 1) {
         lines.push('- No overrides supplied; current values returned.');
+    }
+    return lines.join('\n');
+};
+var formatProceduralPlanetResponse = function (result) {
+    var _a, _b;
+    var seed = typeof result.seed === 'number' ? result.seed : 'auto';
+    var nodePath = typeof result.created_node_path === 'string' ? result.created_node_path : '';
+    var elevationRange = (_a = result.elevation_range) !== null && _a !== void 0 ? _a : {};
+    var minElevation = typeof elevationRange.min === 'number' ? elevationRange.min.toFixed(3) : 'n/a';
+    var maxElevation = typeof elevationRange.max === 'number' ? elevationRange.max.toFixed(3) : 'n/a';
+    var lines = ["Procedural planet generated (seed=".concat(seed, ")."), "Elevation range: ".concat(minElevation, " -> ").concat(maxElevation)];
+    if (nodePath.length > 0) {
+        lines.push("Scene node: ".concat(nodePath));
+    }
+    var savedPaths = (_b = result.saved_paths) !== null && _b !== void 0 ? _b : {};
+    var savedEntries = Object.entries(savedPaths).filter(function (_a) {
+        var value = _a[1];
+        return typeof value === 'string' && value.length > 0;
+    });
+    if (savedEntries.length > 0) {
+        lines.push('Saved resources:');
+        for (var _i = 0, savedEntries_1 = savedEntries; _i < savedEntries_1.length; _i++) {
+            var _c = savedEntries_1[_i], key = _c[0], value = _c[1];
+            lines.push("- ".concat(key, ": ").concat(value));
+        }
+    }
+    return lines.join('\n');
+};
+var formatProceduralOceanResponse = function (result) {
+    var _a;
+    var nodePath = typeof result.created_node_path === 'string' ? result.created_node_path : '';
+    var meshMode = typeof result.mesh_mode === 'string' ? result.mesh_mode : 'planet_shell';
+    var radius = typeof result.ocean_radius === 'number' ? result.ocean_radius : undefined;
+    var tileSize = typeof result.tile_size === 'number' ? result.tile_size : undefined;
+    var lines = ["Procedural ocean generated (".concat(meshMode, ").")];
+    if (radius !== undefined && meshMode === 'planet_shell') {
+        lines.push("Ocean radius: ".concat(radius));
+    }
+    if (tileSize !== undefined && meshMode === 'single_tile') {
+        lines.push("Tile size: ".concat(tileSize));
+    }
+    if (nodePath.length > 0) {
+        lines.push("Scene node: ".concat(nodePath));
+    }
+    var savedPaths = (_a = result.saved_paths) !== null && _a !== void 0 ? _a : {};
+    var savedEntries = Object.entries(savedPaths).filter(function (_a) {
+        var value = _a[1];
+        return typeof value === 'string' && value.length > 0;
+    });
+    if (savedEntries.length > 0) {
+        lines.push('Saved resources:');
+        for (var _i = 0, savedEntries_2 = savedEntries; _i < savedEntries_2.length; _i++) {
+            var _b = savedEntries_2[_i], key = _b[0], value = _b[1];
+            lines.push("- ".concat(key, ": ").concat(value));
+        }
+    }
+    return lines.join('\n');
+};
+var formatSimpleNodeResponse = function (label, result) {
+    var _a;
+    var lines = [label];
+    var nodePath = typeof result.created_node_path === 'string' ? result.created_node_path : '';
+    var rootPath = typeof result.root_path === 'string' ? result.root_path : '';
+    var pivotPath = typeof result.pivot_path === 'string' ? result.pivot_path : '';
+    if (nodePath.length > 0) {
+        lines.push("Scene node: ".concat(nodePath));
+    }
+    if (rootPath.length > 0) {
+        lines.push("Root node: ".concat(rootPath));
+    }
+    if (pivotPath.length > 0) {
+        lines.push("Pivot node: ".concat(pivotPath));
+    }
+    var savedPaths = (_a = result.saved_paths) !== null && _a !== void 0 ? _a : {};
+    var savedEntries = Object.entries(savedPaths).filter(function (_a) {
+        var value = _a[1];
+        return typeof value === 'string' && value.length > 0;
+    });
+    if (savedEntries.length > 0) {
+        lines.push('Saved resources:');
+        for (var _i = 0, savedEntries_3 = savedEntries; _i < savedEntries_3.length; _i++) {
+            var _b = savedEntries_3[_i], key = _b[0], value = _b[1];
+            lines.push("- ".concat(key, ": ").concat(value));
+        }
     }
     return lines.join('\n');
 };
@@ -445,6 +753,284 @@ export var renderingTools = [
                         case 1:
                             result = _a.sent();
                             return [2 /*return*/, formatSunPreviewResponse(result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'generate_procedural_planet',
+        description: 'Generate a seamless procedural planet mesh/material using spherical fractal noise and optional biome texture exports.',
+        parameters: proceduralPlanetSchema,
+        metadata: {
+            requiredRole: 'edit',
+            escalationPrompt: 'Approve procedural planet generation and optional scene/resource writes.',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('generate_procedural_planet', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatProceduralPlanetResponse(result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'generate_procedural_planet_ocean',
+        description: 'Generate animated ocean shader/material for planetary shells or single water tiles in the editor.',
+        parameters: proceduralPlanetOceanSchema,
+        metadata: {
+            requiredRole: 'edit',
+            escalationPrompt: 'Approve procedural ocean generation and optional scene/resource writes.',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('generate_procedural_planet_ocean', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatProceduralOceanResponse(result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'create_planet_shell',
+        description: 'Create a basic planet shell mesh/material with optional scene instancing and resource saving.',
+        parameters: createPlanetShellSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('create_planet_shell', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Planet shell created.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'create_ocean_tile',
+        description: 'Create a single procedural ocean tile for editor-level testing and blockouts.',
+        parameters: createOceanTileSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('create_ocean_tile', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatProceduralOceanResponse(result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'apply_triplanar_terrain_material',
+        description: 'Apply a triplanar terrain material to a MeshInstance3D node.',
+        parameters: triplanarTerrainSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('apply_triplanar_terrain_material', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Triplanar terrain material applied.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'generate_planet_cloud_layer',
+        description: 'Generate a procedural cloud shell mesh/material for a planet.',
+        parameters: cloudLayerSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('generate_planet_cloud_layer', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Planet cloud layer generated.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'create_planet_atmosphere_glow',
+        description: 'Create a fresnel-based atmosphere glow shell around a planet.',
+        parameters: atmosphereGlowSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('create_planet_atmosphere_glow', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Planet atmosphere glow created.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'scatter_craters_on_sphere',
+        description: 'Scatter crater proxy meshes across a spherical planet surface.',
+        parameters: craterScatterSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('scatter_craters_on_sphere', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Craters scattered on sphere.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'create_ring_system',
+        description: 'Create a procedural ring system around a planet.',
+        parameters: ringSystemSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('create_ring_system', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Ring system created.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'generate_starfield_skybox',
+        description: 'Generate a procedural starfield skybox panorama and optionally apply it to Environment settings.',
+        parameters: starfieldSkyboxSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('generate_starfield_skybox', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Starfield skybox generated.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'create_moon_proxy',
+        description: 'Create a moon mesh with orbit pivot metadata for quick planetary setups.',
+        parameters: moonProxySchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('create_moon_proxy', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Moon proxy created.', result)];
+                    }
+                });
+            });
+        },
+    },
+    {
+        name: 'planet_preset_quickstart',
+        description: 'Build a compact preset planet setup with shell, ocean, clouds, atmosphere, and optional moon.',
+        parameters: planetPresetQuickstartSchema,
+        metadata: {
+            requiredRole: 'edit',
+        },
+        execute: function (args) {
+            return __awaiter(this, void 0, void 0, function () {
+                var godot, result;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            godot = getGodotConnection();
+                            return [4 /*yield*/, godot.sendCommand('planet_preset_quickstart', args)];
+                        case 1:
+                            result = _a.sent();
+                            return [2 /*return*/, formatSimpleNodeResponse('Planet preset created.', result)];
                     }
                 });
             });

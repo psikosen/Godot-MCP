@@ -165,7 +165,7 @@ material_override = SubResource("StandardMaterial3D_goal")
 mesh = SubResource("BoxMesh_goal")
 
 [node name="Player" type="CharacterBody3D" parent="." groups=["player"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27.2788, 9.09992, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27.2788, 9.10004, 0)
 script = ExtResource("2_player")
 auto_jump_markers = PackedFloat32Array(4.1, 7.1, 10.1, 13.1, 16.1, 19.1, 22.1, 25.1)
 

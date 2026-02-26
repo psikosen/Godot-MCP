@@ -1096,6 +1096,195 @@ Preview fog sun scattering overrides and optionally apply them via `configure_en
 Preview how the fog sun color shifts when moving towards sunset hues and apply the change if it looks correct.
 ```
 
+### generate_procedural_planet
+Generate a procedural planet using seam-free spherical noise sampling, biome color blending, and optional scene/resource output.
+
+**Parameters:**
+- `texture_width` / `texture_height` (optional) - Output texture resolution used for generated albedo/height/normal/specular maps.
+- `radius` (optional) - Radius for the generated `SphereMesh`.
+- `radial_segments` / `rings` (optional) - Sphere mesh tessellation controls.
+- `seed` (optional) - Deterministic seed for terrain and humidity noise fields.
+- `base_frequency` / `octaves` / `lacunarity` / `persistence` (optional) - Fractal noise settings controlling continent and detail shape.
+- `sea_level` (optional) - Normalized elevation threshold used for ocean/land separation.
+- `roughness` / `metallic` / `specular_intensity` / `normal_strength` (optional) - Material tuning for the generated `StandardMaterial3D`.
+- `create_node` (optional) - When true, creates a `MeshInstance3D` in the edited scene.
+- `parent_path` / `node_name` (optional) - Scene placement settings used when `create_node` is enabled.
+- `save_mesh_path`, `save_material_path`, `save_albedo_path`, `save_height_path`, `save_normal_path`, `save_specular_path` (optional) - Resource/image paths for persisting generated outputs.
+
+**Example:**
+```
+Generate a procedural planet with seed 4242, save the material and textures under res://planets/, and create a Planet01 node under /root/Main.
+```
+
+### generate_procedural_planet_ocean
+Generate procedural animated ocean shading (Shadertoy-style wave motion adapted to Godot) for either a full planet shell or a single editor tile.
+
+**Parameters:**
+- `mesh_mode` (optional) - `planet_shell` (default) or `single_tile`.
+- `ocean_radius`, `radial_segments`, `rings` (optional) - Shell mesh settings used in `planet_shell` mode.
+- `tile_size`, `tile_subdivide_width`, `tile_subdivide_depth` (optional) - Plane mesh settings used in `single_tile` mode.
+- `wave_scale`, `wave_speed`, `wave_height`, `foam_strength`, `fresnel_power`, `depth_absorption` (optional) - Ocean animation and shading controls.
+- `roughness`, `metallic`, `alpha` (optional) - Material properties.
+- `seed` (optional) - Noise seed offset for deterministic wave variation.
+- `deep_color`, `shallow_color`, `foam_color` (optional) - Water palette overrides as color dictionaries.
+- `create_node` (optional) - Create an ocean `MeshInstance3D` in the edited scene (default `true`).
+- `planet_node_path` (optional) - Planet node path used to align ocean shell transform.
+- `parent_path`, `node_name` (optional) - Placement controls for the generated ocean node.
+- `save_shader_path`, `save_material_path` (optional) - Save generated shader/material resources.
+
+**Examples:**
+```
+Generate a planet ocean shell around /root/Main/Planet01 with stronger foam and save the shader/material to res://water/.
+```
+
+```
+Create a single animated ocean tile in the editor under /root/Main named OceanTile01 for blockout testing.
+```
+
+### create_planet_shell
+Create a simple sphere shell + StandardMaterial3D for quick planet blockouts.
+
+**Parameters:**
+- `radius`, `radial_segments`, `rings` (optional) - Sphere mesh controls.
+- `color`, `roughness`, `metallic` (optional) - Material settings.
+- `create_node`, `parent_path`, `node_name` (optional) - Scene node creation controls.
+- `save_mesh_path`, `save_material_path` (optional) - Persist generated mesh/material resources.
+
+**Example:**
+```
+Create a plain planet shell under /root/Main named PlanetShellSimple with a radius of 2.2.
+```
+
+### create_ocean_tile
+Create one procedural animated water tile (single plane) for editor testing.
+
+**Parameters:**
+- `tile_size`, `tile_subdivide_width`, `tile_subdivide_depth` (optional) - Tile mesh settings.
+- `wave_scale`, `wave_speed`, `wave_height`, `foam_strength`, `fresnel_power`, `depth_absorption` (optional) - Wave/shading controls.
+- `roughness`, `metallic`, `alpha` (optional) - Material properties.
+- `deep_color`, `shallow_color`, `foam_color` (optional) - Water color palette.
+- `create_node`, `parent_path`, `node_name` (optional) - Scene placement controls.
+- `save_shader_path`, `save_material_path` (optional) - Persist shader/material resources.
+
+**Example:**
+```
+Create a 6x6 ocean tile named OceanTileSimple under /root/Main for gameplay prototyping.
+```
+
+### apply_triplanar_terrain_material
+Apply a triplanar terrain ShaderMaterial (rock/grass/snow blend) to a MeshInstance3D.
+
+**Parameters:**
+- `node_path` - MeshInstance3D target path.
+- `rock_texture_path`, `grass_texture_path`, `snow_texture_path` (optional) - Texture overrides.
+- `texture_scale`, `snow_height`, `blend_softness`, `roughness`, `metallic` (optional) - Material blend controls.
+- `save_shader_path`, `save_material_path` (optional) - Persist generated resources.
+
+**Example:**
+```
+Apply triplanar terrain shading to /root/Main/TerrainMesh with a scale of 2.6 and snow line at 0.72.
+```
+
+### generate_planet_cloud_layer
+Create a procedural cloud shell mesh/material around a planet.
+
+**Parameters:**
+- `cloud_radius`, `radial_segments`, `rings` (optional) - Cloud shell mesh controls.
+- `cloud_density`, `cloud_scale`, `cloud_speed`, `cloud_alpha`, `cloud_color` (optional) - Cloud appearance controls.
+- `planet_node_path`, `parent_path`, `node_name`, `create_node` (optional) - Scene placement controls.
+- `save_shader_path`, `save_material_path` (optional) - Persist generated resources.
+
+**Example:**
+```
+Generate a cloud shell for /root/Main/Planet01 and name it PlanetClouds.
+```
+
+### create_planet_atmosphere_glow
+Create a lightweight fresnel atmosphere glow shell around a planet.
+
+**Parameters:**
+- `radius`, `radial_segments`, `rings` (optional) - Atmosphere shell mesh controls.
+- `glow_color`, `fresnel_power`, `intensity`, `alpha` (optional) - Glow style controls.
+- `planet_node_path`, `parent_path`, `node_name`, `create_node` (optional) - Scene placement controls.
+- `save_shader_path`, `save_material_path` (optional) - Persist generated resources.
+
+**Example:**
+```
+Add an atmosphere glow shell around /root/Main/Planet01 with stronger rim intensity.
+```
+
+### scatter_craters_on_sphere
+Scatter crater proxy meshes across a spherical surface.
+
+**Parameters:**
+- `count` (optional) - Number of crater instances to generate.
+- `planet_radius`, `crater_min_radius`, `crater_max_radius`, `crater_depth` (optional) - Distribution/shape controls.
+- `seed`, `crater_color` (optional) - Variation controls.
+- `planet_node_path`, `parent_path`, `node_name`, `create_node` (optional) - Placement controls.
+
+**Example:**
+```
+Scatter 18 crater proxies on a planet of radius 2.2 under /root/Main/PlanetShellSimple.
+```
+
+### create_ring_system
+Create a procedural ring system around a planet using a masked ring shader.
+
+**Parameters:**
+- `inner_radius`, `outer_radius` (optional) - Ring bounds.
+- `ring_color`, `alpha`, `banding`, `seed` (optional) - Ring appearance controls.
+- `tilt_degrees` (optional) - Tilt angle (number) or vector.
+- `planet_node_path`, `parent_path`, `node_name`, `create_node` (optional) - Placement controls.
+- `save_shader_path`, `save_material_path` (optional) - Persist generated resources.
+
+**Example:**
+```
+Create a ring system with inner radius 2.8 and outer radius 4.1 tilted by 18 degrees.
+```
+
+### generate_starfield_skybox
+Generate a procedural starfield panorama sky and optionally apply it to an Environment.
+
+**Parameters:**
+- `width`, `height`, `star_count`, `seed` (optional) - Starfield generation controls.
+- `background_top`, `background_bottom` (optional) - Gradient background colors.
+- `apply_to_environment` (optional) - Apply generated sky to environment settings.
+- `environment_path` or `world_environment`/`node_path` (optional) - Environment target.
+- `save_image_path`, `save_material_path`, `save_sky_path`, `save_environment_path` (optional) - Save generated resources.
+
+**Example:**
+```
+Generate a 1024x512 starfield skybox with 1800 stars and apply it to /root/Main/WorldEnvironment.
+```
+
+### create_moon_proxy
+Create a moon mesh + orbit pivot proxy for simple planetary setups.
+
+**Parameters:**
+- `radius`, `distance` (optional) - Moon size and orbital offset.
+- `orbit_speed_deg_per_sec`, `inclination_degrees` (optional) - Orbit metadata/orientation.
+- `color` (optional) - Moon material color.
+- `planet_node_path`, `parent_path`, `node_name`, `create_node` (optional) - Placement controls.
+
+**Example:**
+```
+Create a moon proxy orbiting /root/Main/Planet01 at distance 5.2.
+```
+
+### planet_preset_quickstart
+Generate a compact preset planet setup (shell, ocean, clouds, atmosphere, and optional moon).
+
+**Parameters:**
+- `preset` (optional) - `earthlike`, `desert`, `ice`, or `lava`.
+- `parent_path`, `node_name` (optional) - Where to place the generated preset root.
+- `planet_radius` (optional) - Base radius of generated planet shell.
+- `include_moon` (optional) - Include a moon proxy.
+
+**Example:**
+```
+Create an earthlike quickstart planet setup under /root/Main named PlanetPresetA.
+```
+
 ## MCP Resources
 
 ### godot://physics/world
