@@ -57,5 +57,11 @@ export declare class GodotConnection {
 }
 /**
  * Gets the singleton instance of GodotConnection
+ * Uses environment variables for configuration:
+ * - GODOT_WS_HOST: WebSocket host (default: localhost)
+ * - GODOT_WS_PORT: WebSocket port (default: 9080)
+ * - GODOT_WS_TIMEOUT: Command timeout in ms (default: 20000)
+ * - GODOT_WS_MAX_RETRIES: Max connection retries (default: 3)
+ * - GODOT_WS_RETRY_DELAY: Delay between retries in ms (default: 2000)
  */
 export declare function getGodotConnection(): GodotConnection;

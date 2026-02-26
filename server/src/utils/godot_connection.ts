@@ -228,10 +228,25 @@ let connectionInstance: GodotConnection | null = null;
 
 /**
  * Gets the singleton instance of GodotConnection
+ * Uses environment variables for configuration:
+ * - GODOT_WS_HOST: WebSocket host (default: localhost)
+ * - GODOT_WS_PORT: WebSocket port (default: 9080)
+ * - GODOT_WS_TIMEOUT: Command timeout in ms (default: 20000)
+ * - GODOT_WS_MAX_RETRIES: Max connection retries (default: 3)
+ * - GODOT_WS_RETRY_DELAY: Delay between retries in ms (default: 2000)
  */
 export function getGodotConnection(): GodotConnection {
   if (!connectionInstance) {
-    connectionInstance = new GodotConnection();
+    // Use 127.0.0.1 instead of localhost to force IPv4 (Godot only listens on IPv4)
+    const host = process.env.GODOT_WS_HOST || '127.0.0.1';
+    const port = parseInt(process.env.GODOT_WS_PORT || '9080', 10);
+    const url = `ws://${host}:${port}`;
+    
+    const timeout = parseInt(process.env.GODOT_WS_TIMEOUT || '20000', 10);
+    const maxRetries = parseInt(process.env.GODOT_WS_MAX_RETRIES || '3', 10);
+    const retryDelay = parseInt(process.env.GODOT_WS_RETRY_DELAY || '2000', 10);
+    
+    connectionInstance = new GodotConnection(url, timeout, maxRetries, retryDelay);
   }
   return connectionInstance;
 }

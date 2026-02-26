@@ -1,6 +1,6 @@
 @tool
 class_name MCPCompressionCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/compression_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "compression_commands"
@@ -36,7 +36,6 @@ func _log_event(action: String, message: String, context := {}):
 		"context": context,
 	}
 	print(JSON.stringify(entry))
-	print("[Continuous skepticism (Sherlock Protocol)]", message)
 
 func _configure_texture_compression(client_id: int, params: Dictionary, command_id: String) -> void:
 	var platform := params.get("platform", "")
@@ -72,7 +71,7 @@ func _batch_reimport_textures(client_id: int, params: Dictionary, command_id: St
 	if typeof(paths) != TYPE_ARRAY or paths.is_empty():
 		return _send_error(client_id, "paths must be a non-empty array", command_id)
 
-	var filesystem := EditorFileSystem.get_singleton()
+	var filesystem := EditorInterface.get_resource_filesystem()
 	if filesystem == null:
 		return _send_error(client_id, "EditorFileSystem is not available", command_id)
 
@@ -85,7 +84,7 @@ func _batch_reimport_textures(client_id: int, params: Dictionary, command_id: St
 	}, command_id)
 
 func _create_texture_import_preset(client_id: int, params: Dictionary, command_id: String) -> void:
-	var preset_name := params.get("preset_name", "")
+	var preset_name = params.get("preset_name", "")
 	var importer := params.get("importer", "texture")
 	var options := params.get("options", {})
 

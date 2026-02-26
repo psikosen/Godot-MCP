@@ -1,6 +1,6 @@
 @tool
 class_name MCPProjectCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/project_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "project_commands"
@@ -76,30 +76,30 @@ func _configure_project_setting(client_id: int, params: Dictionary, command_id: 
 	var allow_new: bool = params.get("allow_new", false)
 	var log_context := {
 		"system_section": "project_settings",
-		"line_num": __LINE__,
+		"line_num": 0,
 		"setting": setting_path,
 		"persist": persist,
 		"allow_new": allow_new,
 	}
 
 	if setting_path.is_empty():
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Project setting path is required", function_name, log_context, true)
 		return _send_error(client_id, "Project setting path is required", command_id)
 
 	if not _is_setting_path_permitted(setting_path):
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Requested project setting is outside the supported allowlist", function_name, log_context, true)
 		return _send_error(client_id, "Requested project setting is not available for automation", command_id)
 
 	var has_existing := ProjectSettings.has_setting(setting_path)
 	if not has_existing and not allow_new:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Project setting does not exist and creation has not been approved", function_name, log_context, true)
 		return _send_error(client_id, "Project setting does not exist. Set allow_new=true to create it explicitly.", command_id)
 
 	var new_value = params.get("value", null)
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	if typeof(new_value) == TYPE_NIL:
 		_log("New project setting value must be supplied", function_name, log_context, true)
 		return _send_error(client_id, "A value field must be supplied for configure_project_setting", command_id)
@@ -112,22 +112,22 @@ func _configure_project_setting(client_id: int, params: Dictionary, command_id: 
 	if not type_hint.is_empty():
 		log_context["type_hint"] = type_hint
 
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	log_context["previous_type"] = typeof(previous_value)
 	log_context["new_type"] = typeof(coerced_value)
 
 	if typeof(coerced_value) == TYPE_NIL and typeof(previous_value) != TYPE_NIL:
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Unable to coerce supplied value to the expected project setting type", function_name, log_context, true)
 		return _send_error(client_id, "Unable to coerce supplied value to the expected project setting type", command_id)
 
 	if has_existing and typeof(previous_value) != TYPE_NIL and typeof(coerced_value) != typeof(previous_value):
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Project setting type mismatch after coercion", function_name, log_context, true)
 		return _send_error(client_id, "Project setting type mismatch after coercion", command_id)
 
 	if has_existing and _are_variants_equal(previous_value, coerced_value):
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		_log("Project setting already matches requested value", function_name, log_context)
 		return _send_success(client_id, {
 			"setting": setting_path,
@@ -141,13 +141,13 @@ func _configure_project_setting(client_id: int, params: Dictionary, command_id: 
 	var persisted := false
 	if persist:
 		var save_err := ProjectSettings.save()
-		log_context["line_num"] = __LINE__
+		log_context["line_num"] = 0
 		if save_err != OK:
 			_log("Failed to persist project settings to disk", function_name, log_context, true)
 			return _send_error(client_id, "Failed to persist project settings to disk", command_id)
 		persisted = true
 
-	log_context["line_num"] = __LINE__
+	log_context["line_num"] = 0
 	log_context["previous_value"] = previous_value
 	log_context["new_value"] = coerced_value
 	_log("Configured project setting", function_name, log_context)
@@ -180,7 +180,7 @@ func _get_project_info(client_id: int, _params: Dictionary, command_id: String) 
 		"project_version": project_version,
 		"project_path": project_path,
 		"godot_version": structured_version,
-				"current_scene": get_tree().edited_scene_root ? get_tree().edited_scene_root.scene_file_path : ""
+				"current_scene": get_tree().edited_scene_root.scene_file_path if get_tree().edited_scene_root else ""
 	}, command_id)
 
 func _list_project_files(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -337,11 +337,11 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 
 		for effect_index in range(effect_count):
 			var effect := AudioServer.get_bus_effect(bus_index, effect_index)
-						var effect_data := {
-								"index": effect_index,
-								"type": effect ? effect.get_class() : "Unknown",
-								"enabled": AudioServer.is_bus_effect_enabled(bus_index, effect_index)
-						}
+			var effect_data := {
+				"index": effect_index,
+				"type": effect.get_class() if effect else "Unknown",
+				"enabled": AudioServer.is_bus_effect_enabled(bus_index, effect_index)
+			}
 
 			if effect and effect is Resource:
 				effect_data["resource_path"] = effect.resource_path
@@ -424,7 +424,7 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 		change_count += 1
 
 	if params.has("effects"):
-		var effects := params["effects"]
+		var effects = params["effects"]
 		if typeof(effects) != TYPE_ARRAY:
 			_log("effects parameter must be an array", "_configure_audio_bus", {"bus_index": bus_index}, true)
 			_send_error(client_id, "effects parameter must be an array", command_id)
@@ -691,7 +691,7 @@ func _scan_resources(dir: DirAccess, path: String, resources: Dictionary) -> voi
 		
 		file_name = dir.get_next()
 	
-dir.list_dir_end()
+	dir.list_dir_end()
 
 func _serialize_input_event(event: InputEvent) -> Dictionary:
 	var data := {
@@ -933,7 +933,7 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 		"events_removed": events_removed.size(),
 		"persistent": persistent,
 		"system_section": "project_input",
-		"line_num": __LINE__,
+		"line_num": 0,
 	})
 
 	_send_success(client_id, response, command_id)
@@ -969,14 +969,14 @@ func _coerce_project_setting_value(previous_value, new_value, params: Dictionary
 		if typeof(parsed_value) == expected_type:
 			return parsed_value
 		if expected_type == TYPE_BOOL:
-			var lowered := new_value.to_lower()
+			var lowered = new_value.to_lower()
 			if lowered in ["true", "1", "yes", "on"]:
 				return true
 			if lowered in ["false", "0", "no", "off"]:
 				return false
 
 	if not type_hint.is_empty():
-		var hinted := _coerce_with_hint(new_value, type_hint)
+		var hinted = _coerce_with_hint(new_value, type_hint)
 		if typeof(hinted) != TYPE_NIL and (typeof(hinted) == expected_type or type_hint in ["array", "dictionary"]):
 			return hinted
 
@@ -1007,7 +1007,7 @@ func _coerce_with_hint(new_value, type_hint: String):
 			return float(new_value)
 		"bool":
 			if typeof(new_value) == TYPE_STRING:
-				var lowered := new_value.to_lower()
+				var lowered = new_value.to_lower()
 				if lowered in ["true", "1", "yes", "on"]:
 					return true
 				if lowered in ["false", "0", "no", "off"]:
@@ -1023,7 +1023,7 @@ func _coerce_with_hint(new_value, type_hint: String):
 			if typeof(new_value) == TYPE_PACKED_STRING_ARRAY:
 				return Array(new_value)
 			if typeof(new_value) == TYPE_STRING:
-				var parsed := _parse_property_value(new_value)
+				var parsed = _parse_property_value(new_value)
 				if typeof(parsed) == TYPE_ARRAY:
 					return parsed
 			return null
@@ -1031,7 +1031,7 @@ func _coerce_with_hint(new_value, type_hint: String):
 			if typeof(new_value) == TYPE_DICTIONARY:
 				return new_value
 			if typeof(new_value) == TYPE_STRING:
-				var parsed_dict := _parse_property_value(new_value)
+				var parsed_dict = _parse_property_value(new_value)
 				if typeof(parsed_dict) == TYPE_DICTIONARY:
 					return parsed_dict
 			return null
@@ -1058,7 +1058,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+"error": message if is_error else "",
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
@@ -1069,4 +1069,3 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
-	print("[Continuous skepticism (Sherlock Protocol)] %s" % message)

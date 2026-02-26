@@ -1,11 +1,11 @@
 @tool
 class_name MCPRenderingCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/rendering_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "rendering_commands"
 
-const SceneTransactionManager := MCPSceneTransactionManager
+var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
@@ -51,7 +51,6 @@ func _log(message: String, function_name: String, context: Dictionary = {}, is_e
 		entry["context"] = context
 
 	print(JSON.stringify(entry))
-	print("[Continuous skepticism (Sherlock Protocol)]", message)
 
 func _generate_material_variant(client_id: int, params: Dictionary, command_id: String) -> void:
 	var source_path := params.get("source_material", "")
@@ -63,14 +62,14 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 	var metadata := params.get("metadata", {})
 
 	if source_path.is_empty():
-		_log("source_material is required", "_generate_material_variant", {"system_section": "material", "line_num": __LINE__}, true)
+		_log("source_material is required", "_generate_material_variant", {"system_section": "material", "line_num": 0}, true)
 		return _send_error(client_id, "source_material is required", command_id)
 
 	var source_resource := ResourceUtils.safe_load(source_path)
 	if source_resource == null or not (source_resource is Material):
 		_log("Failed to load source material", "_generate_material_variant", {
 			"system_section": "material",
-			"line_num": __LINE__,
+			"line_num": 0,
 			"source_material": source_path,
 		}, true)
 		return _send_error(client_id, "Unable to load material at %s" % source_path, command_id)
@@ -101,7 +100,7 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 	if typeof(shader_parameters) == TYPE_DICTIONARY and variant is ShaderMaterial:
 		var shader_material: ShaderMaterial = variant
 		for parameter_name in shader_parameters.keys():
-			var parsed = _parse_property_value(shader_parameters[parameter_name])
+			var parsed: Variant = _parse_property_value(shader_parameters[parameter_name])
 			var previous = shader_material.get_shader_parameter(parameter_name)
 			shader_material.set_shader_parameter(parameter_name, parsed)
 			changes.append({
@@ -148,7 +147,7 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 		else:
 			_log("Failed to save material variant", "_generate_material_variant", {
 				"system_section": "material",
-				"line_num": __LINE__,
+				"line_num": 0,
 				"save_path": save_path,
 			}, true)
 			return _send_error(client_id, "Failed to save material variant to %s" % save_path, command_id)
@@ -184,7 +183,7 @@ func _compile_shader_preview(client_id: int, params: Dictionary, command_id: Str
 			shader = loaded
 			shader_code = shader.code
 	if shader == null:
-		_log("shader_code or shader_path is required", "_compile_shader_preview", {"system_section": "shader", "line_num": __LINE__}, true)
+		_log("shader_code or shader_path is required", "_compile_shader_preview", {"system_section": "shader", "line_num": 0}, true)
 		return _send_error(client_id, "Provide shader_code or shader_path", command_id)
 
 	var uniform_list := []
@@ -233,7 +232,7 @@ func _unwrap_lightmap_uv2(client_id: int, params: Dictionary, command_id: String
 		else:
 			_log("Resource at path is not a Mesh", "_unwrap_lightmap_uv2", {
 				"system_section": "uv2",
-				"line_num": __LINE__,
+				"line_num": 0,
 				"mesh_path": mesh_path,
 			}, true)
 			return _send_error(client_id, "Resource at %s is not a Mesh" % mesh_path, command_id)
@@ -247,12 +246,12 @@ func _unwrap_lightmap_uv2(client_id: int, params: Dictionary, command_id: String
 		else:
 			_log("Node is not a MeshInstance3D", "_unwrap_lightmap_uv2", {
 				"system_section": "uv2",
-				"line_num": __LINE__,
+				"line_num": 0,
 				"node_path": node_path,
 			}, true)
 			return _send_error(client_id, "Node at %s is not a MeshInstance3D" % node_path, command_id)
 	else:
-		_log("mesh_path or node_path required", "_unwrap_lightmap_uv2", {"system_section": "uv2", "line_num": __LINE__}, true)
+		_log("mesh_path or node_path required", "_unwrap_lightmap_uv2", {"system_section": "uv2", "line_num": 0}, true)
 		return _send_error(client_id, "Provide mesh_path or node_path", command_id)
 
 	if mesh == null:
@@ -272,7 +271,7 @@ func _unwrap_lightmap_uv2(client_id: int, params: Dictionary, command_id: String
 	if unwrap_result != OK:
 		_log("ArrayMesh.lightmap_unwrap failed", "_unwrap_lightmap_uv2", {
 			"system_section": "uv2",
-			"line_num": __LINE__,
+			"line_num": 0,
 			"error_code": unwrap_result,
 		}, true)
 		return _send_error(client_id, "Failed to unwrap UV2 for mesh", command_id)
@@ -307,7 +306,7 @@ func _unwrap_lightmap_uv2(client_id: int, params: Dictionary, command_id: String
 		else:
 			_log("Failed to save ArrayMesh", "_unwrap_lightmap_uv2", {
 				"system_section": "uv2",
-				"line_num": __LINE__,
+				"line_num": 0,
 				"save_path": save_path,
 			}, true)
 			return _send_error(client_id, "Failed to save mesh to %s" % save_path, command_id)
@@ -406,7 +405,7 @@ func _generate_lod_mesh(mesh: Mesh, ratio: float) -> ArrayMesh:
 		var arrays: Array = mesh.surface_get_arrays(surface_index)
 		if arrays.is_empty():
 			continue
-		var primitive := mesh.surface_get_primitive_type(surface_index)
+		var primitive = mesh.surface_get_primitive_type(surface_index)
 		var new_arrays := _decimate_surface_arrays(arrays, ratio)
 		result.add_surface_from_arrays(primitive, new_arrays, mesh.surface_get_blend_shape_arrays(surface_index))
 	return result
@@ -561,7 +560,7 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 		"node_path": node_path,
 		"changes": changes,
 		"transaction_id": transaction.transaction_id,
-		"status": transaction_id == "" ? "committed" : "pending",
+		"status": ("committed" if transaction_id == "" else "pending"),
 	}, command_id)
 
 func _preview_environment_sun_settings(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -581,7 +580,7 @@ func _preview_environment_sun_settings(client_id: int, params: Dictionary, comma
 
 	if typeof(overrides) == TYPE_DICTIONARY:
 		for key in overrides.keys():
-			var property_name := ""
+			var property_name = ""
 			match key:
 				"color":
 					property_name = "fog_sun_color"
@@ -619,7 +618,7 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 	var direct_properties := params.get("properties", {})
 	if typeof(direct_properties) == TYPE_DICTIONARY:
 		for property_name in direct_properties.keys():
-			var parsed = _parse_property_value(direct_properties[property_name])
+			var parsed: Variant = _parse_property_value(direct_properties[property_name])
 			var previous = environment.get(property_name)
 			if previous != parsed:
 				changes.append({
@@ -685,7 +684,7 @@ func _merge_environment_section_changes(environment: Environment, property_map: 
 	for key in property_map.keys():
 			if values.has(key):
 				var property_name: String = property_map[key]
-				var parsed = _parse_property_value(values[key])
+				var parsed: Variant = _parse_property_value(values[key])
 				var previous = environment.get(property_name)
 				if previous != parsed:
 					changes.append({

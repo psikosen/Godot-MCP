@@ -41,14 +41,14 @@ func _update_ui():
 		port_input.editable = true
 		connection_count_label.text = "0"
 		return
-	
+
 	var is_active = websocket_server.is_server_active()
-	
-		status_label.text = "Server: " + (is_active ? "Running" : "Stopped")
+
+	status_label.text = "Server: " + ("Running" if is_active else "Stopped")
 	start_button.disabled = is_active
 	stop_button.disabled = not is_active
 	port_input.editable = not is_active
-	
+
 	if is_active:
 		connection_count_label.text = str(websocket_server.get_client_count())
 	else:

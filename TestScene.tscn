@@ -1,13 +1,195 @@
-[gd_scene format=3 uid="uid://cj6x3fv3tu00f"]
+[gd_scene load_steps=14 format=3 uid="uid://cj6x3fv3tu00f"]
 
-[node name="Node3D" type="Node3D"]
+[ext_resource type="Script" uid="uid://begmeqxgutm4n" path="res://level_game_manager.gd" id="1_gm"]
+[ext_resource type="Script" uid="uid://b0i12imyvnput" path="res://player_2d3d.gd" id="2_player"]
 
-[node name="A test node" type="Node3D" parent="."]
+[sub_resource type="BoxShape3D" id="BoxShape3D_hazard"]
+size = Vector3(1.8, 0.6, 3.6)
 
-[node name="MainCamera" type="Camera3D" parent="A test node"]
-transform = Transform3D(1, 0, 0, 0, 0.866026, 0.5, 0, -0.5, 0.866026, 0, 3, 6)
-current = true
-fov = 45.0
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hazard"]
+transparency = 1
+albedo_color = Color(0.95, 0.15, 0.15, 0.55)
 
-[node name="Cube" type="CSGBox3D" parent="A test node"]
+[sub_resource type="BoxMesh" id="BoxMesh_hazard"]
+size = Vector3(1.8, 0.6, 3.6)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_checkpoint"]
+size = Vector3(2.5, 3, 4)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_checkpoint"]
+transparency = 1
+albedo_color = Color(0.2, 0.65, 1, 0.4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_checkpoint"]
+size = Vector3(2.5, 3, 4)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_goal"]
+size = Vector3(5, 4, 4)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_goal"]
+transparency = 1
+albedo_color = Color(0.15, 0.95, 0.3, 0.4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_goal"]
+size = Vector3(5, 4, 4)
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.45
+height = 1.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_player"]
+size = Vector3(0.9, 1.8, 0.9)
+
+[node name="LevelRoot" type="Node3D"]
+script = ExtResource("1_gm")
+
+[node name="Level2D3D" type="Node3D" parent="."]
+
+[node name="Floor" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, -0.5, 0)
+use_collision = true
+size = Vector3(34, 1, 4)
+
+[node name="Block_01" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+use_collision = true
 size = Vector3(2, 2, 2)
+
+[node name="Block_02" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 1, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_03" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 2, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_04" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 3, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_05" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 3, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_06" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 5, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_07" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 7, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_08" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21, 7, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Block_09" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 5, 0)
+use_collision = true
+size = Vector3(2, 2, 2)
+
+[node name="Goal_Platform" type="CSGBox3D" parent="Level2D3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 8, 0)
+use_collision = true
+size = Vector3(4, 1, 4)
+
+[node name="Hazards" type="Node3D" parent="Level2D3D"]
+
+[node name="Hazard_01" type="Area3D" parent="Level2D3D/Hazards" groups=["hazard"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 0.8, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Level2D3D/Hazards/Hazard_01"]
+shape = SubResource("BoxShape3D_hazard")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Level2D3D/Hazards/Hazard_01"]
+material_override = SubResource("StandardMaterial3D_hazard")
+mesh = SubResource("BoxMesh_hazard")
+
+[node name="Hazard_02" type="Area3D" parent="Level2D3D/Hazards" groups=["hazard"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 6.1, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Level2D3D/Hazards/Hazard_02"]
+shape = SubResource("BoxShape3D_hazard")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Level2D3D/Hazards/Hazard_02"]
+material_override = SubResource("StandardMaterial3D_hazard")
+mesh = SubResource("BoxMesh_hazard")
+
+[node name="Hazard_03" type="Area3D" parent="Level2D3D/Hazards" groups=["hazard"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 6.1, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Level2D3D/Hazards/Hazard_03"]
+shape = SubResource("BoxShape3D_hazard")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Level2D3D/Hazards/Hazard_03"]
+material_override = SubResource("StandardMaterial3D_hazard")
+mesh = SubResource("BoxMesh_hazard")
+
+[node name="Checkpoints" type="Node3D" parent="Level2D3D"]
+
+[node name="Checkpoint_01" type="Area3D" parent="Level2D3D/Checkpoints" groups=["checkpoint"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 4.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Level2D3D/Checkpoints/Checkpoint_01"]
+shape = SubResource("BoxShape3D_checkpoint")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Level2D3D/Checkpoints/Checkpoint_01"]
+material_override = SubResource("StandardMaterial3D_checkpoint")
+mesh = SubResource("BoxMesh_checkpoint")
+
+[node name="Checkpoint_02" type="Area3D" parent="Level2D3D/Checkpoints" groups=["checkpoint"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 8.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Level2D3D/Checkpoints/Checkpoint_02"]
+shape = SubResource("BoxShape3D_checkpoint")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Level2D3D/Checkpoints/Checkpoint_02"]
+material_override = SubResource("StandardMaterial3D_checkpoint")
+mesh = SubResource("BoxMesh_checkpoint")
+
+[node name="GoalZone" type="Area3D" parent="Level2D3D" groups=["goal"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 10, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Level2D3D/GoalZone"]
+shape = SubResource("BoxShape3D_goal")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Level2D3D/GoalZone"]
+material_override = SubResource("StandardMaterial3D_goal")
+mesh = SubResource("BoxMesh_goal")
+
+[node name="Player" type="CharacterBody3D" parent="." groups=["player"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 27.2788, 9.09992, 0)
+script = ExtResource("2_player")
+auto_jump_markers = PackedFloat32Array(4.1, 7.1, 10.1, 13.1, 16.1, 19.1, 22.1, 25.1)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+shape = SubResource("CapsuleShape3D_player")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Player"]
+mesh = SubResource("BoxMesh_player")
+
+[node name="SideCamera" type="Camera3D" parent="."]
+transform = Transform3D(0.866025, -0.154509, 0.475528, 0, 0.951057, 0.309017, -0.5, -0.267617, 0.823639, 14, 11, 26)
+projection = 1
+current = true
+size = 26.0
+
+[node name="SunLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.819152, -0.469846, 0.32899, 0, 0.573576, 0.819152, -0.573576, -0.67101, 0.469846, 0, 0, 0)
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer"]
+offset_left = 20.0
+offset_top = 16.0
+offset_right = 1060.0
+offset_bottom = 64.0
+theme_override_font_sizes/font_size = 18
+text = "AI autoplay enabled. Reach green goal. Press R to restart."

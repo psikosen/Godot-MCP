@@ -1,10 +1,10 @@
 @tool
 class_name MCPAnimationCommands
-extends MCPBaseCommandProcessor
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/animation_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "animation_commands"
-const SceneTransactionManager := MCPSceneTransactionManager
+var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
@@ -389,7 +389,7 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 
 	if typeof(parameter_updates) == TYPE_DICTIONARY:
 		for parameter_key in parameter_updates.keys():
-			var parameter_path := parameter_key
+			var parameter_path = parameter_key
 			if not String(parameter_path).begins_with("parameters/"):
 				parameter_path = "parameters/%s" % parameter_key
 			var new_parameter = _parse_property_value(parameter_updates[parameter_key])
@@ -556,8 +556,9 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 			if String(track_path) == "":
 				continue
 
-			var track_type := skeleton is Skeleton3D ? Animation.TYPE_TRANSFORM3D : Animation.TYPE_TRANSFORM2D
-			var track_index := working_copy.find_track(track_path)
+			# In Godot 4, use TYPE_POSITION_3D for 3D skeletons, TYPE_VALUE for 2D
+			var track_type = Animation.TYPE_POSITION_3D if skeleton is Skeleton3D else Animation.TYPE_VALUE
+			var track_index := working_copy.find_track(track_path, Animation.TYPE_VALUE)
 			if track_index == -1:
 				track_index = working_copy.add_track(track_type)
 				working_copy.track_set_path(track_index, track_path)
@@ -612,14 +613,14 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 	}
 
 	if animation_exists:
-		var original_copy := player.get_animation(animation_name).duplicate(true)
-		var updated_copy := working_copy.duplicate(true)
+		var original_copy = player.get_animation(animation_name).duplicate(true)
+		var updated_copy = working_copy.duplicate(true)
 		transaction.add_do_reference(original_copy)
 		transaction.add_do_reference(updated_copy)
 		transaction.add_do_method(self, "_apply_animation_clone", [player.get_animation(animation_name), updated_copy])
 		transaction.add_undo_method(self, "_apply_animation_clone", [player.get_animation(animation_name), original_copy])
 	else:
-		var new_animation_resource := working_copy.duplicate(true)
+		var new_animation_resource = working_copy.duplicate(true)
 		transaction.add_do_reference(new_animation_resource)
 		transaction.add_do_method(player, "add_animation", [animation_name, new_animation_resource])
 		transaction.add_undo_method(player, "remove_animation", [animation_name])
@@ -704,7 +705,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 			continue
 
 		var target_path := String(step_entry.get("target_path", default_target))
-		var property_name := String(step_entry.get("property", step_entry.get("attribute", "")))
+		var property_name = String(step_entry.get("property", step_entry.get("attribute", "")))
 		var duration := float(step_entry.get("duration", 0.0))
 		var delay := float(step_entry.get("delay", 0.0))
 		var from_value_raw = step_entry.get("from", step_entry.get("start", null))
@@ -727,7 +728,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		if String(track_path) == "":
 			continue
 
-		var track_index := working_copy.find_track(track_path)
+		var track_index := working_copy.find_track(track_path, Animation.TYPE_VALUE)
 		if track_index == -1:
 			track_index = working_copy.add_track(Animation.TYPE_VALUE)
 			working_copy.track_set_path(track_index, track_path)
@@ -752,7 +753,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 			})
 
 		var to_value = _parse_property_value(to_value_raw)
-		var end_time := current_time + max(duration, 0.0)
+		var end_time = current_time + max(duration, 0.0)
 		working_copy.track_insert_key(track_index, end_time, to_value, 0.0)
 		operations.append({
 			"type": "key",
@@ -765,7 +766,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		max_time = max(max_time, end_time)
 
 	working_copy.length = max(working_copy.length, max_time)
-	working_copy.loop_mode = loop ? Animation.LOOP_LINEAR : Animation.LOOP_NONE
+	working_copy.loop_mode = (Animation.LOOP_LINEAR if loop else Animation.LOOP_NONE)
 
 	var metadata := {
 		"command": "generate_tween_sequence",
@@ -801,7 +802,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 	}
 
 	if animation_exists:
-		var original_copy := player.get_animation(animation_name).duplicate(true)
+		var original_copy = player.get_animation(animation_name).duplicate(true)
 		var updated_copy := working_copy.duplicate(true)
 		transaction.add_do_reference(original_copy)
 		transaction.add_do_reference(updated_copy)
@@ -971,7 +972,7 @@ func _sync_particles_with_animation(client_id: int, params: Dictionary, command_
 			animation_summary = _apply_animation_operations(working_copy, operations)
 			animation_changed = bool(animation_summary.get("changed", false))
 			if animation_changed:
-				var original_copy := animation.duplicate(true)
+				var original_copy = animation.duplicate(true)
 				var updated_copy := working_copy.duplicate(true)
 				transaction.add_do_reference(original_copy)
 				transaction.add_do_reference(updated_copy)
@@ -1045,7 +1046,7 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 		var op_type := String(entry.get("type", ""))
 		match op_type:
 			"set_property":
-				var property_name := String(entry.get("property", ""))
+				var property_name = String(entry.get("property", ""))
 				if property_name.is_empty():
 					continue
 				var new_value = _parse_property_value(entry.get("value"))
@@ -1228,7 +1229,7 @@ func _ensure_animation_track(animation: Animation, payload: Dictionary) -> Dicti
 		return result
 
 	var requested_type := int(payload.get("track_type", Animation.TYPE_VALUE))
-	var existing_index := animation.find_track(track_path)
+	var existing_index := animation.find_track(track_path, Animation.TYPE_VALUE)
 
 	if existing_index == -1:
 		existing_index = animation.add_track(requested_type)
@@ -1272,7 +1273,7 @@ func _resolve_animation_track_index(animation: Animation, payload: Dictionary) -
 		var path := _normalise_track_path(payload.get("track_path", payload.get("path", "")))
 		if String(path) == "":
 			return -1
-		return animation.find_track(path)
+		return animation.find_track(path, Animation.TYPE_VALUE)
 
 	return -1
 
@@ -1313,11 +1314,11 @@ func _normalise_track_path(value) -> NodePath:
 func _collect_bone_names(skeleton) -> Array:
 	var bones: Array = []
 	if skeleton is Skeleton3D:
-		var bone_count := skeleton.get_bone_count()
+		var bone_count = skeleton.get_bone_count()
 		for bone_index in bone_count:
 			bones.append(skeleton.get_bone_name(bone_index))
 	elif skeleton is Skeleton2D:
-		var bone_count_2d := skeleton.get_bone_count()
+		var bone_count_2d = skeleton.get_bone_count()
 		for bone_index in bone_count_2d:
 			bones.append(skeleton.get_bone_name(bone_index))
 	return bones
@@ -1325,14 +1326,14 @@ func _collect_bone_names(skeleton) -> Array:
 func _capture_bone_pose(skeleton, bone_name: String, space: String) -> Variant:
 	var use_global := space == "global"
 	if skeleton is Skeleton3D:
-		var bone_index := skeleton.find_bone(bone_name)
+		var bone_index = skeleton.find_bone(bone_name)
 		if bone_index == -1:
 			return null
 		if use_global:
 			return skeleton.get_bone_global_pose(bone_index)
 		return skeleton.get_bone_pose(bone_index)
 	elif skeleton is Skeleton2D:
-		var bone_index_2d := skeleton.find_bone(bone_name)
+		var bone_index_2d = skeleton.find_bone(bone_name)
 		if bone_index_2d == -1:
 			return null
 		if use_global and skeleton.has_method("get_bone_global_pose"):
@@ -1483,7 +1484,7 @@ func _serialize_animation_tree(tree: AnimationTree, include_nested: bool, includ
 		"process_mode": tree.process_mode,
 		"parameters": _serialize_variant(parameters_value),
 		"animation_player": anim_player_path,
-				"root_type": tree.tree_root ? tree.tree_root.get_class() : "",
+				"root_type": (tree.tree_root.get_class() if tree.tree_root else ""),
 		"state_machines": [],
 	}
 
@@ -1511,13 +1512,13 @@ func _collect_nested_state_machines(node: AnimationNode, include_nested: bool, i
 	return machines
 
 func _serialize_state_machine(state_machine: AnimationNodeStateMachine, label, include_nested: bool, include_graph: bool, include_transitions: bool) -> Dictionary:
-		var machine := {
-				"name": String((typeof(label) == TYPE_STRING and not String(label).is_empty()) ? label : state_machine.resource_name),
-				"start_node": state_machine ? String(state_machine.get("start_node")) : "",
-				"states": [],
-				"transitions": [],
-				"allow_transition_to_self": state_machine.has_method("is_allow_transition_to_self") ? state_machine.is_allow_transition_to_self() : false,
-		}
+	var machine := {
+		"name": String(label if (typeof(label) == TYPE_STRING and not String(label).is_empty()) else state_machine.resource_name),
+		"start_node": (String(state_machine.get("start_node")) if state_machine else ""),
+		"states": [],
+		"transitions": [],
+		"allow_transition_to_self": (state_machine.is_allow_transition_to_self() if state_machine.has_method("is_allow_transition_to_self") else false),
+	}
 
 	var state_names := []
 	if state_machine.has_method("get_node_list"):
@@ -1583,7 +1584,7 @@ func _serialize_resource_properties(resource: Resource) -> Dictionary:
 	return data
 
 func _resolve_search_root(node_path: String) -> Node:
-		var plugin = Engine.has_meta("GodotMCPPlugin") ? Engine.get_meta("GodotMCPPlugin") : null
+	var plugin = (Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null)
 	if not plugin:
 		return null
 	var editor_interface = plugin.get_editor_interface()
@@ -1599,10 +1600,12 @@ func _animation_track_type_to_string(track_type: int) -> String:
 	match track_type:
 		Animation.TYPE_VALUE:
 			return "value"
-		Animation.TYPE_TRANSFORM2D:
-			return "transform_2d"
-		Animation.TYPE_TRANSFORM3D:
-			return "transform_3d"
+		Animation.TYPE_POSITION_3D:
+			return "position_3d"
+		Animation.TYPE_ROTATION_3D:
+			return "rotation_3d"
+		Animation.TYPE_SCALE_3D:
+			return "scale_3d"
 		Animation.TYPE_BLEND_SHAPE:
 			return "blend_shape"
 		Animation.TYPE_METHOD:
@@ -1639,7 +1642,7 @@ func _serialize_variant(value):
 			return {"x": value.x, "y": value.y}
 		TYPE_VECTOR3I:
 			return {"x": value.x, "y": value.y, "z": value.z}
-		TYPE_QUAT:
+		TYPE_QUATERNION:
 			return {"x": value.x, "y": value.y, "z": value.z, "w": value.w}
 		TYPE_BASIS:
 			return {"x": _serialize_variant(value.x), "y": _serialize_variant(value.y), "z": _serialize_variant(value.z)}
@@ -1668,8 +1671,8 @@ func _serialize_variant(value):
 			if value is Node or value is Resource:
 				if value.has_method("serialize"):
 					return value.serialize()
-								if value is Resource:
-										return value.resource_path != "" ? value.resource_path : value.resource_name
+				if value is Resource:
+					return (value.resource_path if value.resource_path != "" else value.resource_name)
 				if value is Node:
 					return _path_to_string(value)
 			return String(value)
@@ -1692,7 +1695,7 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 		"function": function_name,
 		"system_section": extra.get("system_section", DEFAULT_SYSTEM_SECTION),
 		"line_num": extra.get("line_num", 0),
-		"error": is_error ? message : "",
+			"error": (message if is_error else ""),
 		"db_phase": extra.get("db_phase", "none"),
 		"method": extra.get("method", "NONE"),
 		"message": message,
@@ -1703,4 +1706,3 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
-	print("[Continuous skepticism (Sherlock Protocol)] %s" % message)

@@ -38,10 +38,11 @@ func start_server() -> int:
 	if is_server_active():
 		return ERR_ALREADY_IN_USE
 	
-	var err = tcp_server.listen(_port)
+	# Explicitly bind to IPv4 (127.0.0.1) to prevent IPv6 connection issues
+	var err = tcp_server.listen(_port, "127.0.0.1")
 	if err == OK:
 		set_process(true)
-		print("MCP WebSocket server started on port %d" % _port)
+		print("MCP WebSocket server started on IPv4 127.0.0.1:%d" % _port)
 	else:
 		print("Failed to start MCP WebSocket server: %d" % err)
 	
