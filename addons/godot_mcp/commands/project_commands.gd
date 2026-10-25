@@ -322,13 +322,13 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 	for bus_index in range(bus_count):
 		var bus_data := {
 			"index": bus_index,
-			"name": String(AudioServer.get_bus_name(bus_index)),
+			"name": str(AudioServer.get_bus_name(bus_index)),
 			"channels": AudioServer.get_bus_channels(bus_index),
 			"volume_db": AudioServer.get_bus_volume_db(bus_index),
 			"solo": AudioServer.is_bus_solo(bus_index),
 			"mute": AudioServer.is_bus_mute(bus_index),
 			"bypass_effects": AudioServer.is_bus_bypassing_effects(bus_index),
-			"send": String(AudioServer.get_bus_send(bus_index)),
+			"send": str(AudioServer.get_bus_send(bus_index)),
 			"effects": []
 		}
 
@@ -362,7 +362,7 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 	_send_success(client_id, layout, command_id)
 
 func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String) -> void:
-	var bus_name := String(params.get("bus_name", ""))
+	var bus_name := str(params.get("bus_name", ""))
 	var bus_index := int(params.get("bus_index", -1))
 
 	if not bus_name.is_empty():
@@ -383,7 +383,7 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 	var change_count := 0
 
 	if params.has("new_name"):
-		var new_name := String(params["new_name"])
+		var new_name := str(params["new_name"])
 		if new_name.is_empty():
 			_log("New audio bus name cannot be empty", "_configure_audio_bus", {"bus_index": bus_index}, true)
 			_send_error(client_id, "New audio bus name cannot be empty", command_id)
@@ -418,7 +418,7 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 		change_count += 1
 
 	if params.has("send"):
-		var target_send := String(params["send"])
+		var target_send := str(params["send"])
 		AudioServer.set_bus_send(bus_index, target_send)
 		applied_changes["send"] = target_send
 		change_count += 1
@@ -468,7 +468,7 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 
 	if persist:
 		var bus_layout := AudioServer.generate_bus_layout()
-		var layout_path := String(ProjectSettings.get_setting("audio/bus_layout/path", "res://default_bus_layout.tres"))
+		var layout_path := str(ProjectSettings.get_setting("audio/bus_layout/path", "res://default_bus_layout.tres"))
 		var save_error := ResourceSaver.save(bus_layout, layout_path)
 		if save_error != OK:
 			_log("Failed to persist audio bus layout", "_configure_audio_bus", {
@@ -790,8 +790,8 @@ func _event_matches(event: InputEvent, criteria: Dictionary) -> bool:
 	for key in criteria.keys():
 		if not serialized.has(key):
 			if key == "type":
-				var event_type := String(serialized.get("type", "")).to_lower()
-				var criteria_type := String(criteria[key]).to_lower()
+				var event_type := str(serialized.get("type", "")).to_lower()
+				var criteria_type := str(criteria[key]).to_lower()
 				if event_type != criteria_type and not event_type.ends_with(criteria_type):
 					return false
 				continue
@@ -989,12 +989,12 @@ func _coerce_project_setting_value(previous_value, new_value, params: Dictionary
 	if expected_type == TYPE_PACKED_STRING_ARRAY and provided_type == TYPE_ARRAY:
 		var psa := PackedStringArray()
 		for entry in new_value:
-			psa.append(String(entry))
+			psa.append(str(entry))
 		return psa
 	if expected_type == TYPE_ARRAY and provided_type == TYPE_PACKED_STRING_ARRAY:
 		return new_value
 	if expected_type == TYPE_STRING:
-		return String(new_value)
+		return str(new_value)
 
 	return new_value
 
@@ -1016,7 +1016,7 @@ func _coerce_with_hint(new_value, type_hint: String):
 				return abs(float(new_value)) > 0.0
 			return bool(new_value)
 		"string":
-			return String(new_value)
+			return str(new_value)
 		"array":
 			if typeof(new_value) == TYPE_ARRAY:
 				return new_value

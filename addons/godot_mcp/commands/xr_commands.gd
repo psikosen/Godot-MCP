@@ -47,7 +47,7 @@ func _list_xr_interfaces(client_id: int, command_id: String) -> void:
 			continue
 
 		var data = {
-			"name": String(xr_interface.get_name()),
+			"name": str(xr_interface.get_name()),
 			"is_initialized": xr_interface.is_initialized(),
 			"is_primary": xr_interface == primary,
 			"tracking_status": (xr_interface.get_tracking_status() if xr_interface.has_method("get_tracking_status") else "unknown"),
@@ -130,8 +130,8 @@ func _save_xr_project_settings(client_id: int, params: Dictionary, command_id: S
 			applied.append(path)
 	elif typeof(settings_param) == TYPE_DICTIONARY:
 		for path in settings_param.keys():
-			ProjectSettings.set_setting(String(path), settings_param[path])
-			applied.append(String(path))
+			ProjectSettings.set_setting(str(path), settings_param[path])
+			applied.append(str(path))
 	else:
 		return _send_error(client_id, "settings must be an array of {path, value} or dictionary", command_id)
 

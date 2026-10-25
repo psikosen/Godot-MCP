@@ -70,8 +70,8 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 	_send_success(client_id, state, command_id)
 
 func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: String) -> void:
-	var peer_type := String(params.get("peer_type", "enet")).to_lower()
-	var mode := String(params.get("mode", "server")).to_lower()
+	var peer_type := str(params.get("peer_type", "enet")).to_lower()
+	var mode := str(params.get("mode", "server")).to_lower()
 	var api := _get_scene_multiplayer()
 	var peer: MultiplayerPeer = null
 	var error_code := OK
@@ -84,7 +84,7 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 				var max_clients := int(params.get("max_clients", 32))
 				error_code = enet_peer.create_server(port, max_clients)
 			else:
-				var address := String(params.get("address", "127.0.0.1"))
+				var address := str(params.get("address", "127.0.0.1"))
 				var port := int(params.get("port", 8910))
 				error_code = enet_peer.create_client(address, port)
 			peer = enet_peer
@@ -92,10 +92,10 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 			var ws_peer := WebSocketMultiplayerPeer.new()
 			if mode == "server":
 				var port := int(params.get("port", 9080))
-				var bind_address := String(params.get("bind_address", "*"))
+				var bind_address := str(params.get("bind_address", "*"))
 				error_code = ws_peer.create_server(port, bind_address)
 			else:
-				var url := String(params.get("url", "ws://127.0.0.1:9080"))
+				var url := str(params.get("url", "ws://127.0.0.1:9080"))
 				error_code = ws_peer.create_client(url)
 			peer = ws_peer
 		"webrtc":
@@ -162,9 +162,9 @@ func _spawn_multiplayer_scene(client_id: int, params: Dictionary, command_id: St
 	var instance_path := instance.get_path()
 	_log_event("_spawn_multiplayer_scene", "Spawned multiplayer scene", {
 		"scene": scene_path,
-		"node_path": String(instance_path),
+		"node_path": str(instance_path),
 	})
 	_send_success(client_id, {
 		"scene": scene_path,
-		"node_path": String(instance_path),
+		"node_path": str(instance_path),
 	}, command_id)

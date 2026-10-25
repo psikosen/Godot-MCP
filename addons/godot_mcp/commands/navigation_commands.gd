@@ -32,7 +32,7 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 	return false
 
 func _list_navigation_maps(client_id: int, params: Dictionary, command_id: String) -> void:
-	var dimension := String(params.get("dimension", "both")).to_lower()
+	var dimension := str(params.get("dimension", "both")).to_lower()
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
@@ -70,7 +70,7 @@ func _list_navigation_maps(client_id: int, params: Dictionary, command_id: Strin
 	}, command_id)
 
 func _list_navigation_agents(client_id: int, params: Dictionary, command_id: String) -> void:
-	var dimension := String(params.get("dimension", "both")).to_lower()
+	var dimension := str(params.get("dimension", "both")).to_lower()
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
@@ -421,7 +421,7 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
 
 func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_synchronize_navmesh_with_tilemap"
-	var tilemap_path := String(params.get("tilemap_path", ""))
+	var tilemap_path := str(params.get("tilemap_path", ""))
 	var region_paths_param = params.get("region_paths", [])
 	var on_thread := bool(params.get("on_thread", true))
 
@@ -467,7 +467,7 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 				target_regions.append(child)
 	else:
 		for entry in requested_region_paths:
-			var region_path := String(entry)
+			var region_path := str(entry)
 			if region_path.is_empty():
 				continue
 			var region_node = _get_editor_node(region_path)
@@ -641,7 +641,7 @@ func _has_property(target: Object, property_name: String) -> bool:
 	var property_list = target.get_property_list()
 	for property_info in property_list:
 		if typeof(property_info) == TYPE_DICTIONARY and property_info.has("name"):
-			if String(property_info["name"]) == property_name:
+			if str(property_info["name"]) == property_name:
 				return true
 
 	return false

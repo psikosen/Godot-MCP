@@ -220,7 +220,7 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 
 	for type_name in type_list:
 		var entry := {
-			"type": String(type_name),
+			"type": str(type_name),
 			"constants": _collect_theme_constants(theme, type_name),
 		}
 
@@ -271,7 +271,7 @@ func _collect_theme_constants(theme: Theme, type_name: String) -> Array:
 	var constants: Array = []
 	for constant_name in theme.get_constant_list(type_name):
 		constants.append({
-			"name": String(constant_name),
+			"name": str(constant_name),
 			"value": theme.get_constant(constant_name, type_name),
 		})
 	return constants
@@ -280,7 +280,7 @@ func _collect_theme_colors(theme: Theme, type_name: String) -> Array:
 	var colors: Array = []
 	for color_name in theme.get_color_list(type_name):
 		colors.append({
-			"name": String(color_name),
+			"name": str(color_name),
 			"value": _serialize_color(theme.get_color(color_name, type_name)),
 		})
 	return colors
@@ -290,7 +290,7 @@ func _collect_theme_styleboxes(theme: Theme, type_name: String) -> Array:
 	for style_name in theme.get_stylebox_list(type_name):
 		var stylebox = theme.get_stylebox(style_name, type_name)
 		styleboxes.append({
-			"name": String(style_name),
+			"name": str(style_name),
 			"class": stylebox.get_class() if stylebox != null else "",
 			"resource": _serialize_resource(stylebox),
 		})
@@ -301,7 +301,7 @@ func _collect_theme_icons(theme: Theme, type_name: String) -> Array:
 	for icon_name in theme.get_icon_list(type_name):
 		var icon = theme.get_icon(icon_name, type_name)
 		icons.append({
-			"name": String(icon_name),
+			"name": str(icon_name),
 			"resource": _serialize_resource(icon),
 		})
 	return icons
@@ -311,7 +311,7 @@ func _collect_theme_fonts(theme: Theme, type_name: String) -> Array:
 	for font_name in theme.get_font_list(type_name):
 		var font = theme.get_font(font_name, type_name)
 		fonts.append({
-			"name": String(font_name),
+			"name": str(font_name),
 			"resource": _serialize_resource(font),
 		})
 	return fonts
@@ -320,7 +320,7 @@ func _collect_theme_font_sizes(theme: Theme, type_name: String) -> Array:
 	var font_sizes: Array = []
 	for size_name in theme.get_font_size_list(type_name):
 		font_sizes.append({
-			"name": String(size_name),
+			"name": str(size_name),
 			"size": theme.get_font_size(size_name, type_name),
 		})
 	return font_sizes
@@ -357,7 +357,7 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 		argument_array.append(run_target)
 
 	for arg in additional_args:
-		argument_array.append(String(arg))
+		argument_array.append(str(arg))
 
 	var packed_arguments := PackedStringArray(argument_array)
 	log_context["arguments"] = argument_array
@@ -378,7 +378,7 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 
 	var normalized_output: Array = []
 	for line in output:
-		normalized_output.append(String(line))
+		normalized_output.append(str(line))
 
 	var response := {
 		"binary": binary_path,
@@ -514,7 +514,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 	var enable_plugins := action == "enable"
 	var normalized_targets: Array = []
 	for raw_target in targets:
-		var target_key := String(raw_target)
+		var target_key := str(raw_target)
 		if lookup.has(target_key):
 			normalized_targets.append(target_key)
 		elif name_lookup.has(target_key):
@@ -630,7 +630,7 @@ func _collect_editor_plugins() -> Dictionary:
 
 	var enabled_array: Array = []
 	for path in enabled_plugins:
-		enabled_array.append(String(path))
+		enabled_array.append(str(path))
 
 	var addons_dir := DirAccess.open("res://addons")
 	var entries: Array = []
@@ -727,7 +727,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		var properties := {}
 		var captured := 0
 		for property in node.get_property_list():
-			var property_name = String(property.get("name", ""))
+			var property_name = str(property.get("name", ""))
 			if property_name.is_empty():
 				continue
 			if not include_internal and property_name.begins_with("_"):
@@ -823,7 +823,7 @@ func _serialize_resource(resource) -> Dictionary:
 		}
 	return {
 		"class": typeof(resource),
-		"description": String(resource),
+		"description": str(resource),
 	}
 
 func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:

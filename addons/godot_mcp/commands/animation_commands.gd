@@ -154,10 +154,10 @@ func _describe_animation_state_machines(client_id: int, params: Dictionary, comm
 
 func _edit_animation(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_edit_animation"
-	var player_path := String(params.get("player_path", ""))
-	var animation_name := String(params.get("animation", ""))
+	var player_path := str(params.get("player_path", ""))
+	var animation_name := str(params.get("animation", ""))
 	var operations_param = params.get("operations", [])
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	if player_path.is_empty():
 		_log("Animation player path missing", function_name, {"client_id": client_id}, true)
@@ -218,7 +218,7 @@ func _edit_animation(client_id: int, params: Dictionary, command_id: String) -> 
 	for entry in operations:
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
-		var op_type := String(entry.get("type", ""))
+		var op_type := str(entry.get("type", ""))
 		if op_type == "rename" or op_type == "rename_animation":
 			rename_operations.append(entry.duplicate(true))
 		else:
@@ -265,7 +265,7 @@ func _edit_animation(client_id: int, params: Dictionary, command_id: String) -> 
 		transaction.add_undo_method(self, "_apply_animation_clone", [animation, original_copy])
 
 	for rename_operation in rename_operations:
-		var requested_name := String(rename_operation.get("new_name", rename_operation.get("name", "")))
+		var requested_name := str(rename_operation.get("new_name", rename_operation.get("name", "")))
 		if requested_name.is_empty():
 			continue
 		if requested_name == final_animation_name:
@@ -330,11 +330,11 @@ func _edit_animation(client_id: int, params: Dictionary, command_id: String) -> 
 
 func _configure_animation_tree(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_configure_animation_tree"
-	var tree_path := String(params.get("tree_path", params.get("node_path", "")))
+	var tree_path := str(params.get("tree_path", params.get("node_path", "")))
 	var property_updates = params.get("properties", {})
 	var parameter_updates = params.get("parameters", {})
 	var transitions: Array = params.get("state_transitions", [])
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	if tree_path.is_empty():
 		_log("AnimationTree path missing", function_name, {"client_id": client_id}, true)
@@ -390,7 +390,7 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 	if typeof(parameter_updates) == TYPE_DICTIONARY:
 		for parameter_key in parameter_updates.keys():
 			var parameter_path = parameter_key
-			if not String(parameter_path).begins_with("parameters/"):
+			if not str(parameter_path).begins_with("parameters/"):
 				parameter_path = "parameters/%s" % parameter_key
 			var new_parameter = _parse_property_value(parameter_updates[parameter_key])
 			var previous_parameter = tree.get(parameter_path)
@@ -400,7 +400,7 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 			transaction.add_undo_method(tree, "set", [parameter_path, previous_parameter])
 			applied_operations.append({
 				"type": "parameter",
-				"path": String(parameter_path),
+				"path": str(parameter_path),
 				"value": _serialize_variant(new_parameter),
 				"previous": _serialize_variant(previous_parameter),
 			})
@@ -409,8 +409,8 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 		for entry in transitions:
 			if typeof(entry) != TYPE_DICTIONARY:
 				continue
-			var playback_path := String(entry.get("playback_path", entry.get("path", "")))
-			var target_state := String(entry.get("state", entry.get("target", "")))
+			var playback_path := str(entry.get("playback_path", entry.get("path", "")))
+			var target_state := str(entry.get("state", entry.get("target", "")))
 			if playback_path.is_empty() or target_state.is_empty():
 				continue
 			if not playback_path.begins_with("parameters/"):
@@ -470,12 +470,12 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 
 func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_bake_skeleton_pose"
-	var skeleton_path := String(params.get("skeleton_path", ""))
-	var player_path := String(params.get("player_path", params.get("animation_player", "")))
-	var animation_name := String(params.get("animation", params.get("animation_name", "")))
+	var skeleton_path := str(params.get("skeleton_path", ""))
+	var player_path := str(params.get("player_path", params.get("animation_player", "")))
+	var animation_name := str(params.get("animation", params.get("animation_name", "")))
 	var bones_param = params.get("bones", [])
-	var capture_space := String(params.get("space", "local")).to_lower()
-	var transaction_id := String(params.get("transaction_id", ""))
+	var capture_space := str(params.get("space", "local")).to_lower()
+	var transaction_id := str(params.get("transaction_id", ""))
 	var overwrite := bool(params.get("overwrite", true))
 	var pose_time := float(params.get("time", 0.0))
 
@@ -524,7 +524,7 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 	var target_bones: Array = []
 	if typeof(bones_param) == TYPE_ARRAY and not bones_param.is_empty():
 		for value in bones_param:
-			var bone_name := String(value)
+			var bone_name := str(value)
 			if available_bones.has(bone_name):
 				target_bones.append(bone_name)
 	else:
@@ -553,7 +553,7 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 				continue
 
 			var track_path := _build_bone_track_path(player, skeleton, bone_name)
-			if String(track_path) == "":
+			if str(track_path) == "":
 				continue
 
 			# In Godot 4, use TYPE_POSITION_3D for 3D skeletons, TYPE_VALUE for 2D
@@ -562,7 +562,7 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 			if track_index == -1:
 				track_index = working_copy.add_track(track_type)
 				working_copy.track_set_path(track_index, track_path)
-				created_tracks.append({"track_index": track_index, "track_path": String(track_path)})
+				created_tracks.append({"track_index": track_index, "track_path": str(track_path)})
 			else:
 				if working_copy.track_get_type(track_index) != track_type:
 					working_copy.remove_track(track_index)
@@ -653,13 +653,13 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 
 func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_generate_tween_sequence"
-	var player_path := String(params.get("player_path", params.get("animation_player_path", "")))
-	var animation_name := String(params.get("animation", params.get("animation_name", "")))
+	var player_path := str(params.get("player_path", params.get("animation_player_path", "")))
+	var animation_name := str(params.get("animation", params.get("animation_name", "")))
 	var sequence: Array = params.get("sequence", [])
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 	var overwrite := bool(params.get("overwrite", true))
 	var loop := bool(params.get("loop", false))
-	var default_target := String(params.get("target_path", ""))
+	var default_target := str(params.get("target_path", ""))
 
 	if player_path.is_empty():
 		_log("AnimationPlayer path missing for tween sequence", function_name, {"client_id": client_id}, true)
@@ -704,8 +704,8 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		if typeof(step_entry) != TYPE_DICTIONARY:
 			continue
 
-		var target_path := String(step_entry.get("target_path", default_target))
-		var property_name = String(step_entry.get("property", step_entry.get("attribute", "")))
+		var target_path := str(step_entry.get("target_path", default_target))
+		var property_name = str(step_entry.get("property", step_entry.get("attribute", "")))
 		var duration := float(step_entry.get("duration", 0.0))
 		var delay := float(step_entry.get("delay", 0.0))
 		var from_value_raw = step_entry.get("from", step_entry.get("start", null))
@@ -725,7 +725,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 				target_node = player
 
 		var track_path := _build_property_track_path(player, target_node, property_name)
-		if String(track_path) == "":
+		if str(track_path) == "":
 			continue
 
 		var track_index := working_copy.find_track(track_path, Animation.TYPE_VALUE)
@@ -737,7 +737,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 			for key_index in range(key_total - 1, -1, -1):
 				working_copy.track_remove_key(track_index, key_index)
 
-		var interpolation := String(step_entry.get("interpolation", step_entry.get("ease", "linear")))
+		var interpolation := str(step_entry.get("interpolation", step_entry.get("ease", "linear")))
 		_apply_interpolation_mode(working_copy, track_index, interpolation)
 
 		current_time += max(delay, 0.0)
@@ -749,7 +749,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 				"type": "key",
 				"time": current_time,
 				"value": _serialize_variant(from_value),
-				"track_path": String(track_path),
+				"track_path": str(track_path),
 			})
 
 		var to_value = _parse_property_value(to_value_raw)
@@ -759,7 +759,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 			"type": "key",
 			"time": end_time,
 			"value": _serialize_variant(to_value),
-			"track_path": String(track_path),
+			"track_path": str(track_path),
 		})
 
 		current_time = end_time
@@ -841,11 +841,11 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 
 func _sync_particles_with_animation(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_sync_particles_with_animation"
-	var particles_path := String(params.get("particles_path", params.get("node_path", "")))
-	var player_path := String(params.get("player_path", params.get("animation_player_path", "")))
-	var animation_name := String(params.get("animation", params.get("animation_name", "")))
+	var particles_path := str(params.get("particles_path", params.get("node_path", "")))
+	var player_path := str(params.get("player_path", params.get("animation_player_path", "")))
+	var animation_name := str(params.get("animation", params.get("animation_name", "")))
 	var emission_settings = params.get("emission", {})
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 	var overwrite_keys := bool(params.get("overwrite_keys", true))
 	var sync_keys := bool(params.get("add_animation_keys", true))
 
@@ -903,7 +903,7 @@ func _sync_particles_with_animation(client_id: int, params: Dictionary, command_
 	var particle_updates := {}
 	if typeof(emission_settings) == TYPE_DICTIONARY:
 		for key in emission_settings.keys():
-			particle_updates[String(key)] = _parse_property_value(emission_settings[key])
+			particle_updates[str(key)] = _parse_property_value(emission_settings[key])
 
 	if not particle_updates.has("one_shot"):
 		particle_updates["one_shot"] = true
@@ -960,12 +960,12 @@ func _sync_particles_with_animation(client_id: int, params: Dictionary, command_
 	if sync_keys:
 		var operations: Array = []
 		var track_path := _build_property_track_path(player, particles, "emitting")
-		if String(track_path) != "":
-			operations.append({"type": "ensure_track", "track_path": String(track_path)})
+		if str(track_path) != "":
+			operations.append({"type": "ensure_track", "track_path": str(track_path)})
 			if overwrite_keys:
-				operations.append({"type": "clear_track", "track_path": String(track_path)})
-			operations.append({"type": "insert_key", "track_path": String(track_path), "time": 0.0, "value": true})
-			operations.append({"type": "insert_key", "track_path": String(track_path), "time": animation_length, "value": false})
+				operations.append({"type": "clear_track", "track_path": str(track_path)})
+			operations.append({"type": "insert_key", "track_path": str(track_path), "time": 0.0, "value": true})
+			operations.append({"type": "insert_key", "track_path": str(track_path), "time": animation_length, "value": false})
 
 		if operations.size() > 0:
 			var working_copy := animation.duplicate(true)
@@ -1043,10 +1043,10 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
 
-		var op_type := String(entry.get("type", ""))
+		var op_type := str(entry.get("type", ""))
 		match op_type:
 			"set_property":
-				var property_name = String(entry.get("property", ""))
+				var property_name = str(entry.get("property", ""))
 				if property_name.is_empty():
 					continue
 				var new_value = _parse_property_value(entry.get("value"))
@@ -1224,7 +1224,7 @@ func _ensure_animation_track(animation: Animation, payload: Dictionary) -> Dicti
 
 	var track_path_value = payload.get("track_path", payload.get("path", ""))
 	var track_path := _normalise_track_path(track_path_value)
-	if String(track_path) == "":
+	if str(track_path) == "":
 		result["status"] = "invalid_path"
 		return result
 
@@ -1237,10 +1237,10 @@ func _ensure_animation_track(animation: Animation, payload: Dictionary) -> Dicti
 		result["changed"] = true
 		result["created"] = true
 		result["track_index"] = existing_index
-		result["track_path"] = String(track_path)
+		result["track_path"] = str(track_path)
 	else:
 		result["track_index"] = existing_index
-		result["track_path"] = String(track_path)
+		result["track_path"] = str(track_path)
 		if animation.track_get_type(existing_index) != requested_type and payload.get("force_type", false):
 			animation.remove_track(existing_index)
 			existing_index = animation.add_track(requested_type)
@@ -1271,7 +1271,7 @@ func _resolve_animation_track_index(animation: Animation, payload: Dictionary) -
 
 	if payload.has("track_path") or payload.has("path"):
 		var path := _normalise_track_path(payload.get("track_path", payload.get("path", "")))
-		if String(path) == "":
+		if str(path) == "":
 			return -1
 		return animation.find_track(path, Animation.TYPE_VALUE)
 
@@ -1307,8 +1307,8 @@ func _serialize_animation_key(animation: Animation, track_index: int, key_index:
 func _normalise_track_path(value) -> NodePath:
 	if typeof(value) == TYPE_NODE_PATH:
 		return value
-	if typeof(value) == TYPE_STRING and not String(value).is_empty():
-		return NodePath(String(value))
+	if typeof(value) == TYPE_STRING and not str(value).is_empty():
+		return NodePath(str(value))
 	return NodePath("")
 
 func _collect_bone_names(skeleton) -> Array:
@@ -1346,7 +1346,7 @@ func _build_bone_track_path(player: AnimationPlayer, skeleton, bone_name: String
 	if player == null or skeleton == null:
 			return NodePath("")
 	var relative_path = player.get_path_to(skeleton)
-	var relative_string := String(relative_path)
+	var relative_string := str(relative_path)
 	if relative_string.is_empty():
 		relative_string = "."
 	return NodePath("%s:%s" % [relative_string, bone_name])
@@ -1355,7 +1355,7 @@ func _build_property_track_path(player: AnimationPlayer, target_node: Node, prop
 	if player == null or target_node == null or property_name.is_empty():
 		return NodePath("")
 	var relative_path = player.get_path_to(target_node)
-	var relative_string := String(relative_path)
+	var relative_string := str(relative_path)
 	if relative_string.is_empty():
 		relative_string = "."
 	return NodePath("%s:%s" % [relative_string, property_name])
@@ -1380,7 +1380,7 @@ func _has_property(target: Object, property_name: String) -> bool:
 		return false
 	var property_list := target.get_property_list()
 	for entry in property_list:
-		if String(entry.name) == property_name:
+		if str(entry.name) == property_name:
 			return true
 	return false
 
@@ -1413,7 +1413,7 @@ func _serialize_animation_player(player: AnimationPlayer, include_tracks: bool, 
 			continue
 
 		var entry := {
-			"name": String(animation_name),
+			"name": str(animation_name),
 			"length": animation.length,
 			"loop_mode": animation.loop_mode,
 			"tracks": [],
@@ -1427,7 +1427,7 @@ func _serialize_animation_player(player: AnimationPlayer, include_tracks: bool, 
 
 	return {
 		"node_path": _path_to_string(player),
-		"name": String(player.name),
+		"name": str(player.name),
 		"autoplay": player.autoplay,
 		"process_mode": player.process_mode,
 		"playback_speed": player.speed_scale,
@@ -1479,7 +1479,7 @@ func _serialize_animation_tree(tree: AnimationTree, include_nested: bool, includ
 
 	var data := {
 		"node_path": _path_to_string(tree),
-		"name": String(tree.name),
+		"name": str(tree.name),
 		"active": tree.active,
 		"process_mode": tree.process_mode,
 		"parameters": _serialize_variant(parameters_value),
@@ -1513,8 +1513,8 @@ func _collect_nested_state_machines(node: AnimationNode, include_nested: bool, i
 
 func _serialize_state_machine(state_machine: AnimationNodeStateMachine, label, include_nested: bool, include_graph: bool, include_transitions: bool) -> Dictionary:
 	var machine := {
-		"name": String(label if (typeof(label) == TYPE_STRING and not String(label).is_empty()) else state_machine.resource_name),
-		"start_node": (String(state_machine.get("start_node")) if state_machine else ""),
+		"name": str(label if (typeof(label) == TYPE_STRING and not str(label).is_empty()) else state_machine.resource_name),
+		"start_node": (str(state_machine.get("start_node")) if state_machine else ""),
 		"states": [],
 		"transitions": [],
 		"allow_transition_to_self": (state_machine.is_allow_transition_to_self() if state_machine.has_method("is_allow_transition_to_self") else false),
@@ -1530,7 +1530,7 @@ func _serialize_state_machine(state_machine: AnimationNodeStateMachine, label, i
 			continue
 
 		var state_entry := {
-			"name": String(state_name),
+			"name": str(state_name),
 			"type": animation_node.get_class(),
 		}
 
@@ -1556,8 +1556,8 @@ func _serialize_state_machine(state_machine: AnimationNodeStateMachine, label, i
 		for transition_index in transition_count:
 			var transition_info := {
 				"index": transition_index,
-				"from": String(state_machine.get_transition_from(transition_index)),
-				"to": String(state_machine.get_transition_to(transition_index)),
+				"from": str(state_machine.get_transition_from(transition_index)),
+				"to": str(state_machine.get_transition_to(transition_index)),
 			}
 			if state_machine.has_method("get_transition"):
 				var transition_resource: AnimationNodeStateMachineTransition = state_machine.get_transition(transition_index)
@@ -1623,10 +1623,10 @@ func _animation_track_type_to_string(track_type: int) -> String:
 
 func _serialize_node_path(path) -> String:
 	if typeof(path) == TYPE_NODE_PATH:
-		return String(path)
+		return str(path)
 	if typeof(path) == TYPE_STRING:
 		return path
-	return String(path)
+	return str(path)
 
 func _serialize_variant(value):
 	match typeof(value):
@@ -1665,7 +1665,7 @@ func _serialize_variant(value):
 		TYPE_DICTIONARY:
 			var dict_result := {}
 			for key in value.keys():
-				dict_result[String(key)] = _serialize_variant(value[key])
+				dict_result[str(key)] = _serialize_variant(value[key])
 			return dict_result
 		TYPE_OBJECT:
 			if value is Node or value is Resource:
@@ -1675,9 +1675,9 @@ func _serialize_variant(value):
 					return (value.resource_path if value.resource_path != "" else value.resource_name)
 				if value is Node:
 					return _path_to_string(value)
-			return String(value)
+			return str(value)
 		_:
-			return String(value)
+			return str(value)
 
 func _path_to_string(node: Node) -> String:
 	if node == null:
