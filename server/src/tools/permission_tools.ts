@@ -33,7 +33,7 @@ export const permissionTools: MCPTool[] = [
     name: 'resolve_permission_escalation',
     description:
       'Deny (withdraw) a pending permission escalation request. This tool cannot approve: ' +
-      'approval is human-only (cd server && npm run approve -- <id>, or edit project-manager/permission_escalations.json).',
+      'approval is human-only and signed (cd server && npm run approve -- <id>).',
     parameters: z.object({
       escalation_id: z.string().describe('Identifier returned when the escalation was recorded.'),
       status: z.literal('denied').default('denied')

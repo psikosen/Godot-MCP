@@ -1,12 +1,15 @@
 import os from 'node:os';
-import { escalationManager } from './utils/escalation_manager.js';
+import { APPROVAL_TTL_MS, escalationManager } from './utils/escalation_manager.js';
 
 /**
  * Human-only approval of permission escalations. MCP clients cannot approve their own
  * requests (resolve_permission_escalation can only deny), so approval happens here.
  *
  *   npm run approve                    list pending escalations
- *   npm run approve -- <id> [notes]    approve one escalation (single use)
+ *   npm run approve -- <id> [notes]    approve one escalation (single use, expires)
+ *
+ * Each approval is signed with a key outside the Godot project (~/.config/godot-mcp/approval.key,
+ * or $GODOT_MCP_APPROVAL_KEY_PATH), created on first use. Editing the JSON store by hand grants nothing.
  */
 // ponytail: plain read-modify-write of the JSON file; a server write landing in the same
 // millisecond can drop one change. Add a file lock if approvals ever race in practice.
@@ -37,7 +40,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`Approved ${record.id} (${record.path}). The client can now retry that exact call once.`);
+  console.log(
+    `Approved ${record.id} (${record.path}). The client can retry that exact call once, ` +
+      `within ${APPROVAL_TTL_MS / 60000} minutes.`,
+  );
 }
 
 main().catch(error => {

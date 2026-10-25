@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export type EscalationStatus = 'pending' | 'approved' | 'denied';
@@ -20,6 +21,8 @@ export interface EscalationRecord {
   metadata?: Record<string, unknown>;
   /** Set when an approved escalation has been used. Approvals are single-use. */
   consumedAt?: string;
+  /** HMAC from `npm run approve`. An "approved" record without a valid one is ignored. */
+  approvalSignature?: string;
 }
 
 interface EscalationState {
@@ -64,15 +67,34 @@ const defaultStoragePath = fileURLToPath(
 );
 
 /**
+ * The escalation store lives inside the Godot project, so Godot tools can rewrite it.
+ * Approvals are therefore signed with a key kept outside the project; the store alone
+ * can never grant anything.
+ */
+const defaultKeyPath =
+  process.env.GODOT_MCP_APPROVAL_KEY_PATH ?? path.join(os.homedir(), '.config', 'godot-mcp', 'approval.key');
+const KEY_FORMAT = /^[0-9a-f]{64}$/;
+/** Signed approvals expire, which bounds replay if someone strips consumedAt from the file. */
+export const APPROVAL_TTL_MS = 10 * 60 * 1000;
+const CLOCK_SKEW_MS = 60 * 1000;
+
+/**
  * Persists permission escalation requests so that humans can review and
  * resolve them outside of the automated patch workflow.
  */
 export class EscalationManager {
   private readonly storagePath: string;
+  private readonly keyPath: string;
   private queue: Promise<void> = Promise.resolve();
+  // ponytail: cached for the process lifetime, so overwriting the key file mid-session changes
+  // nothing; a restart re-reads it. Tools that can write outside res:// must stay contained.
+  private key?: Buffer;
+  // Survives a rollback of consumedAt in the file (until restart; the TTL covers the rest).
+  private readonly consumedIds = new Set<string>();
 
-  constructor(storagePath?: string) {
+  constructor(storagePath?: string, keyPath: string = defaultKeyPath) {
     this.storagePath = storagePath ?? defaultStoragePath;
+    this.keyPath = keyPath;
   }
 
   get filePath(): string {
@@ -156,20 +178,30 @@ export class EscalationManager {
       const normalizedPath = this.normalizePath(relativePath);
       const wanted = canonicalJson(args);
 
+      const key = await this.loadKey(false);
+      if (!key) {
+        return undefined;
+      }
+
+      const now = Date.now();
       const record = state.records.find(
         item =>
           item.status === 'approved' &&
           !item.consumedAt &&
+          !this.consumedIds.has(item.id) &&
           item.path === normalizedPath &&
           item.mode === mode &&
-          canonicalJson(item.metadata?.args) === wanted,
+          canonicalJson(item.metadata?.args) === wanted &&
+          this.isFresh(item.resolvedAt, now) &&
+          this.hasValidSignature(item, key),
       );
 
       if (!record) {
         return undefined;
       }
 
-      record.consumedAt = new Date().toISOString();
+      this.consumedIds.add(record.id);
+      record.consumedAt = new Date(now).toISOString();
       await this.saveState(state);
 
       this.log('Consumed approved escalation', {
@@ -211,6 +243,11 @@ export class EscalationManager {
       record.resolvedAt = new Date().toISOString();
       record.resolver = resolver;
       record.notes = notes;
+      if (status === 'approved') {
+        // Only `npm run approve` reaches this branch; the MCP tool hard-codes 'denied'.
+        const key = await this.loadKey(true);
+        record.approvalSignature = this.sign(record, key!);
+      }
 
       await this.saveState(state);
 
@@ -221,6 +258,66 @@ export class EscalationManager {
 
       return record;
     });
+  }
+
+  private sign(record: EscalationRecord, key: Buffer): string {
+    const payload = canonicalJson({
+      id: record.id,
+      path: record.path,
+      mode: record.mode,
+      args: record.metadata?.args ?? null,
+      approvedAt: record.resolvedAt,
+    });
+    return createHmac('sha256', key).update(payload).digest('hex');
+  }
+
+  private hasValidSignature(record: EscalationRecord, key: Buffer): boolean {
+    const given = Buffer.from(record.approvalSignature ?? '', 'utf8');
+    const expected = Buffer.from(this.sign(record, key), 'utf8');
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  }
+
+  private isFresh(resolvedAt: string | undefined, now: number): boolean {
+    const age = now - Date.parse(resolvedAt ?? '');
+    return age >= -CLOCK_SKEW_MS && age <= APPROVAL_TTL_MS;
+  }
+
+  /**
+   * Reads the 64-hex-char approval key. With `create`, makes one (mode 0600) when missing.
+   * A file in any other format is rejected, so a Godot resource saved over it can't become a key.
+   */
+  private async loadKey(create: boolean): Promise<Buffer | undefined> {
+    if (this.key) {
+      return this.key;
+    }
+
+    let text: string | undefined;
+    try {
+      text = (await fs.readFile(this.keyPath, 'utf8')).trim();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !create) {
+        return undefined;
+      }
+      await fs.mkdir(path.dirname(this.keyPath), { recursive: true, mode: 0o700 });
+      text = randomBytes(32).toString('hex');
+      await fs.writeFile(this.keyPath, `${text}\n`, { mode: 0o600, flag: 'wx' });
+      this.log('Created approval key', { systemSection: 'key', details: { keyPath: this.keyPath } });
+    }
+
+    if (!KEY_FORMAT.test(text)) {
+      this.log('Approval key has an invalid format; ignoring all approvals', {
+        systemSection: 'key',
+        error: true,
+        details: { keyPath: this.keyPath },
+      });
+      if (create) {
+        throw new Error(`Approval key at ${this.keyPath} is not 64 hex characters. Delete it to create a new one.`);
+      }
+      return undefined;
+    }
+
+    this.key = Buffer.from(text, 'hex');
+    return this.key;
   }
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {

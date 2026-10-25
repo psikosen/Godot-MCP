@@ -46,8 +46,8 @@ export class CommandGuard {
       return;
     }
 
-    // A human approves by setting the record's status to "approved" (npm run approve -- <id>).
-    // Each approval allows exactly one call with exactly the args that were recorded.
+    // A human approves with `npm run approve -- <id>`, which signs the record with a key kept
+    // outside the project. Each signed approval allows one call with exactly the recorded args.
     const approval = await this.escalations.consumeApproval(`tool:${tool.name}`, requiredRole, args);
     if (approval) {
       this.log('command_allowed_by_escalation', {
