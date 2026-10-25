@@ -5,9 +5,26 @@ import { getGodotConnection } from '../utils/godot_connection.js';
 
 const ENTRY_LIMIT = 5000;
 
+// Fields must be listed: FastMCP 4 publishes objects with named fields as additionalProperties:false,
+// so passthrough-only fields would be invisible to clients. Mirrors _deserialize_input_event in
+// addons/godot_mcp/commands/project_commands.gd.
 const inputEventSchema = z.object({
   type: z.string()
-    .describe('Input event type such as InputEventKey, key, InputEventMouseButton, mouse_button, etc.'),
+    .describe('Input event type: key, mouse_button, joypad_button, joypad_motion, mouse_motion (or the InputEvent* class name).'),
+  device: z.number().int().optional().describe('Device id (-1 = all devices).'),
+  keycode: z.number().int().optional().describe('key: Godot Key enum value (e.g. 65 for A, 32 for Space).'),
+  physical_keycode: z.number().int().optional().describe('key: physical key code.'),
+  unicode: z.number().int().optional().describe('key: unicode code point.'),
+  pressed: z.boolean().optional().describe('key/mouse_button/joypad_button: pressed state (default true).'),
+  alt_pressed: z.boolean().optional(),
+  ctrl_pressed: z.boolean().optional(),
+  shift_pressed: z.boolean().optional(),
+  meta_pressed: z.boolean().optional(),
+  button_index: z.number().int().optional().describe('mouse_button/joypad_button: button index.'),
+  double_click: z.boolean().optional().describe('mouse_button: double click.'),
+  pressure: z.number().optional().describe('joypad_button: pressure.'),
+  axis: z.number().int().optional().describe('joypad_motion: axis index.'),
+  axis_value: z.number().optional().describe('joypad_motion: axis value (-1 to 1).'),
 }).passthrough();
 
 interface InputActionContextAction {
