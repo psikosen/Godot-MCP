@@ -2452,7 +2452,8 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 				clip_name_map[trimmed.to_lower()] = i
 
 	var clip_any_constant := _get_interactive_clip_any_constant()
-	if clip_any_constant == -1:
+	# CLIP_ANY itself is -1 in Godot 4, so -1 cannot mean "unavailable".
+	if not ClassDB.class_has_integer_constant("AudioStreamInteractive", "CLIP_ANY"):
 		_log("Interactive music clip constants are unavailable", function_name, context, true)
 		return _send_error(client_id, "Interactive music clip metadata is unavailable", command_id)
 

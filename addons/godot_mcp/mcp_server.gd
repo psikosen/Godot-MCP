@@ -1,6 +1,10 @@
 @tool
 extends EditorPlugin
 
+# Godot's default WebSocket buffers are 64 KB: larger replies (scene snapshots, project listings)
+# failed to send and the client waited out its 20s timeout; larger requests dropped the connection.
+const MESSAGE_BUFFER_BYTES := 16 * 1024 * 1024
+
 var tcp_server := TCPServer.new()
 var port := 9080
 var handshake_timeout := 3000 # ms
@@ -27,6 +31,8 @@ class WebSocketClient:
 	
 	func upgrade_to_websocket() -> bool:
 		ws = WebSocketPeer.new()
+		ws.inbound_buffer_size = MESSAGE_BUFFER_BYTES
+		ws.outbound_buffer_size = MESSAGE_BUFFER_BYTES
 		var err = ws.accept_stream(tcp)
 		return err == OK
 
@@ -309,6 +315,13 @@ func send_response(client_id: int, response: Dictionary) -> int:
 	var result = client.ws.send_text(json_text)
 	if result != OK:
 		print("Error sending response to client %d: %d" % [client_id, result])
+		# Tell the client now instead of letting it wait for a reply that will never come.
+		if response.has("commandId"):
+			client.ws.send_text(JSON.stringify({
+				"status": "error",
+				"commandId": response["commandId"],
+				"message": "Response could not be sent (%d bytes, error %d); request less data" % [json_text.length(), result],
+			}))
 
 	return result
 

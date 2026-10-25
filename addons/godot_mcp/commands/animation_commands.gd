@@ -739,7 +739,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		else:
 			target_node = _get_editor_node(target_path)
 			if target_node == null:
-				target_node = player
+				return _send_error(client_id, "Tween target node not found: %s" % target_path, command_id)
 
 		var track_path := _build_property_track_path(player, target_node, property_name)
 		if str(track_path) == "":
@@ -749,10 +749,8 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		if track_index == -1:
 			track_index = working_copy.add_track(Animation.TYPE_VALUE)
 			working_copy.track_set_path(track_index, track_path)
-		elif overwrite:
-			var key_total := working_copy.track_get_key_count(track_index)
-			for key_index in range(key_total - 1, -1, -1):
-				working_copy.track_remove_key(track_index, key_index)
+		# overwrite already cleared every track once above; clearing here per step erased the
+		# earlier keys of the same property, so only the last step survived.
 
 		var interpolation := str(step_entry.get("interpolation", step_entry.get("ease", "linear")))
 		_apply_interpolation_mode(working_copy, track_index, interpolation)

@@ -64,7 +64,8 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 
 	if has_peer and peer != null:
 		state["peer_class"] = peer.get_class()
-	state["transfer_mode"] = (peer.get_transfer_mode() if peer.has_method("get_transfer_mode") else null)
+	# After teardown the peer is null; calling has_method on it crashed the handler (20s hang).
+	state["transfer_mode"] = (peer.get_transfer_mode() if peer != null and peer.has_method("get_transfer_mode") else null)
 
 	_log_event("_get_multiplayer_state", "Captured multiplayer snapshot", state)
 	_send_success(client_id, state, command_id)

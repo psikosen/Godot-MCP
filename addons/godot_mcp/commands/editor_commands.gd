@@ -157,9 +157,19 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 	else:
 		return _send_error(client_id, "Invalid resource type: %s" % resource_type, command_id)
 	
-	# Set properties
+	if FileAccess.file_exists(resource_path) and not bool(params.get("overwrite", false)):
+		return _send_error(client_id, "Resource already exists: %s (pass overwrite=true to replace it)" % resource_path, command_id)
+
+	# Set properties. set() silently ignores unknown names and wrong types (a TileSet saved
+	# empty, "banana" became 0), so convert and check each one first.
 	for key in properties:
-		resource.set(key, properties[key])
+		if _get_property_info(resource, str(key)).is_empty():
+			return _send_error(client_id, "%s has no property %s" % [resource_type, str(key)], command_id)
+		var converted = _convert_property_value(resource, str(key), properties[key])
+		var value_error := _property_value_error(resource, str(key), converted)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
+		resource.set(key, converted)
 	
 	# Create directory if needed
 	var dir = resource_path.get_base_dir()

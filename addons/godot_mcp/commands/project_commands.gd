@@ -198,6 +198,13 @@ func _list_project_files(client_id: int, params: Dictionary, command_id: String)
 		"files": files
 	}, command_id)
 
+# Folders Godot itself skips (.gdignore, hidden like .godot/.git) plus node_modules: walking the
+# server's ~12k dependency files made project resources time out.
+func _is_ignored_dir(relative_path: String, dir_name: String) -> bool:
+	if dir_name.begins_with(".") or dir_name == "node_modules":
+		return true
+	return FileAccess.file_exists("res://" + relative_path + "/.gdignore")
+
 func _scan_directory(dir: DirAccess, path: String, extensions: Array, files: Array) -> void:
 	dir.list_dir_begin()
 	var file_name = dir.get_next()
@@ -205,7 +212,7 @@ func _scan_directory(dir: DirAccess, path: String, extensions: Array, files: Arr
 	while file_name != "":
 		if dir.current_is_dir():
 			var subdir = DirAccess.open("res://" + path + file_name)
-			if subdir:
+			if subdir and not _is_ignored_dir(path + file_name, file_name):
 				_scan_directory(subdir, path + file_name + "/", extensions, files)
 		else:
 			var file_path = path + file_name
@@ -245,6 +252,9 @@ func _analyze_project_structure(dir: DirAccess, path: String, structure: Diction
 	while file_name != "":
 		if dir.current_is_dir():
 			var dir_path = path + file_name + "/"
+			if _is_ignored_dir(path + file_name, file_name):
+				file_name = dir.get_next()
+				continue
 			structure["directories"].append("res://" + dir_path)
 			
 			var subdir = DirAccess.open("res://" + dir_path)
@@ -539,7 +549,7 @@ func _add_input_action(client_id: int, params: Dictionary, command_id: String) -
 			added_events.append(_serialize_input_event(event))
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	_log("Added input action", "_add_input_action", {
 		"action_name": action_name,
@@ -568,7 +578,7 @@ func _remove_input_action(client_id: int, params: Dictionary, command_id: String
 	InputMap.erase_action(action_name)
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	_log("Removed input action", "_remove_input_action", {
 		"action_name": action_name,
@@ -601,7 +611,7 @@ func _add_input_event_to_action(client_id: int, params: Dictionary, command_id: 
 	InputMap.action_add_event(action_name, event)
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	var serialized_event = _serialize_input_event(event)
 	_log("Added input event", "_add_input_event_to_action", {
@@ -650,7 +660,7 @@ func _remove_input_event_from_action(client_id: int, params: Dictionary, command
 	InputMap.action_erase_event(action_name, removed_event)
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	var serialized = _serialize_input_event(removed_event)
 	_log("Removed input event", "_remove_input_event_from_action", {
@@ -733,6 +743,20 @@ func _serialize_input_event(event: InputEvent) -> Dictionary:
 		data["pressed_buttons"] = event.button_mask
 
 	return data
+
+# InputMap is runtime state; project.godot stores actions as "input/<name>" settings, so saving
+# without mirroring them wrote nothing. Copy the action into its setting (or clear it), then save.
+func _persist_input_action(action_name: String, save: bool = true) -> void:
+	var key := "input/" + action_name
+	if InputMap.has_action(action_name):
+		ProjectSettings.set_setting(key, {
+			"deadzone": InputMap.action_get_deadzone(action_name),
+			"events": InputMap.action_get_events(action_name),
+		})
+	else:
+		ProjectSettings.set_setting(key, null)
+	if save:
+		ProjectSettings.save()
 
 func _deserialize_input_event(data: Dictionary) -> InputEvent:
 	var type_name: String = data.get("type", "")
@@ -913,6 +937,10 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 			context_state.erase(action_name)
 
 	if persistent:
+		for persisted_name in processed_actions.keys():
+			_persist_input_action(str(persisted_name), false)
+		for persisted_name in removed_actions:
+			_persist_input_action(str(persisted_name), false)
 		ProjectSettings.set_setting(context_setting_path, context_state)
 		ProjectSettings.save()
 

@@ -129,9 +129,15 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 
 	if typeof(overrides) == TYPE_DICTIONARY:
 		for property_name in overrides.keys():
-			var parsed_value = _parse_property_value(overrides[property_name])
+			if _get_property_info(variant, property_name).is_empty():
+				return _send_error(client_id, "%s has no property %s" % [variant.get_class(), property_name], command_id)
+			# Coerce to the property's type: comparing a Color with a Dictionary errored (20s hang).
+			var parsed_value = _convert_property_value(variant, property_name, overrides[property_name])
+			var value_error := _property_value_error(variant, property_name, parsed_value)
+			if not value_error.is_empty():
+				return _send_error(client_id, value_error, command_id)
 			var previous_value = variant.get(property_name)
-			if previous_value != parsed_value:
+			if typeof(previous_value) != typeof(parsed_value) or previous_value != parsed_value:
 				variant.set(property_name, parsed_value)
 				changes.append({
 					"type": "property",
@@ -1207,12 +1213,20 @@ vec3 triplanar_sample(sampler2D tex, vec3 wp, vec3 blend) {
 	return tx * blend.x + ty * blend.y + tz * blend.z;
 }
 
+varying vec3 world_pos;
+varying vec3 world_normal;
+
+void vertex() {
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+}
+
 void fragment() {
-	vec3 n = normalize(NORMAL);
+	vec3 n = normalize(world_normal);
 	vec3 blend = abs(n);
 	blend = pow(blend, vec3(4.0));
 	blend /= max(blend.x + blend.y + blend.z, 0.0001);
-	vec3 wp = WORLD_POSITION * texture_scale;
+	vec3 wp = world_pos * texture_scale;
 	vec3 rock = triplanar_sample(rock_tex, wp, blend);
 	vec3 grass = triplanar_sample(grass_tex, wp, blend);
 	vec3 snow = triplanar_sample(snow_tex, wp, blend);
@@ -1326,8 +1340,14 @@ float noise3(vec3 p) {
 	return mix(nxy0, nxy1, f.z);
 }
 
+varying vec3 local_pos;
+
+void vertex() {
+	local_pos = VERTEX;
+}
+
 void fragment() {
-	vec3 p = normalize(WORLD_POSITION) * cloud_scale;
+	vec3 p = normalize(local_pos) * cloud_scale;
 	float t = TIME * cloud_speed;
 	float n = noise3(p + vec3(t, t * 0.7, -t * 0.45));
 	float cloud = smoothstep(1.0 - cloud_density, 1.0, n);
@@ -2183,6 +2203,10 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 	var save_changes := params.get("save", true)
 
 	var changes := _collect_environment_changes(environment, params)
+	if not _refused_values.is_empty():
+		# Atomic: refuse the whole call before anything is applied.
+		var refused := "; ".join(PackedStringArray(_refused_values))
+		return _send_error(client_id, "Refused: %s" % refused, command_id)
 	if changes.is_empty():
 		_send_success(client_id, {
 			"status": "no_change",
@@ -2330,7 +2354,7 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 		var sky_map := {
 			"custom_fov": "sky_custom_fov",
 			"rotation": "sky_rotation",
-			"energy": "sky_energy",
+			"energy": "background_energy_multiplier",  # Godot 4 has no sky_energy
 		}
 		_merge_environment_section_changes(environment, sky_map, sky, changes)
 
@@ -2342,9 +2366,16 @@ func _merge_environment_section_changes(environment: Environment, property_map: 
 			_append_environment_change(environment, property_map[key], values[key], changes)
 
 func _append_environment_change(environment: Environment, property_name: String, raw_value, changes: Array) -> void:
+	if _get_property_info(environment, property_name).is_empty():
+		_refused_values.append("Environment has no property %s" % property_name)
+		return
 	var previous = environment.get(property_name)
 	# Coerce JSON input ("#hex", {"r":..}) to the property's type; != between mismatched types errors.
 	var parsed: Variant = _coerce_value_to_match(previous, _parse_property_value(raw_value))
+	var value_error := _property_value_error(environment, property_name, parsed)
+	if not value_error.is_empty():
+		_refused_values.append(value_error)
+		return
 	if typeof(previous) == typeof(parsed) and previous == parsed:
 		return
 	changes.append({

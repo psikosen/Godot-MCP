@@ -3694,6 +3694,9 @@ func _fill_tilemap_rect_2d(client_id: int, params: Dictionary, command_id: Strin
 	var size: Vector2i = size_result.get("value")
 	if size.x <= 0 or size.y <= 0:
 		return _send_error(client_id, "size must be greater than zero on both axes", command_id)
+	# ponytail: fixed cap; per-cell undo work froze the editor at 90k cells. Raise if batching lands.
+	if size.x * size.y > 10000:
+		return _send_error(client_id, "Fill covers %d cells; the limit is 10000 per call (split the rect)" % (size.x * size.y), command_id)
 
 	var clear: bool = params.get("clear", false)
 	var source_id: int = -1
@@ -4397,6 +4400,8 @@ func _generate_heightmap_gridmap_3d(client_id: int, params: Dictionary, command_
 	if not (node is GridMap):
 		return _send_error(client_id, "Node at %s is not a GridMap" % node_path, command_id)
 	var gridmap: GridMap = node
+	if gridmap.mesh_library == null:
+		return _send_error(client_id, "GridMap has no MeshLibrary configured", command_id)
 
 	var origin_result := _parse_vector3i_with_default(params.get("origin", null), Vector3i.ZERO)
 	if not origin_result.get("ok", false):
@@ -4412,6 +4417,8 @@ func _generate_heightmap_gridmap_3d(client_id: int, params: Dictionary, command_
 	var item_id: int = int(params.get("item_id", -1))
 	if item_id < 0:
 		return _send_error(client_id, "item_id must be >= 0", command_id)
+	if not item_id in gridmap.mesh_library.get_item_list():
+		return _send_error(client_id, "MeshLibrary has no item %d" % item_id, command_id)
 	var orientation: int = int(params.get("orientation", 0))
 
 	var min_height: int = int(params.get("min_height", 0))
@@ -16881,8 +16888,11 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 		transaction.add_do_property(target_node, "script", script_resource)
 		transaction.add_undo_property(target_node, "script", previous_script)
 
-	transaction.add_do_method(source_node, "connect", [signal_name, callable, binds, flags])
-	transaction.add_undo_method(source_node, "disconnect", [signal_name, callable])
+	# Godot 4: connect(signal, callable, flags); binds belong on the Callable (the old 4-argument
+	# Godot 3 call failed). CONNECT_PERSIST makes save_scene keep the connection.
+	var connect_callable: Callable = callable.bindv(binds) if binds is Array and not binds.is_empty() else callable
+	transaction.add_do_method(source_node, "connect", [signal_name, connect_callable, flags | Object.CONNECT_PERSIST])
+	transaction.add_undo_method(source_node, "disconnect", [signal_name, connect_callable])
 
 	var response := {
 		"source_path": source_path,
@@ -17660,6 +17670,13 @@ func _capture_property_change(node: Object, property_name: String, desired_value
 	if not property_name in node:
 		return []
 
+	# Godot ignores or clamps values outside the property's type/range, which the configure_*
+	# tools then reported as committed. Refuse them (the command's success becomes an error).
+	var value_error := _property_value_error(node, property_name, desired_value)
+	if not value_error.is_empty():
+		_refused_values.append(value_error)
+		return []
+
 	var current_value = node.get(property_name)
 	if current_value == desired_value:
 		return []
@@ -17734,7 +17751,8 @@ func _connect_signal_safe(
 	if emitter.is_connected(signal_name, callable):
 		return
 
-	emitter.connect(signal_name, callable, flags)
+	# CONNECT_PERSIST: without it save_scene drops the connection.
+	emitter.connect(signal_name, callable, flags | Object.CONNECT_PERSIST)
 
 
 func _connect_signal_change_safe(change: Dictionary) -> void:

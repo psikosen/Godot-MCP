@@ -8,6 +8,10 @@ signal command_completed(client_id, command_type, result, command_id)
 # Reference to the server - passed by the command handler
 var _websocket_server = null
 
+# Values refused while a command collected its changes (see _capture_property_change). A command
+# always ends in _send_success or _send_error; a non-empty list turns its success into an error.
+var _refused_values: Array = []
+
 
 # Must be implemented by subclasses
 func process_command(
@@ -18,6 +22,10 @@ func process_command(
 
 # Helper functions common to all command processors
 func _send_success(client_id: int, result: Dictionary, command_id: String) -> void:
+	if not _refused_values.is_empty():
+		var refused := "; ".join(PackedStringArray(_refused_values))
+		var applied: bool = str(result.get("status", "")) != "no_change"
+		return _send_error(client_id, "Refused: %s.%s" % [refused, " Other changes in this call were applied." if applied else ""], command_id)
 	var response = {"status": "success", "result": result}
 
 	if not command_id.is_empty():
@@ -32,6 +40,7 @@ func _send_success(client_id: int, result: Dictionary, command_id: String) -> vo
 
 
 func _send_error(client_id: int, message: String, command_id: String) -> void:
+	_refused_values.clear()
 	var response = {"status": "error", "message": message}
 
 	if not command_id.is_empty():
@@ -401,10 +410,27 @@ func _property_value_error(target: Object, property_name: String, value) -> Stri
 		or (expected in numeric and actual in numeric)
 		or (expected in listish and actual in listish)
 		or (expected in stringish and actual in stringish)
+		or [expected, actual] in [[TYPE_VECTOR2I, TYPE_VECTOR2], [TYPE_VECTOR2, TYPE_VECTOR2I],
+			[TYPE_VECTOR3I, TYPE_VECTOR3], [TYPE_VECTOR3, TYPE_VECTOR3I], [TYPE_VECTOR4I, TYPE_VECTOR4],
+			[TYPE_VECTOR4, TYPE_VECTOR4I], [TYPE_RECT2I, TYPE_RECT2], [TYPE_RECT2, TYPE_RECT2I]]
 	)
 	if not compatible:
 		return "Property %s expects %s, got %s" % [property_name, type_string(expected), JSON.stringify(value)]
-	if expected in numeric and int(info.get("hint", 0)) == PROPERTY_HINT_RANGE:
+	var hint := int(info.get("hint", 0))
+	if expected == TYPE_INT and hint == PROPERTY_HINT_ENUM:
+		var allowed: Array = []
+		var items: PackedStringArray = str(info.get("hint_string", "")).split(",")
+		for index in items.size():
+			var parts_enum: PackedStringArray = items[index].split(":")
+			allowed.append(int(parts_enum[1]) if parts_enum.size() > 1 and parts_enum[1].is_valid_int() else index)
+		if not allowed.is_empty() and not int(value) in allowed:
+			return "Property %s must be one of %s (%s), got %s" % [property_name, str(allowed), str(info.get("hint_string", "")), str(value)]
+	if expected == TYPE_INT and hint in [PROPERTY_HINT_LAYERS_2D_PHYSICS, PROPERTY_HINT_LAYERS_3D_PHYSICS,
+			PROPERTY_HINT_LAYERS_2D_RENDER, PROPERTY_HINT_LAYERS_3D_RENDER, PROPERTY_HINT_LAYERS_2D_NAVIGATION,
+			PROPERTY_HINT_LAYERS_3D_NAVIGATION, PROPERTY_HINT_LAYERS_AVOIDANCE]:
+		if int(value) < 0 or int(value) > 0xFFFFFFFF:
+			return "Property %s is a 32-bit layer mask (0 to 4294967295), got %s" % [property_name, str(value)]
+	if expected in numeric and hint == PROPERTY_HINT_RANGE:
 		var parts: PackedStringArray = str(info.get("hint_string", "")).split(",")
 		if parts.size() >= 2 and parts[0].strip_edges().is_valid_float() and parts[1].strip_edges().is_valid_float():
 			var low := parts[0].to_float()

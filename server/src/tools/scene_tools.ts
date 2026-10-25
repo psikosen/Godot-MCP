@@ -36,6 +36,7 @@ interface CreateResourceParams {
   resource_type: string;
   resource_path: string;
   properties?: Record<string, any>;
+  overwrite?: boolean;
 }
 
 interface ConfigurePhysicsNodeParams {
@@ -573,8 +574,10 @@ export const sceneTools: MCPTool[] = [
         .describe('Path where the resource will be saved (e.g. "res://resources/style.tres")'),
       properties: z.record(z.any()).optional()
         .describe('Dictionary of property values to set on the resource'),
+      overwrite: z.boolean().optional()
+        .describe('Replace the file if it already exists (default false: refuse).'),
     }),
-    execute: async ({ resource_type, resource_path, properties = {} }: CreateResourceParams): Promise<string> => {
+    execute: async ({ resource_type, resource_path, properties = {}, overwrite }: CreateResourceParams): Promise<string> => {
       const godot = getGodotConnection();
       
       try {
@@ -582,6 +585,7 @@ export const sceneTools: MCPTool[] = [
           resource_type,
           resource_path,
           properties,
+          overwrite: overwrite ?? false,
         });
         
         return `Created ${resource_type} resource at ${result.resource_path}`;

@@ -475,10 +475,12 @@ export var sceneTools = [
                 .describe('Path where the resource will be saved (e.g. "res://resources/style.tres")'),
             properties: z.record(z.any()).optional()
                 .describe('Dictionary of property values to set on the resource'),
+            overwrite: z.boolean().optional()
+                .describe('Replace the file if it already exists (default false: refuse).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var godot, result, error_6;
-            var resource_type = _b.resource_type, resource_path = _b.resource_path, _c = _b.properties, properties = _c === void 0 ? {} : _c;
+            var resource_type = _b.resource_type, resource_path = _b.resource_path, _c = _b.properties, properties = _c === void 0 ? {} : _c, overwrite = _b.overwrite;
             return __generator(this, function (_d) {
                 switch (_d.label) {
                     case 0:
@@ -490,6 +492,7 @@ export var sceneTools = [
                                 resource_type: resource_type,
                                 resource_path: resource_path,
                                 properties: properties,
+                                overwrite: overwrite !== null && overwrite !== void 0 ? overwrite : false,
                             })];
                     case 2:
                         result = _d.sent();

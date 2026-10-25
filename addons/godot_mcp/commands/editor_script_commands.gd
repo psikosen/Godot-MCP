@@ -63,12 +63,13 @@ func run():
 	_parent = get_parent()
 	var scene = get_tree().edited_scene_root
 	
-	# Execute the provided code
-	var err = _execute_code()
-	
-	# If there was an error, store it
-	if err != OK:
-		_error_message = "Failed to execute script with error: " + str(err)
+	# Execute the provided code. A runtime error aborts it and yields null; a user
+	# `return <value>` (anything but the template's own `return OK`) is the script's result.
+	var returned = _execute_code()
+	if returned == null:
+		_error_message = "Script stopped on a runtime error (the Godot output log has the line)"
+	elif result == null and not (typeof(returned) == TYPE_INT and returned == OK):
+		result = returned
 	
 	# Signal that execution is complete
 	execution_completed.emit()
@@ -149,7 +150,9 @@ func _on_script_execution_completed(script_node: Node, client_id: int, command_i
 	print("result_data: ", result_data)
 	
 	if not error_message.is_empty():
-		result_data["error"] = error_message
+		# Report failures as errors: the server only reads errors, so success:false was shown as success.
+		var printed := "\n".join(PackedStringArray(output.map(func(line): return str(line))))
+		return _send_error(client_id, "Script error: %s%s" % [error_message, ("\nOutput:\n" + printed) if not printed.is_empty() else ""], command_id)
 	elif execution_result != null:
 		result_data["result"] = execution_result
 	

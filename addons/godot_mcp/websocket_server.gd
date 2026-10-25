@@ -143,6 +143,9 @@ func _connect_pending(p: PendingPeer) -> bool:
 			# TCP is ready, create WS peer
 			print("TCP connected, upgrading to WebSocket...")
 			p.ws = WebSocketPeer.new()
+			# Default 64 KB buffers dropped large replies/requests (see mcp_server.gd).
+			p.ws.inbound_buffer_size = 16 * 1024 * 1024
+			p.ws.outbound_buffer_size = 16 * 1024 * 1024
 			p.ws.accept_stream(p.tcp)
 			return false # WebSocketPeer connection is pending.
 
@@ -161,6 +164,12 @@ func send_response(client_id: int, response: Dictionary) -> int:
 	var result = peer.send_text(json_text)
 	if result != OK:
 		print("Error sending response to client %d: %d" % [client_id, result])
+		if response.has("commandId"):
+			peer.send_text(JSON.stringify({
+				"status": "error",
+				"commandId": response["commandId"],
+				"message": "Response could not be sent (%d bytes, error %d); request less data" % [json_text.length(), result],
+			}))
 	
 	return result
 

@@ -186,7 +186,14 @@ func _update_navigation_region(client_id: int, params: Dictionary, command_id: S
 				transaction.rollback()
 			return _send_error(client_id, "Navigation region does not have property: %s" % property_name, command_id)
 
-		var parsed_value = _parse_property_value(properties[property_name])
+		# Coerce to the property type and refuse values set() would drop (e.g. a res:// path for
+		# navigation_mesh stayed null while the tool reported committed).
+		var parsed_value = _convert_property_value(node, property_name, properties[property_name])
+		var value_error := _property_value_error(node, property_name, parsed_value)
+		if not value_error.is_empty():
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, value_error, command_id)
 		var old_value = node.get(property_name)
 		property_changes.append({
 			"property": property_name,
@@ -285,7 +292,14 @@ func _update_navigation_resource(client_id: int, params: Dictionary, command_id:
 				transaction.rollback()
 			return _send_error(client_id, "Navigation resource does not have property: %s" % property_name, command_id)
 
-		var parsed_value = _parse_property_value(properties[property_name])
+		# Coerce to the property type and refuse values set() would drop (e.g. a res:// path for
+		# navigation_mesh stayed null while the tool reported committed).
+		var parsed_value = _convert_property_value(resource, property_name, properties[property_name])
+		var value_error := _property_value_error(resource, property_name, parsed_value)
+		if not value_error.is_empty():
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, value_error, command_id)
 		var old_value = resource.get(property_name)
 		resource_changes.append({
 			"property": property_name,
@@ -374,7 +388,14 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
 				transaction.rollback()
 			return _send_error(client_id, "Navigation agent does not have property: %s" % property_name, command_id)
 
-		var parsed_value = _parse_property_value(properties[property_name])
+		# Coerce to the property type and refuse values set() would drop (e.g. a res:// path for
+		# navigation_mesh stayed null while the tool reported committed).
+		var parsed_value = _convert_property_value(node, property_name, properties[property_name])
+		var value_error := _property_value_error(node, property_name, parsed_value)
+		if not value_error.is_empty():
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, value_error, command_id)
 		var old_value = node.get(property_name)
 		agent_changes.append({
 			"property": property_name,
