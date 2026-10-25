@@ -752,13 +752,14 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 			key_event.meta_pressed = data.get("meta_pressed", false)
 			return key_event
 		"inputeventmousebutton", "mouse_button":
+			# JSON sends Vector2 fields as {"x":..,"y":..} or [x, y]; coerce before assigning.
 			var mouse_button := InputEventMouseButton.new()
 			mouse_button.device = data.get("device", -1)
 			mouse_button.button_index = data.get("button_index", 0)
 			mouse_button.pressed = data.get("pressed", true)
 			mouse_button.double_click = data.get("double_click", false)
-			mouse_button.position = data.get("position", Vector2.ZERO)
-			mouse_button.global_position = data.get("global_position", Vector2.ZERO)
+			mouse_button.position = _coerce_to_vector2(data.get("position", Vector2.ZERO))
+			mouse_button.global_position = _coerce_to_vector2(data.get("global_position", Vector2.ZERO))
 			mouse_button.alt_pressed = data.get("alt_pressed", false)
 			mouse_button.ctrl_pressed = data.get("ctrl_pressed", false)
 			mouse_button.shift_pressed = data.get("shift_pressed", false)
@@ -780,8 +781,8 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 		"inputeventmousemotion", "mouse_motion":
 			var mouse_motion := InputEventMouseMotion.new()
 			mouse_motion.device = data.get("device", -1)
-			mouse_motion.relative = data.get("relative", Vector2.ZERO)
-			mouse_motion.velocity = data.get("velocity", Vector2.ZERO)
+			mouse_motion.relative = _coerce_to_vector2(data.get("relative", Vector2.ZERO))
+			mouse_motion.velocity = _coerce_to_vector2(data.get("velocity", Vector2.ZERO))
 			return mouse_motion
 
 	_log("Unsupported input event type", "_deserialize_input_event", {"type": type_name}, true)
