@@ -66,7 +66,6 @@ const AUDIO_STREAM_PLAYER_TYPES := [
 	"AudioStreamPlayer",
 	"AudioStreamPlayer2D",
 	"AudioStreamPlayer3D",
-	"AudioStreamPlayerMicrophone",
 ]
 
 
@@ -467,6 +466,9 @@ func _begin_scene_transaction(client_id: int, params: Dictionary, command_id: St
 	metadata["command_id"] = command_id
 	metadata["command"] = "begin_scene_transaction"
 
+	if not transaction_id.is_empty() and SceneTransactionManager.has_active(transaction_id):
+		return _send_error(client_id, "Transaction '%s' is already active; commit or roll it back first, or omit transaction_id" % transaction_id, command_id)
+
 	var transaction = SceneTransactionManager.begin_registered(transaction_id, action_name, metadata)
 	if not transaction:
 		return _send_error(client_id, "Unable to begin scene transaction", command_id)
@@ -495,9 +497,14 @@ func _rollback_scene_transaction(client_id: int, params: Dictionary, command_id:
 	if transaction_id.is_empty():
 		return _send_error(client_id, "Transaction ID is required to rollback", command_id)
 
+	if SceneTransactionManager.is_committed(transaction_id):
+		return _send_error(client_id, "Transaction '%s' was already committed; use the editor's Undo" % transaction_id, command_id)
+	if not SceneTransactionManager.has_active(transaction_id):
+		return _send_error(client_id, "Unknown transaction '%s'" % transaction_id, command_id)
+
 	var result = SceneTransactionManager.rollback_registered(transaction_id)
 	if not result:
-		return _send_error(client_id, "Failed to rollback scene transaction: %s" % transaction_id, command_id)
+		return _send_error(client_id, "Rollback of transaction '%s' failed" % transaction_id, command_id)
 
 	_send_success(client_id, {
 		"transaction_id": transaction_id,
@@ -1165,6 +1172,16 @@ func _configure_physics_node(
 		)
 		return _send_error(client_id, "Node at path is not a physics %s" % expected_category, command_id)
 
+	# Joint node_a/node_b are NodePaths relative to the joint; an absolute MCP path ("/root/X") would never resolve.
+	if expected_category == "joint":
+		for key in ["node_a", "node_b"]:
+			var raw_ref := str(properties.get(key, ""))
+			if raw_ref.begins_with("/root"):
+				var target = _get_editor_node(raw_ref)
+				if not target:
+					return _send_error(client_id, "%s not found: %s" % [key, raw_ref], command_id)
+				properties[key] = node.get_path_to(target)
+
 	var transaction_metadata := {
 		"command": command_identifier,
 		"node_path": node_path,
@@ -1650,6 +1667,9 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		if params.has(property_key):
 			property_overrides[property_key] = params[property_key]
 
+	if property_overrides.has("bus") and AudioServer.get_bus_index(str(property_overrides["bus"])) < 0:
+		return _send_error(client_id, "Audio bus not found: %s (see list_audio_buses)" % str(property_overrides["bus"]), command_id)
+
 	var inline_stream_requested := false
 	var inline_stream_null := false
 	var inline_stream_value = null
@@ -1738,6 +1758,10 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 			}
 			_log("Instantiated node is not an AudioStreamPlayer subtype", function_name, context, true)
 			return _send_error(client_id, "Audio stream player type must inherit from AudioStreamPlayer", command_id)
+
+		if not player_name.is_empty() and parent.has_node(NodePath(player_name)):
+			node.free()
+			return _send_error(client_id, "A node named '%s' already exists under %s" % [player_name, resolved_parent_path], command_id)
 
 		was_created = true
 		if player_name.is_empty():
@@ -2089,6 +2113,13 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 	var requested_clip_count := clip_entries.size()
 	if requested_clip_count != previous_clip_count:
 		interactive_stream.set_clip_count(requested_clip_count)
+		# Shrinking can leave transitions pointing at removed clips; drop them so the saved resource has no dangling refs.
+		var stale_list := interactive_stream.get_transition_list()
+		for stale_i in range(0, stale_list.size(), 2):
+			var stale_from := int(stale_list[stale_i])
+			var stale_to := int(stale_list[stale_i + 1])
+			if stale_from >= requested_clip_count or stale_to >= requested_clip_count:
+				interactive_stream.erase_transition(stale_from, stale_to)
 
 	var clip_summaries: Array = []
 	var clip_display_names: Array = []
@@ -2375,6 +2406,30 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 
 		for removed_transition in removed_transitions:
 			transition_summaries.append(removed_transition)
+
+	# Also list transitions this call did not touch so the output shows the whole saved graph.
+	var listed_keys: Dictionary = {}
+	for listed in transition_summaries:
+		listed_keys["%d->%d" % [listed.get("from_index", -2), listed.get("to_index", -2)]] = true
+	var final_list := interactive_stream.get_transition_list()
+	for final_i in range(0, final_list.size(), 2):
+		var f_from := int(final_list[final_i])
+		var f_to := int(final_list[final_i + 1])
+		if listed_keys.has("%d->%d" % [f_from, f_to]):
+			continue
+		transition_summaries.append({
+			"from_index": f_from,
+			"to_index": f_to,
+			"from_label": _interactive_clip_label(f_from, clip_display_names, clip_any_constant),
+			"to_label": _interactive_clip_label(f_to, clip_display_names, clip_any_constant),
+			"from_time": transition_from_maps.get("reverse", {}).get(int(interactive_stream.get_transition_from_time(f_from, f_to)), "?"),
+			"to_time": transition_to_maps.get("reverse", {}).get(int(interactive_stream.get_transition_to_time(f_from, f_to)), "?"),
+			"fade_mode": fade_mode_maps.get("reverse", {}).get(int(interactive_stream.get_transition_fade_mode(f_from, f_to)), "?"),
+			"fade_beats": interactive_stream.get_transition_fade_beats(f_from, f_to),
+			"use_filler_clip": interactive_stream.is_transition_using_filler_clip(f_from, f_to),
+			"hold_previous": interactive_stream.is_transition_holding_previous(f_from, f_to),
+			"status": "unchanged",
+		})
 
 	var save_result := _save_resource_contained(interactive_stream, normalized_path)
 	if save_result != OK:
@@ -3104,6 +3159,12 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 			continue
 
 		var normalized_path := _normalize_resource_path(raw_path)
+		if not normalized_path.get_extension().to_lower() in ["wav", "ogg", "mp3"]:
+			errors.append({
+				"error": "Not an audio file (expected .wav, .ogg or .mp3)",
+				"resource_path": normalized_path,
+			})
+			continue
 		if not ResourceLoader.exists(normalized_path):
 			errors.append({
 				"error": "Resource not found",
@@ -3172,11 +3233,22 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 	if normalized_paths.is_empty():
 		context["errors"] = errors.duplicate(true)
 		_log("No valid audio assets resolved for reimport", function_name, context, true)
-		return _send_error(client_id, "No valid audio assets to import", command_id)
+		return _send_error(client_id, "No valid audio assets to import: %s" % JSON.stringify(errors), command_id)
 
 	filesystem.reimport_files(normalized_paths)
 
-	context["reimported"] = normalized_paths.size()
+	# reimport_files returns nothing, so check each file now loads as an AudioStream.
+	var reimported_count := 0
+	for asset_result in asset_results:
+		var reloaded = ResourceLoader.load(asset_result["resource_path"], "", ResourceLoader.CACHE_MODE_IGNORE)
+		if reloaded is AudioStream:
+			asset_result["reimport_status"] = "ok"
+			reimported_count += 1
+		else:
+			asset_result["reimport_status"] = "failed"
+			errors.append({"error": "Reimport did not produce an AudioStream", "resource_path": asset_result["resource_path"]})
+
+	context["reimported"] = reimported_count
 	context["config_updates"] = config_updates
 	context["error_count"] = errors.size()
 	if not errors.is_empty():
@@ -3185,7 +3257,7 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 	_log("Triggered batch audio asset import", function_name, context)
 
 	var response := {
-		"reimported": normalized_paths.size(),
+		"reimported": reimported_count,
 		"assets": asset_results,
 		"config_updates": config_updates,
 	}
@@ -3635,7 +3707,7 @@ func _is_supported_audio_stream_player(node: Node) -> bool:
 	if node is AudioStreamPlayer:
 		return true
 	var node_class := node.get_class()
-	return node_class == "AudioStreamPlayer2D" or node_class == "AudioStreamPlayer3D" or node_class == "AudioStreamPlayerMicrophone"
+	return node_class == "AudioStreamPlayer2D" or node_class == "AudioStreamPlayer3D"
 
 func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path := str(params.get("node_path", ""))

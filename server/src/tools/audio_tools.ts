@@ -5,8 +5,7 @@ import { MCPTool, CommandResult } from '../utils/types.js';
 type AudioPlayerType =
   | 'AudioStreamPlayer'
   | 'AudioStreamPlayer2D'
-  | 'AudioStreamPlayer3D'
-  | 'AudioStreamPlayerMicrophone';
+  | 'AudioStreamPlayer3D';
 
 interface AuthorAudioStreamPlayerParams {
   parent_path?: string;
@@ -104,7 +103,6 @@ const audioPlayerTypeSchema = z.enum([
   'AudioStreamPlayer',
   'AudioStreamPlayer2D',
   'AudioStreamPlayer3D',
-  'AudioStreamPlayerMicrophone',
 ]);
 
 const authorAudioStreamPlayerSchema = z
@@ -561,7 +559,7 @@ const formatDynamicLayerResponse = (result: CommandResult): string => {
   return lines.join('\n');
 };
 
-const formatWaveformAnalysis = (result: CommandResult): string => {
+const formatWaveformAnalysis = (result: CommandResult, showEnvelope = false): string => {
   const metadata = (result.metadata as Record<string, unknown>) ?? {};
   const resourcePath =
     (metadata.resource_path as string) ?? (result.resource_path as string) ?? 'res://audio/stream.audio';
@@ -650,6 +648,22 @@ const formatWaveformAnalysis = (result: CommandResult): string => {
       }
 
       lines.push(`- Channel ${channelIndex}: ${parts.join(' | ')}`);
+
+      const envelope = Array.isArray(summary.envelope) ? (summary.envelope as Record<string, number>[]) : [];
+      if (showEnvelope && envelope.length > 0) {
+        // Collapse the bins to at most 8 segments of peak amplitude so the shape is readable as text.
+        const segments = Math.min(8, envelope.length);
+        const peaks: string[] = [];
+        for (let seg = 0; seg < segments; seg++) {
+          const slice = envelope.slice(
+            Math.floor((seg * envelope.length) / segments),
+            Math.floor(((seg + 1) * envelope.length) / segments),
+          );
+          const peak = Math.max(...slice.map((bin) => Math.max(Math.abs(bin.min ?? 0), Math.abs(bin.max ?? 0))));
+          peaks.push(peak.toFixed(3));
+        }
+        lines.push(`  Envelope (${envelope.length} bins, peak per ${segments} segments): ${peaks.join(' ')}`);
+      }
     });
   }
 
@@ -680,6 +694,9 @@ const formatBatchImportAudioResult = (result: CommandResult): string => {
         typeof asset.options_applied === 'number' ? (asset.options_applied as number) : undefined;
 
       const details: string[] = [`status=${status}`];
+      if (typeof asset.reimport_status === 'string') {
+        details.push(`reimport=${asset.reimport_status}`);
+      }
       if (preset) {
         details.push(`preset=${preset}`);
       }
@@ -938,7 +955,7 @@ export const audioTools: MCPTool[] = [
 
       try {
         const result = await godot.sendCommand<CommandResult>('analyze_waveform', payload);
-        return formatWaveformAnalysis(result);
+        return formatWaveformAnalysis(result, args.envelope_bins !== undefined);
       } catch (error) {
         throw new Error(`Failed to analyze waveform: ${(error as Error).message}`);
       }
