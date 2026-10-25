@@ -128,15 +128,25 @@ var GodotConnection = /** @class */ (function () {
                                 });
                                 _this.ws.on('error', function (error) {
                                     var err = error;
-                                    console.error('WebSocket error:', err);
-                                    // Don't terminate the connection on error - let the timeout handle it
-                                    // Just log the error and allow retry mechanism to work
+                                    console.error('WebSocket error:', err.message);
+                                    // Fail this attempt now (e.g. ECONNREFUSED) instead of waiting out connectionTimeout;
+                                    // otherwise a call with Godot down took ~(timeout + retryDelay) x attempts = 86s.
+                                    if (!_this.connected) {
+                                        clearTimeout(connectionTimeout);
+                                        reject(err);
+                                    }
                                 });
                                 _this.ws.on('close', function () {
                                     if (_this.connected) {
                                         console.error('Disconnected from Godot WebSocket server');
                                         _this.connected = false;
                                     }
+                                    // Commands in flight will never get a reply; fail them now instead of after their timeout.
+                                    _this.commandQueue.forEach(function (pending) {
+                                        clearTimeout(pending.timeout);
+                                        pending.reject(new Error('Godot connection closed before a reply'));
+                                    });
+                                    _this.commandQueue.clear();
                                 });
                                 // Set connection timeout
                                 var connectionTimeout = setTimeout(function () {
