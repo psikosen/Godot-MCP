@@ -90,7 +90,7 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, registerTool, launcher, error_1, err, cleanup, error_2;
+        var server, registerTool, cleanup, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -98,9 +98,15 @@ function main() {
                     server = new FastMCP({
                         name: 'GodotMCP',
                         version: '1.0.0',
+                        instructions: 'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
+                            'Read the godot/* resources or list/get tools before editing. ' +
+                            'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve.',
                     });
                     registerTool = function (tool) {
-                        server.addTool(__assign(__assign({}, tool), { execute: function (args) {
+                        var _a, _b;
+                        server.addTool(__assign(__assign({}, tool), { 
+                            // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
+                            annotations: { readOnlyHint: ((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') === 'read' }, execute: function (args) {
                                 return __awaiter(this, void 0, void 0, function () {
                                     return __generator(this, function (_a) {
                                         switch (_a.label) {
@@ -138,23 +144,6 @@ function main() {
                     server.addResource(sceneStructureResource);
                     server.addResourceTemplate(scriptResourceTemplate);
                     server.addResourceTemplate(scriptMetadataResourceTemplate);
-                    _a.label = 1;
-                case 1:
-                    _a.trys.push([1, 3, , 4]);
-                    console.error('Checking if Godot is running...');
-                    launcher = getGodotLauncher();
-                    return [4 /*yield*/, launcher.ensureGodotRunning()];
-                case 2:
-                    _a.sent();
-                    console.error('Godot editor is ready!');
-                    return [3 /*break*/, 4];
-                case 3:
-                    error_1 = _a.sent();
-                    err = error_1;
-                    console.error("Failed to ensure Godot is running: ".concat(err.message));
-                    console.error('You may need to manually launch Godot with the project');
-                    return [3 /*break*/, 4];
-                case 4:
                     cleanup = function () {
                         console.error('Shutting down Godot MCP server...');
                         var godot = getGodotConnection();
@@ -167,21 +156,32 @@ function main() {
                     };
                     process.on('SIGINT', cleanup);
                     process.on('SIGTERM', cleanup);
-                    _a.label = 5;
-                case 5:
-                    _a.trys.push([5, 7, , 8]);
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
                     return [4 /*yield*/, server.start({
                             transportType: 'stdio',
                         })];
-                case 6:
+                case 2:
                     _a.sent();
-                    return [3 /*break*/, 8];
-                case 7:
-                    error_2 = _a.sent();
-                    console.error('Failed to start MCP server:', error_2);
+                    return [3 /*break*/, 4];
+                case 3:
+                    error_1 = _a.sent();
+                    console.error('Failed to start MCP server:', error_1);
                     process.exit(1);
-                    return [3 /*break*/, 8];
-                case 8: return [2 /*return*/];
+                    return [3 /*break*/, 4];
+                case 4:
+                    // Ensure Godot is running - auto-launch if needed.
+                    // Not awaited: tool calls retry the connection on their own.
+                    console.error('Checking if Godot is running...');
+                    getGodotLauncher()
+                        .ensureGodotRunning()
+                        .then(function () { return console.error('Godot editor is ready!'); })
+                        .catch(function (error) {
+                        console.error("Failed to ensure Godot is running: ".concat(error.message));
+                        console.error('You may need to manually launch Godot with the project');
+                    });
+                    return [2 /*return*/];
             }
         });
     });

@@ -609,7 +609,7 @@ func _build_physics_world_snapshot(root: Node) -> Dictionary:
 
 	var scene_path := String(root.scene_file_path)
 	if scene_path.is_empty():
-		scene_path = String(root.get_path())
+		scene_path = _to_mcp_path(root)
 		notes.append("Edited scene has not been saved to disk yet.")
 
 	var snapshot := {
@@ -1576,7 +1576,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		_log("Requested audio stream player type does not exist", function_name, context, true)
 		return _send_error(client_id, "Unknown audio stream player type: %s" % player_type, command_id)
 
-	if not ClassDB.is_parent_class("Node", player_type):
+	if not ClassDB.is_parent_class(player_type, "Node"):
 		var context := {
 			"command": "author_audio_stream_player",
 			"player_type": player_type,

@@ -22,7 +22,7 @@
   "dependencies": {
     "diff": "^5.2.0",
     "dotenv": "^17.2.3",
-    "fastmcp": "^1.20.4",
+    "fastmcp": "^4.23.7",
     "websocket": "^1.0.35",
     "ws": "^8.13.0",
     "zod": "^3.21.4"

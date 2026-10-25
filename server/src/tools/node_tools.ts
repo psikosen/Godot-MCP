@@ -5834,7 +5834,11 @@ export const nodeTools: MCPTool[] = [
         const issueCount = Number(result.issue_count ?? result.issues?.length ?? 0);
         const scanned = Number(result.scanned_count ?? 0);
         const target = root_path ?? 'scene';
-        return `Accessibility scan for ${target} inspected ${scanned} controls and found ${issueCount} issues.`;
+        const summary = `Accessibility scan for ${target} inspected ${scanned} controls and found ${issueCount} issues.`;
+        const details = (Array.isArray(result.issues) ? result.issues : [])
+          .map((entry: { node_path?: string; issues?: string[] }) =>
+            `- ${entry.node_path ?? 'unknown node'}: ${(entry.issues ?? []).join('; ')}`);
+        return details.length ? `${summary}\n${details.join('\n')}` : summary;
       } catch (error) {
         throw new Error(`Failed to validate accessibility: ${(error as Error).message}`);
       }

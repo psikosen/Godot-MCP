@@ -1,4 +1,4 @@
-import { Resource, ResourceTemplate } from 'fastmcp';
+import { Resource, ResourceTemplate, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
 type GodotConnection = ReturnType<typeof getGodotConnection>;
@@ -90,7 +90,7 @@ const buildScriptPathArgument = () => ({
 /**
  * Resource template that provides the content of a specific script
  */
-export const scriptResourceTemplate: ResourceTemplate = {
+export const scriptResourceTemplate: ResourceTemplate<FastMCPSessionAuth> = {
   uriTemplate: 'godot/script/{path}',
   name: 'Godot Script Content',
   description: 'Fetch raw script source for a given Godot resource path.',
@@ -102,7 +102,7 @@ export const scriptResourceTemplate: ResourceTemplate = {
 
     try {
       const result = await godot.sendCommand('get_script', {
-        path: scriptPath,
+        script_path: scriptPath,
       });
 
       const resolvedPath = isNonEmptyString(result?.script_path)
@@ -127,7 +127,7 @@ export const scriptResourceTemplate: ResourceTemplate = {
 /**
  * Resource that provides a list of all scripts in the project
  */
-export const scriptListResource: Resource = {
+export const scriptListResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/scripts',
   name: 'Godot Script List',
   mimeType: 'application/json',
@@ -152,7 +152,7 @@ export const scriptListResource: Resource = {
 /**
  * Resource template that provides metadata for a specific script, including classes and methods
  */
-export const scriptMetadataResourceTemplate: ResourceTemplate = {
+export const scriptMetadataResourceTemplate: ResourceTemplate<FastMCPSessionAuth> = {
   uriTemplate: 'godot/script/{path}/metadata',
   name: 'Godot Script Metadata',
   description: 'Retrieve declared classes, methods, and signals for a script path.',

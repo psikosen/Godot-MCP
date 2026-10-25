@@ -740,7 +740,7 @@ export var renderingTools = [
         description: 'Preview fog sun scattering overrides and optionally apply them through configure_environment.',
         parameters: previewSunSchema,
         metadata: {
-            requiredRole: 'read',
+            requiredRole: 'edit',
         },
         execute: function (args) {
             return __awaiter(this, void 0, void 0, function () {

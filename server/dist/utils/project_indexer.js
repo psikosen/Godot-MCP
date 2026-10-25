@@ -371,10 +371,13 @@ var ProjectIndexer = /** @class */ (function () {
         return normalized.startsWith('./') ? normalized.slice(2) : normalized;
     };
     ProjectIndexer.prototype.globToRegExp = function (pattern) {
-        var escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+        var escaped = pattern.replace(/[.*?+^${}()|[\]\\]/g, '\\$&');
         var translated = escaped
+            // "**/" also matches zero directories, so "**/*.gd" finds root-level files.
+            .replace(/\\\*\\\*\//g, '§§DIRSTAR§§')
             .replace(/\\\*\\\*/g, '§§DOUBLESTAR§§')
             .replace(/\\\*/g, '[^/]*')
+            .replace(/§§DIRSTAR§§/g, '(?:.*/)?')
             .replace(/§§DOUBLESTAR§§/g, '.*')
             .replace(/\\\?/g, '[^/]');
         return new RegExp("^".concat(translated, "$"));

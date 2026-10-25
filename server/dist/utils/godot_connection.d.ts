@@ -25,6 +25,7 @@ export declare class GodotConnection {
     private retryDelay;
     private ws;
     private connected;
+    private connecting;
     private commandQueue;
     private commandId;
     /**
@@ -39,6 +40,7 @@ export declare class GodotConnection {
      * Connects to the Godot WebSocket server
      */
     connect(): Promise<void>;
+    private openConnection;
     /**
      * Sends a command to Godot and waits for a response
      * @param type Command type

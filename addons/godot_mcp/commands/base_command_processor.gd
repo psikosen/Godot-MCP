@@ -74,6 +74,34 @@ func _get_editor_node(path: String) -> Node:
 	return edited_scene_root.get_node_or_null(path)
 
 
+# Path as MCP clients address it ("/root" = edited scene root), not the editor-internal tree path.
+func _to_mcp_path(node: Node) -> String:
+	if node == null:
+		return "/root"
+	if not node.is_inside_tree():
+		return "<detached:%s>" % str(node.name)
+
+	var plugin = Engine.get_meta("GodotMCPPlugin")
+	if plugin == null:
+		return str(node.get_path())
+
+	var editor_interface = plugin.get_editor_interface()
+	if editor_interface == null:
+		return str(node.get_path())
+
+	var edited_scene_root = editor_interface.get_edited_scene_root()
+	if edited_scene_root == null:
+		return str(node.get_path())
+
+	if node == edited_scene_root:
+		return "/root"
+
+	if edited_scene_root.is_ancestor_of(node):
+		return "/root/" + str(edited_scene_root.get_path_to(node))
+
+	return str(node.get_path())
+
+
 # Helper function to mark a scene as modified
 func _mark_scene_modified() -> void:
 	var plugin = Engine.get_meta("GodotMCPPlugin")

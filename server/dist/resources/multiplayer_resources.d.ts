@@ -1,2 +1,2 @@
-import { Resource } from 'fastmcp';
-export declare const multiplayerStateResource: Resource;
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
+export declare const multiplayerStateResource: Resource<FastMCPSessionAuth>;

@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const physicsWorldResource: Resource = {
+export const physicsWorldResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/physics/world',
   name: 'Godot Physics World Snapshot',
   mimeType: 'application/json',

@@ -1430,7 +1430,7 @@ func _serialize_animation_player(player: AnimationPlayer, include_tracks: bool, 
 		"name": String(player.name),
 		"autoplay": player.autoplay,
 		"process_mode": player.process_mode,
-		"playback_speed": player.playback_speed,
+		"playback_speed": player.speed_scale,
 		"animation_count": animations.size(),
 		"animations": animations,
 	}
@@ -1682,10 +1682,7 @@ func _serialize_variant(value):
 func _path_to_string(node: Node) -> String:
 	if node == null:
 		return ""
-	var node_path = node.get_path()
-	if typeof(node_path) == TYPE_NODE_PATH:
-		return String(node_path)
-	return str(node_path)
+	return _to_mcp_path(node)
 
 func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
 	var payload := {

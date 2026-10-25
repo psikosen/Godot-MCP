@@ -1,11 +1,11 @@
-import { Resource, ResourceTemplate } from 'fastmcp';
+import { Resource, ResourceTemplate, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 import { z } from 'zod';
 
 /**
  * Resource that provides a list of all scenes in the project
  */
-export const sceneListResource: Resource = {
+export const sceneListResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/scenes',
   name: 'Godot Scene List',
   mimeType: 'application/json',
@@ -43,7 +43,7 @@ export const sceneListResource: Resource = {
 /**
  * Resource that provides detailed information about a specific scene
  */
-export const sceneStructureResource: Resource = {
+export const sceneStructureResource: Resource<FastMCPSessionAuth> = {
     uri: 'godot/scene/current',
     name: 'Godot Scene Structure',
     mimeType: 'application/json',
@@ -52,7 +52,7 @@ export const sceneStructureResource: Resource = {
         
         try {
             // Call a command on the Godot side to get current scene structure
-            const result = await godot.sendCommand('get_current_scene_structure', {});
+            const result = await godot.sendCommand('snapshot_scene_state', {});
             
             return {
                 text: JSON.stringify(result)

@@ -256,7 +256,7 @@ export const editorTools: MCPTool[] = [
       return JSON.stringify(result, null, 2);
     },
     metadata: {
-      requiredRole: 'edit',
+      requiredRole: 'read',
     },
   },
 ];

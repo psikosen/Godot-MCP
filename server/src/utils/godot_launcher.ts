@@ -115,9 +115,17 @@ export class GodotLauncher {
       }
     );
 
+    // Wait for the WebSocket server to become available
+    const startTime = Date.now();
+    let lastError: Error | null = null;
+    let spawnFailed = false;
+
     this.godotProcess.on('error', (error) => {
+      // Throwing inside an event listener is an uncaught exception that kills the MCP server.
+      // Stop the wait loop instead so launch() rejects normally.
       console.error('Failed to launch Godot:', error);
-      throw new Error(`Failed to launch Godot: ${error.message}`);
+      lastError = error;
+      spawnFailed = true;
     });
 
     this.godotProcess.on('exit', (code, signal) => {
@@ -125,11 +133,7 @@ export class GodotLauncher {
       this.godotProcess = null;
     });
 
-    // Wait for the WebSocket server to become available
-    const startTime = Date.now();
-    let lastError: Error | null = null;
-
-    while (Date.now() - startTime < this.maxStartupTime) {
+    while (!spawnFailed && Date.now() - startTime < this.maxStartupTime) {
       try {
         const godot = getGodotConnection();
         await godot.connect();
@@ -148,7 +152,9 @@ export class GodotLauncher {
       this.godotProcess = null;
     }
     throw new Error(
-      `Timed out waiting for Godot WebSocket server to start. Last error: ${lastError?.message}`
+      spawnFailed
+        ? `Failed to launch Godot: ${lastError?.message}`
+        : `Timed out waiting for Godot WebSocket server to start. Last error: ${lastError?.message}`
     );
   }
 

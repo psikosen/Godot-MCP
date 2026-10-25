@@ -552,16 +552,15 @@ func _summarize_agent_2d(agent: NavigationAgent2D) -> Dictionary:
 		"dimension": "2d",
 		"node_path": _path_to_string(agent),
 		"target_position": _vector_to_dict(agent.target_position),
-		"position": _vector_to_dict(agent.global_position),
+		"position": _vector_to_dict(agent.get_parent().global_position if (agent.get_parent() is Node2D or agent.get_parent() is Node3D) else null),
 		"velocity": _vector_to_dict(agent.velocity),
 		"radius": agent.radius,
 		"max_speed": agent.max_speed,
-		"max_acceleration": agent.max_acceleration,
 		"path_desired_distance": agent.path_desired_distance,
 		"target_desired_distance": agent.target_desired_distance,
 		"avoidance_enabled": agent.avoidance_enabled,
 		"max_neighbors": agent.max_neighbors,
-		"neighbor_max_distance": agent.neighbor_max_distance,
+		"neighbor_max_distance": agent.neighbor_distance,
 	}
 
 func _summarize_agent_3d(agent: NavigationAgent3D) -> Dictionary:
@@ -569,17 +568,16 @@ func _summarize_agent_3d(agent: NavigationAgent3D) -> Dictionary:
 		"dimension": "3d",
 		"node_path": _path_to_string(agent),
 		"target_position": _vector_to_dict(agent.target_position),
-		"position": _vector_to_dict(agent.global_position),
+		"position": _vector_to_dict(agent.get_parent().global_position if (agent.get_parent() is Node2D or agent.get_parent() is Node3D) else null),
 		"velocity": _vector_to_dict(agent.velocity),
 		"radius": agent.radius,
 		"height": agent.height,
 		"max_speed": agent.max_speed,
-		"max_acceleration": agent.max_acceleration,
 		"path_desired_distance": agent.path_desired_distance,
 		"target_desired_distance": agent.target_desired_distance,
 		"avoidance_enabled": agent.avoidance_enabled,
 		"max_neighbors": agent.max_neighbors,
-		"neighbor_max_distance": agent.neighbor_max_distance,
+		"neighbor_max_distance": agent.neighbor_distance,
 	}
 
 func _summarize_navigation_polygon(polygon: NavigationPolygon) -> Dictionary:
@@ -632,10 +630,9 @@ func _vector_to_dict(value) -> Dictionary:
 	return {"value": str(value)}
 
 func _path_to_string(node: Node) -> String:
-	var node_path = node.get_path()
-	if typeof(node_path) == TYPE_NODE_PATH:
-		return String(node_path)
-	return str(node_path)
+	if node == null:
+		return ""
+	return _to_mcp_path(node)
 
 func _has_property(target: Object, property_name: String) -> bool:
 	if target == null:

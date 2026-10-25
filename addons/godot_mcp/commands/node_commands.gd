@@ -16914,7 +16914,7 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 			})
 
 		layout_summary.append({
-			"node_path": _stringify_node_path(child.get_path()),
+			"node_path": _to_mcp_path(child),
 			"column": column,
 			"row": row,
 			"position": position,
@@ -17810,33 +17810,6 @@ func _stringify_node_path(path: NodePath) -> String:
 	return str(path)
 
 
-func _to_mcp_path(node: Node) -> String:
-	if node == null:
-		return "/root"
-	if not node.is_inside_tree():
-		return "<detached:%s>" % String(node.name)
-
-	var plugin = Engine.get_meta("GodotMCPPlugin")
-	if plugin == null:
-		return _stringify_node_path(node.get_path())
-
-	var editor_interface = plugin.get_editor_interface()
-	if editor_interface == null:
-		return _stringify_node_path(node.get_path())
-
-	var edited_scene_root = editor_interface.get_edited_scene_root()
-	if edited_scene_root == null:
-		return _stringify_node_path(node.get_path())
-
-	if node == edited_scene_root:
-		return "/root"
-
-	if edited_scene_root.is_ancestor_of(node):
-		return "/root/" + String(edited_scene_root.get_path_to(node))
-
-	return _stringify_node_path(node.get_path())
-
-
 func _describe_object_path(target_object: Object) -> String:
 	if target_object == null:
 		return "<null>"
@@ -17851,7 +17824,7 @@ func _collect_control_nodes(node: Node, depth: int, max_depth: int, include_hidd
 		if include_hidden or control.is_visible_in_tree():
 			accumulator.append({
 				"node": control,
-				"path": _stringify_node_path(control.get_path()),
+				"path": _to_mcp_path(control),
 			})
 
 	if max_depth > 0 and depth >= max_depth:

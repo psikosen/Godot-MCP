@@ -111,16 +111,16 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 	if mode == "server" and peer != null and peer.has_method("set_refuse_new_connections"):
 		peer.set_refuse_new_connections(false)
 
-		_log_event("_create_multiplayer_peer", "Configured multiplayer peer", {
-				"peer_type": peer_type,
-				"mode": mode,
-				"class": (peer.get_class() if peer != null else ""),
-		})
-		_send_success(client_id, {
-				"peer_type": peer_type,
-				"mode": mode,
-				"class": (peer.get_class() if peer != null else ""),
-		}, command_id)
+	_log_event("_create_multiplayer_peer", "Configured multiplayer peer", {
+			"peer_type": peer_type,
+			"mode": mode,
+			"class": (peer.get_class() if peer != null else ""),
+	})
+	_send_success(client_id, {
+			"peer_type": peer_type,
+			"mode": mode,
+			"class": (peer.get_class() if peer != null else ""),
+	}, command_id)
 
 func _teardown_multiplayer_peer(client_id: int, command_id: String) -> void:
 	var api := _get_scene_multiplayer()

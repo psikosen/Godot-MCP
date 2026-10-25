@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const uiThemeResource: Resource = {
+export const uiThemeResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/ui/theme',
   name: 'Godot UI Theme Summary',
   mimeType: 'application/json',

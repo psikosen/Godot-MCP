@@ -101,7 +101,7 @@ export var sceneStructureResource = {
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
-                        return [4 /*yield*/, godot.sendCommand('get_current_scene_structure', {})];
+                        return [4 /*yield*/, godot.sendCommand('snapshot_scene_state', {})];
                     case 2:
                         result = _a.sent();
                         return [2 /*return*/, {

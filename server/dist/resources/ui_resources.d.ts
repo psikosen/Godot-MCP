@@ -1,2 +1,2 @@
-import { Resource } from 'fastmcp';
-export declare const uiThemeResource: Resource;
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
+export declare const uiThemeResource: Resource<FastMCPSessionAuth>;

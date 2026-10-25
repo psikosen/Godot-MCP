@@ -72,7 +72,7 @@ describe('Godot MCP resources', () => {
     mockSendCommand.mockResolvedValueOnce({ nodes: [] });
     const result = await sceneStructureResource.load();
 
-    expect(mockSendCommand).toHaveBeenCalledWith('get_current_scene_structure', {});
+    expect(mockSendCommand).toHaveBeenCalledWith('snapshot_scene_state', {});
     expect(result.text).toContain('nodes');
   });
 
@@ -80,7 +80,7 @@ describe('Godot MCP resources', () => {
     mockSendCommand.mockResolvedValueOnce({ content: 'print("hi")', script_path: 'res://default_script.gd' });
     const result = await scriptResourceTemplate.load({ path: 'res://default_script.gd' });
 
-    expect(mockSendCommand).toHaveBeenCalledWith('get_script', { path: 'res://default_script.gd' });
+    expect(mockSendCommand).toHaveBeenCalledWith('get_script', { script_path: 'res://default_script.gd' });
     expect(result.text).toContain('print');
     expect(result.metadata?.path).toBe('res://default_script.gd');
   });

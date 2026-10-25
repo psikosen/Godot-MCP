@@ -151,7 +151,7 @@ export var scriptResourceTemplate = {
                     case 1:
                         _c.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('get_script', {
-                                path: scriptPath,
+                                script_path: scriptPath,
                             })];
                     case 2:
                         result = _c.sent();

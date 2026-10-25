@@ -1,9 +1,9 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 /**
  * Resource that provides a list of all scenes in the project
  */
-export declare const sceneListResource: Resource;
+export declare const sceneListResource: Resource<FastMCPSessionAuth>;
 /**
  * Resource that provides detailed information about a specific scene
  */
-export declare const sceneStructureResource: Resource;
+export declare const sceneStructureResource: Resource<FastMCPSessionAuth>;

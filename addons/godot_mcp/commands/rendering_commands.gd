@@ -688,7 +688,7 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit planet node creation", command_id)
 
-		created_node_path = str(planet_node.get_path())
+		created_node_path = _to_mcp_path(planet_node)
 
 	_log("Generated procedural planet", "_generate_procedural_planet", {
 		"system_section": "planet",
@@ -926,7 +926,7 @@ void fragment() {
 		var transaction = SceneTransactionManager.begin_inline("Generate Planet Ocean", {
 			"command": "generate_procedural_planet_ocean",
 			"planet_node_path": planet_node_path,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 			"client_id": client_id,
 		})
 		if transaction == null:
@@ -943,7 +943,7 @@ void fragment() {
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit ocean node creation", command_id)
 
-		created_node_path = str(ocean_node.get_path())
+		created_node_path = _to_mcp_path(ocean_node)
 
 	_log("Generated procedural planet ocean", "_generate_procedural_planet_ocean", {
 		"system_section": "ocean",
@@ -1106,7 +1106,7 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit planet shell creation", command_id)
 
-		created_node_path = str(shell_node.get_path())
+		created_node_path = _to_mcp_path(shell_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1361,7 +1361,7 @@ void fragment() {
 		var transaction = SceneTransactionManager.begin_inline("Generate Planet Cloud Layer", {
 			"command": "generate_planet_cloud_layer",
 			"client_id": client_id,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 		})
 		if transaction == null:
 			return _send_error(client_id, "Unable to obtain transaction for cloud layer creation", command_id)
@@ -1378,7 +1378,7 @@ void fragment() {
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit cloud layer creation", command_id)
 
-		created_node_path = str(cloud_node.get_path())
+		created_node_path = _to_mcp_path(cloud_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1445,7 +1445,7 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 		var transaction = SceneTransactionManager.begin_inline("Create Atmosphere Glow", {
 			"command": "create_planet_atmosphere_glow",
 			"client_id": client_id,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 		})
 		if transaction == null:
 			return _send_error(client_id, "Unable to obtain transaction for atmosphere creation", command_id)
@@ -1462,7 +1462,7 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit atmosphere creation", command_id)
 
-		created_node_path = str(atmosphere_node.get_path())
+		created_node_path = _to_mcp_path(atmosphere_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1536,7 +1536,7 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 	var transaction = SceneTransactionManager.begin_inline("Scatter Craters", {
 		"command": "scatter_craters_on_sphere",
 		"client_id": client_id,
-		"parent_path": str(parent.get_path()),
+		"parent_path": _to_mcp_path(parent),
 		"planet_node_path": planet_node_path,
 	})
 	if transaction == null:
@@ -1555,7 +1555,7 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 		return _send_error(client_id, "Failed to commit crater scatter", command_id)
 
 	_send_success(client_id, {
-		"created_node_path": str(crater_root.get_path()),
+		"created_node_path": _to_mcp_path(crater_root),
 		"count": count,
 		"seed": seed,
 	}, command_id)
@@ -1662,7 +1662,7 @@ void fragment() {
 		var transaction = SceneTransactionManager.begin_inline("Create Ring System", {
 			"command": "create_ring_system",
 			"client_id": client_id,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 		})
 		if transaction == null:
 			return _send_error(client_id, "Unable to obtain transaction for ring creation", command_id)
@@ -1679,7 +1679,7 @@ void fragment() {
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit ring creation", command_id)
 
-		created_node_path = str(ring_node.get_path())
+		created_node_path = _to_mcp_path(ring_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1863,7 +1863,7 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 	var transaction = SceneTransactionManager.begin_inline("Create Moon Proxy", {
 		"command": "create_moon_proxy",
 		"client_id": client_id,
-		"parent_path": str(parent.get_path()),
+		"parent_path": _to_mcp_path(parent),
 	})
 	if transaction == null:
 		return _send_error(client_id, "Unable to obtain transaction for moon proxy creation", command_id)
@@ -1881,8 +1881,8 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 		return _send_error(client_id, "Failed to commit moon proxy creation", command_id)
 
 	_send_success(client_id, {
-		"pivot_path": str(pivot.get_path()),
-		"moon_path": str(moon_node.get_path()),
+		"pivot_path": _to_mcp_path(pivot),
+		"moon_path": _to_mcp_path(moon_node),
 		"radius": radius,
 		"distance": distance,
 		"orbit_speed_deg_per_sec": orbit_speed,
@@ -2029,15 +2029,15 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 		return _send_error(client_id, "Failed to commit quickstart preset", command_id)
 
 	if moon_proxy != null:
-		moon_path = str(moon_proxy.get_path())
+		moon_path = _to_mcp_path(moon_proxy)
 
 	_send_success(client_id, {
 		"preset": preset,
-		"root_path": str(root.get_path()),
-		"planet_path": str(planet_node.get_path()),
-		"ocean_path": str(ocean_node.get_path()),
-		"cloud_path": str(cloud_node.get_path()),
-		"atmosphere_path": str(atmo_node.get_path()),
+		"root_path": _to_mcp_path(root),
+		"planet_path": _to_mcp_path(planet_node),
+		"ocean_path": _to_mcp_path(ocean_node),
+		"cloud_path": _to_mcp_path(cloud_node),
+		"atmosphere_path": _to_mcp_path(atmo_node),
 		"moon_path": moon_path,
 	}, command_id)
 

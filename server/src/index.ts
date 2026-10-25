@@ -61,12 +61,18 @@ async function main() {
   const server = new FastMCP({
     name: 'GodotMCP',
     version: '1.0.0',
+    instructions:
+      'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
+      'Read the godot/* resources or list/get tools before editing. ' +
+      'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve.',
   });
 
   // Register all tools
   const registerTool = <T>(tool: MCPTool<T>) => {
     server.addTool({
       ...tool,
+      // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
+      annotations: { readOnlyHint: (tool.metadata?.requiredRole ?? 'read') === 'read' },
       async execute(args: T): Promise<string> {
         await commandGuard.assertAllowed(tool, args);
         return tool.execute(args);
@@ -116,20 +122,6 @@ async function main() {
   server.addResourceTemplate(scriptResourceTemplate);
   server.addResourceTemplate(scriptMetadataResourceTemplate);
 
-  // Ensure Godot is running - auto-launch if needed
-  try {
-    console.error('Checking if Godot is running...');
-    const launcher = getGodotLauncher();
-    await launcher.ensureGodotRunning();
-    console.error('Godot editor is ready!');
-  } catch (error) {
-    const err = error as Error;
-    console.error(`Failed to ensure Godot is running: ${err.message}`);
-    console.error('You may need to manually launch Godot with the project');
-    // Don't exit - continue with the server startup
-    // The connection will be retried when commands are executed
-  }
-
   // Handle cleanup
   const cleanup = () => {
     console.error('Shutting down Godot MCP server...');
@@ -147,8 +139,9 @@ async function main() {
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  // Start the server - CRITICAL: Must be last, and no console output after this
-  // Any console.log/error after this point will corrupt the stdio MCP protocol
+  // Start the transport first so the client handshake never waits on a Godot launch
+  // (that can take GODOT_STARTUP_TIMEOUT, longer than many clients' connect timeout).
+  // Only stdout is the protocol channel; console.error (stderr) stays safe after this.
   try {
     await server.start({
       transportType: 'stdio',
@@ -157,6 +150,17 @@ async function main() {
     console.error('Failed to start MCP server:', error);
     process.exit(1);
   }
+
+  // Ensure Godot is running - auto-launch if needed.
+  // Not awaited: tool calls retry the connection on their own.
+  console.error('Checking if Godot is running...');
+  getGodotLauncher()
+    .ensureGodotRunning()
+    .then(() => console.error('Godot editor is ready!'))
+    .catch((error: Error) => {
+      console.error(`Failed to ensure Godot is running: ${error.message}`);
+      console.error('You may need to manually launch Godot with the project');
+    });
 }
 
 // Start the server

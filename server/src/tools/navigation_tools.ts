@@ -98,7 +98,6 @@ function formatNavigationAgents(agents: any[]): string {
         `Dimension: ${agent.dimension}`,
         `Radius: ${agent.radius}`,
         `Max Speed: ${agent.max_speed}`,
-        `Max Acceleration: ${agent.max_acceleration}`,
         `Avoidance Enabled: ${agent.avoidance_enabled}`,
         `Max Neighbors: ${agent.max_neighbors}`,
         `Neighbor Max Distance: ${agent.neighbor_max_distance}`,

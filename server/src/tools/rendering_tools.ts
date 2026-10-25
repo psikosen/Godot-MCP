@@ -674,7 +674,7 @@ export const renderingTools: MCPTool<any>[] = [
     description: 'Preview fog sun scattering overrides and optionally apply them through configure_environment.',
     parameters: previewSunSchema,
     metadata: {
-      requiredRole: 'read',
+      requiredRole: 'edit',
     },
     async execute(args) {
       const godot = getGodotConnection();

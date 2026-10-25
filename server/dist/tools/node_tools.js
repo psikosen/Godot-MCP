@@ -5172,7 +5172,7 @@ export var nodeTools = [
                 .describe('Limit the traversal depth (0 means unlimited).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, issueCount, scanned, target, error_94;
+            var godot, result, issueCount, scanned, target, summary, details, error_94;
             var _c, _d, _e, _f;
             var root_path = _b.root_path, include_hidden = _b.include_hidden, max_depth = _b.max_depth;
             return __generator(this, function (_g) {
@@ -5192,7 +5192,10 @@ export var nodeTools = [
                         issueCount = Number((_e = (_c = result.issue_count) !== null && _c !== void 0 ? _c : (_d = result.issues) === null || _d === void 0 ? void 0 : _d.length) !== null && _e !== void 0 ? _e : 0);
                         scanned = Number((_f = result.scanned_count) !== null && _f !== void 0 ? _f : 0);
                         target = root_path !== null && root_path !== void 0 ? root_path : 'scene';
-                        return [2 /*return*/, "Accessibility scan for ".concat(target, " inspected ").concat(scanned, " controls and found ").concat(issueCount, " issues.")];
+                        summary = "Accessibility scan for ".concat(target, " inspected ").concat(scanned, " controls and found ").concat(issueCount, " issues.");
+                        details = (Array.isArray(result.issues) ? result.issues : [])
+                            .map(function (entry) { var _a, _b; return "- ".concat((_a = entry.node_path) !== null && _a !== void 0 ? _a : 'unknown node', ": ").concat(((_b = entry.issues) !== null && _b !== void 0 ? _b : []).join('; ')); });
+                        return [2 /*return*/, details.length ? "".concat(summary, "\n").concat(details.join('\n')) : summary];
                     case 3:
                         error_94 = _g.sent();
                         throw new Error("Failed to validate accessibility: ".concat(error_94.message));

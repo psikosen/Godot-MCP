@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const animationStateMachinesResource: Resource = {
+export const animationStateMachinesResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/animation/state-machines',
   name: 'Godot Animation State Machines',
   mimeType: 'application/json',
@@ -24,7 +24,7 @@ export const animationStateMachinesResource: Resource = {
   },
 };
 
-export const animationTracksResource: Resource = {
+export const animationTracksResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/animation/tracks',
   name: 'Godot Animation Track Overview',
   mimeType: 'application/json',

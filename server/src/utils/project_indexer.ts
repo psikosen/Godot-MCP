@@ -308,10 +308,13 @@ export class ProjectIndexer {
   }
 
   private globToRegExp(pattern: string): RegExp {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const escaped = pattern.replace(/[.*?+^${}()|[\]\\]/g, '\\$&');
     const translated = escaped
+      // "**/" also matches zero directories, so "**/*.gd" finds root-level files.
+      .replace(/\\\*\\\*\//g, '§§DIRSTAR§§')
       .replace(/\\\*\\\*/g, '§§DOUBLESTAR§§')
       .replace(/\\\*/g, '[^/]*')
+      .replace(/§§DIRSTAR§§/g, '(?:.*/)?')
       .replace(/§§DOUBLESTAR§§/g, '.*')
       .replace(/\\\?/g, '[^/]');
     return new RegExp(`^${translated}$`);

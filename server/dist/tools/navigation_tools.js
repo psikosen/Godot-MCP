@@ -93,7 +93,6 @@ function formatNavigationAgents(agents) {
             "Dimension: ".concat(agent.dimension),
             "Radius: ".concat(agent.radius),
             "Max Speed: ".concat(agent.max_speed),
-            "Max Acceleration: ".concat(agent.max_acceleration),
             "Avoidance Enabled: ".concat(agent.avoidance_enabled),
             "Max Neighbors: ".concat(agent.max_neighbors),
             "Neighbor Max Distance: ".concat(agent.neighbor_max_distance),

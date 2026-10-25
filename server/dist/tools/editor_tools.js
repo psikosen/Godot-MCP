@@ -288,7 +288,7 @@ export var editorTools = [
             });
         }); },
         metadata: {
-            requiredRole: 'edit',
+            requiredRole: 'read',
         },
     },
 ];

@@ -57,6 +57,7 @@ var GodotConnection = /** @class */ (function () {
         this.retryDelay = retryDelay;
         this.ws = null;
         this.connected = false;
+        this.connecting = null;
         this.commandQueue = new Map();
         this.commandId = 0;
         console.error('GodotConnection created with URL:', this.url);
@@ -66,13 +67,27 @@ var GodotConnection = /** @class */ (function () {
      */
     GodotConnection.prototype.connect = function () {
         return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            var _a;
+            return __generator(this, function (_b) {
+                if (this.connected)
+                    return [2 /*return*/];
+                // Share one in-flight attempt: the startup launcher and early tool calls can both
+                // call connect(), and parallel attempts would overwrite this.ws and leak sockets.
+                (_a = this.connecting) !== null && _a !== void 0 ? _a : (this.connecting = this.openConnection().finally(function () {
+                    _this.connecting = null;
+                }));
+                return [2 /*return*/, this.connecting];
+            });
+        });
+    };
+    GodotConnection.prototype.openConnection = function () {
+        return __awaiter(this, void 0, void 0, function () {
             var retries, tryConnect, error_1;
             var _this = this;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        if (this.connected)
-                            return [2 /*return*/];
                         retries = 0;
                         tryConnect = function () {
                             return new Promise(function (resolve, reject) {

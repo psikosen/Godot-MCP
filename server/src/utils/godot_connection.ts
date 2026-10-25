@@ -25,6 +25,7 @@ export interface GodotCommand {
 export class GodotConnection {
   private ws: WebSocket | null = null;
   private connected = false;
+  private connecting: Promise<void> | null = null;
   private commandQueue: Map<string, { 
     resolve: (value: any) => void;
     reject: (reason: any) => void;
@@ -53,7 +54,15 @@ export class GodotConnection {
    */
   async connect(): Promise<void> {
     if (this.connected) return;
-    
+    // Share one in-flight attempt: the startup launcher and early tool calls can both
+    // call connect(), and parallel attempts would overwrite this.ws and leak sockets.
+    this.connecting ??= this.openConnection().finally(() => {
+      this.connecting = null;
+    });
+    return this.connecting;
+  }
+
+  private async openConnection(): Promise<void> {
     let retries = 0;
     
     const tryConnect = (): Promise<void> => {

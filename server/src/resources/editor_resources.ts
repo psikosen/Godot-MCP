@@ -1,10 +1,10 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
 /**
  * Resource that provides information about the current state of the Godot editor
  */
-export const editorStateResource: Resource = {
+export const editorStateResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/editor/state',
   name: 'Godot Editor State',
   mimeType: 'application/json',
@@ -28,7 +28,7 @@ export const editorStateResource: Resource = {
 /**
  * Resource that provides information about the currently selected node
  */
-export const selectedNodeResource: Resource = {
+export const selectedNodeResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/editor/selected_node',
   name: 'Godot Selected Node',
   mimeType: 'application/json',
@@ -52,7 +52,7 @@ export const selectedNodeResource: Resource = {
 /**
  * Resource that provides information about the currently edited script
  */
-export const currentScriptResource: Resource = {
+export const currentScriptResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/editor/current_script',
   name: 'Current Script in Editor',
   mimeType: 'text/plain',

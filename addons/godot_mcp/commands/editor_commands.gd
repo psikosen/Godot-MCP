@@ -70,7 +70,7 @@ func _get_editor_state(client_id: int, params: Dictionary, command_id: String) -
 	for node in selected_nodes:
 		state["selected_nodes"].append({
 			"name": node.name,
-			"path": str(node.get_path())
+			"path": _to_mcp_path(node)
 		})
 	
 	_send_success(client_id, state, command_id)
@@ -98,7 +98,7 @@ func _get_selected_node(client_id: int, params: Dictionary, command_id: String) 
 		"selected": true,
 		"name": node.name,
 		"type": node.get_class(),
-		"path": str(node.get_path())
+		"path": _to_mcp_path(node)
 	}
 	
 	# Get script info if available
@@ -194,7 +194,7 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 		}, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
-	var editor_interface: EditorInterface = plugin.get_editor_interface()
+	var editor_interface = plugin.get_editor_interface()
 	var base_control: Control = editor_interface.get_base_control()
 	if base_control == null:
 		_log("Editor base control unavailable", function_name, {
@@ -485,7 +485,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 		_log("GodotMCPPlugin not found in Engine metadata", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
-	var editor_interface: EditorInterface = plugin.get_editor_interface()
+	var editor_interface = plugin.get_editor_interface()
 	var plugin_inventory := _collect_editor_plugins()
 	var entries: Array = plugin_inventory.get("plugins", [])
 	var enabled_array: Array = plugin_inventory.get("enabled_array", [])
@@ -597,8 +597,8 @@ func _snapshot_scene_state(client_id: int, params: Dictionary, command_id: Strin
 		_log("GodotMCPPlugin not found in Engine metadata", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
-	var editor_interface: EditorInterface = plugin.get_editor_interface()
-	var root := editor_interface.get_edited_scene_root()
+	var editor_interface = plugin.get_editor_interface()
+	var root: Node = editor_interface.get_edited_scene_root()
 	if root == null:
 		log_context["line_num"] = 0
 		_log("No edited scene available for snapshot", function_name, log_context, true)
@@ -704,7 +704,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		var depth: int = current["depth"]
 
 		var node_entry := {
-			"path": str(node.get_path()),
+			"path": _to_mcp_path(node),
 			"name": node.name,
 			"type": node.get_class(),
 			"child_count": node.get_child_count(),
@@ -712,7 +712,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		}
 
 		if node.owner != null:
-			node_entry["owner_path"] = str(node.owner.get_path())
+			node_entry["owner_path"] = _to_mcp_path(node.owner)
 		if node.scene_file_path != "":
 			node_entry["scene_file_path"] = node.scene_file_path
 
@@ -775,7 +775,7 @@ func _serialize_snapshot_value(value, include_resources: bool, depth: int, max_d
 		TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I, TYPE_COLOR, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I:
 			return value
 		TYPE_NODE_PATH:
-			return String(value)
+			return str(value)
 		TYPE_ARRAY:
 			var array_result: Array = []
 			for item in value:
@@ -792,15 +792,17 @@ func _serialize_snapshot_value(value, include_resources: bool, depth: int, max_d
 		TYPE_DICTIONARY:
 			var dict_result := {}
 			for key in value.keys():
-				dict_result[String(key)] = _serialize_snapshot_value(value[key], include_resources, depth + 1, max_depth)
+				dict_result[str(key)] = _serialize_snapshot_value(value[key], include_resources, depth + 1, max_depth)
 			return dict_result
 		TYPE_OBJECT:
+			if not is_instance_valid(value):
+				return null
 			if include_resources and value is Resource:
 				return _serialize_resource(value)
 			if value is NodePath:
-				return String(value)
+				return str(value)
 			return value.get_class()
-	return String(value)
+	return str(value)
 
 func _serialize_color(color: Color) -> Dictionary:
 	return {
