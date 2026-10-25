@@ -146,8 +146,10 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `list_nodes_in_group` - Enumerate nodes that are members of a group in the edited scene
 
 #### Script Commands
-- `create_script` - Create a new GDScript file and optionally attach it to a node
-- `edit_script` - Replace the contents of an existing script file
+- `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
+- `edit_script` - Replace the contents of an existing `.gd` script file
+
+Script paths must stay inside the project: anything that resolves outside `res://` (for example `res://../escape.gd`) is rejected. Check it headlessly with `godot --headless --path . --script res://test_script_path_guard.gd`.
 - `get_script` - Fetch a script by file path or by attached node
 - `create_script_template` - Generate a GDScript skeleton with common callbacks
 
@@ -243,7 +245,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Permission Commands
 - `list_permission_escalations` - List pending and resolved permission escalation requests
-- `resolve_permission_escalation` - Approve or deny a recorded escalation request (requires admin approval)
+- `resolve_permission_escalation` - Deny (withdraw) a recorded escalation request. It cannot approve; approval is human-only (see below)
 
 #### Editor Commands
 - `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
@@ -268,13 +270,34 @@ Every tool is tagged with a required role that indicates the level of trust need
 - **edit** – Commands that edit project files or the scene tree under the existing capability allowlist.
 - **admin** – High-risk commands that can execute arbitrary code or bypass guardrails.
 
-The MCP server automatically records an escalation request for any command whose required role is not in the default auto-approved set (currently `read` and `edit`). When an escalation is required, the tool returns the escalation identifier along with a suggested natural-language prompt that a human reviewer can use to approve the action. Reviewers can inspect and resolve queued requests via the `list_permission_escalations` and `resolve_permission_escalation` tools.
+The MCP server automatically records an escalation request for any command whose required role is not in the default auto-approved set (currently `read` and `edit`). When an escalation is required, the call fails and returns the escalation id. Requests are stored in `project-manager/permission_escalations.json` (next to `server/`, whatever directory the server was launched from).
+
+#### Approving an escalation (human only)
+
+The MCP client can never approve its own request. `resolve_permission_escalation` only denies. A human approves with the CLI:
+
+```bash
+cd server
+npm run approve                  # list pending requests with their tool and args
+npm run approve -- <id> [notes]  # approve one request
+```
+
+Then the client retries the same call within 10 minutes. An approval is single-use and only matches the exact tool and arguments that were recorded. A call with different arguments creates a new request. After use, the record gets a `consumedAt` timestamp, and the next identical call needs a new approval. Use `list_permission_escalations` to see requests and their status.
+
+The escalation store is inside the Godot project, so Godot tools can write to it. For that reason, editing the JSON file by hand does **not** approve anything. `npm run approve` signs each approval (HMAC-SHA256 over id, tool, role, args and approval time) with a secret key kept outside the project:
+
+- Default key path: `~/.config/godot-mcp/approval.key`. The first approval creates it with mode `0600`.
+- To use another path, set `GODOT_MCP_APPROVAL_KEY_PATH` for both the server and the CLI. Never put the key inside the Godot project, and keep the `.key` extension: Godot cannot load or save `.key` files, so editor tools cannot read or replace the key.
+- The server ignores any `"approved"` record without a valid signature. It also ignores all approvals if the key file is not exactly 64 hex characters.
+- To revoke all approvals, delete the key file and restart the server.
 
 Commands that currently require `admin` approval include:
 
 - `apply_patch`
 - `execute_editor_script`
-- `resolve_permission_escalation`
+- `run_godot_headless`
+- `manage_editor_plugins`
+- `configure_project_setting`
 
 ## Troubleshooting
 

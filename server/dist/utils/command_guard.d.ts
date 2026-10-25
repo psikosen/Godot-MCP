@@ -1,3 +1,4 @@
+import { EscalationManager } from './escalation_manager.js';
 import { CommandRole, MCPTool } from './types.js';
 interface CommandPolicyConfig {
     /**
@@ -11,7 +12,8 @@ interface CommandPolicyConfig {
 }
 export declare class CommandGuard {
     private readonly policy;
-    constructor(policy?: CommandPolicyConfig);
+    private readonly escalations;
+    constructor(policy?: CommandPolicyConfig, escalations?: EscalationManager);
     assertAllowed<T>(tool: MCPTool<T>, args: T): Promise<void>;
     private log;
 }

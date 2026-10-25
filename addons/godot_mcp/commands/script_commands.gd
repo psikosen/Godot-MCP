@@ -24,21 +24,40 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 			return true
 	return false  # Command not handled
 
+# Returns the simplified res:// path, or "" when the path escapes the project root.
+# simplify_path() keeps any ".." it cannot resolve (e.g. "res://a/../../x" -> "res://../x"),
+# so a remaining ".." segment means the path points outside res://.
+func _contained_res_path(path: String) -> String:
+	if not path.begins_with("res://"):
+		path = "res://" + path
+	var simplified := path.simplify_path()
+	if not simplified.begins_with("res://"):
+		return ""
+	if ".." in simplified.trim_prefix("res://").split("/"):
+		return ""
+	return simplified
+
 func _create_script(client_id: int, params: Dictionary, command_id: String) -> void:
 	var script_path = params.get("script_path", "")
 	var content = params.get("content", "")
 	var node_path = params.get("node_path", "")
 	
+	var overwrite: bool = params.get("overwrite", false)
+	
 	# Validation
 	if script_path.is_empty():
 		return _send_error(client_id, "Script path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not script_path.begins_with("res://"):
-		script_path = "res://" + script_path
-	
 	if not script_path.ends_with(".gd"):
 		script_path += ".gd"
+	
+	var requested_path: String = script_path
+	script_path = _contained_res_path(script_path)
+	if script_path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
+	
+	if FileAccess.file_exists(script_path) and not overwrite:
+		return _send_error(client_id, "Script already exists: %s (pass overwrite=true to replace it)" % script_path, command_id)
 	
 	# Get editor plugin and interfaces
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -116,9 +135,15 @@ func _edit_script(client_id: int, params: Dictionary, command_id: String) -> voi
 	if content.is_empty():
 		return _send_error(client_id, "Content cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not script_path.begins_with("res://"):
-		script_path = "res://" + script_path
+	# Only .gd files: this tool must not rewrite arbitrary project files
+	# (e.g. project-manager/permission_escalations.json, which holds human approvals).
+	if not script_path.ends_with(".gd"):
+		return _send_error(client_id, "edit_script only edits .gd files: %s" % script_path, command_id)
+	
+	var requested_path: String = script_path
+	script_path = _contained_res_path(script_path)
+	if script_path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(script_path):
@@ -156,9 +181,10 @@ func _get_script(client_id: int, params: Dictionary, command_id: String) -> void
 		
 		script_path = script.resource_path
 	
-	# Make sure we have an absolute path
-	if not script_path.begins_with("res://"):
-		script_path = "res://" + script_path
+	var requested_path: String = script_path
+	script_path = _contained_res_path(script_path)
+	if script_path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(script_path):
@@ -184,8 +210,10 @@ func _get_script_metadata(client_id: int, params: Dictionary, command_id: String
 	if path.is_empty():
 		return _send_error(client_id, "Script path cannot be empty", command_id)
 	
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	var requested_path: String = path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
 	
 	if not FileAccess.file_exists(path):
 		return _send_error(client_id, "Script file not found: " + path, command_id)

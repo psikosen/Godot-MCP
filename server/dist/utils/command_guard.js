@@ -51,13 +51,15 @@ var defaultPolicy = {
     defaultRole: 'read',
 };
 var CommandGuard = /** @class */ (function () {
-    function CommandGuard(policy) {
+    function CommandGuard(policy, escalations) {
         if (policy === void 0) { policy = defaultPolicy; }
+        if (escalations === void 0) { escalations = escalationManager; }
         this.policy = policy;
+        this.escalations = escalations;
     }
     CommandGuard.prototype.assertAllowed = function (tool, args) {
         return __awaiter(this, void 0, void 0, function () {
-            var requiredRole, escalation, promptSuffix;
+            var requiredRole, approval, escalation, promptSuffix;
             var _a, _b, _c, _d;
             return __generator(this, function (_e) {
                 switch (_e.label) {
@@ -73,7 +75,22 @@ var CommandGuard = /** @class */ (function () {
                             });
                             return [2 /*return*/];
                         }
-                        return [4 /*yield*/, escalationManager.recordEscalation({
+                        return [4 /*yield*/, this.escalations.consumeApproval("tool:".concat(tool.name), requiredRole, args)];
+                    case 1:
+                        approval = _e.sent();
+                        if (approval) {
+                            this.log('command_allowed_by_escalation', {
+                                systemSection: 'assert',
+                                details: {
+                                    tool: tool.name,
+                                    requiredRole: requiredRole,
+                                    escalationId: approval.id,
+                                    resolver: approval.resolver,
+                                },
+                            });
+                            return [2 /*return*/];
+                        }
+                        return [4 /*yield*/, this.escalations.recordEscalation({
                                 path: "tool:".concat(tool.name),
                                 mode: requiredRole,
                                 reason: 'role_escalation_required',
@@ -86,7 +103,7 @@ var CommandGuard = /** @class */ (function () {
                                     args: args,
                                 },
                             })];
-                    case 1:
+                    case 2:
                         escalation = _e.sent();
                         this.log('command_escalation_required', {
                             systemSection: 'assert',
@@ -100,7 +117,8 @@ var CommandGuard = /** @class */ (function () {
                         promptSuffix = ((_d = tool.metadata) === null || _d === void 0 ? void 0 : _d.escalationPrompt)
                             ? " Suggested prompt: ".concat(tool.metadata.escalationPrompt)
                             : '';
-                        throw new Error("Command \"".concat(tool.name, "\" requires role \"").concat(requiredRole, "\". Escalation required (id: ").concat(escalation.id, ").").concat(promptSuffix));
+                        throw new Error("Command \"".concat(tool.name, "\" requires role \"").concat(requiredRole, "\". Escalation required (id: ").concat(escalation.id, "). ") +
+                            "A human must approve it (cd server && npm run approve -- ".concat(escalation.id, "), then retry the same call with the same arguments.").concat(promptSuffix));
                 }
             });
         });

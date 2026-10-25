@@ -45,19 +45,61 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
+var _a;
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+// Key-order-independent JSON, so a hand-edited record still matches the same args.
+var canonicalJson = function (value) {
+    var _a;
+    return (_a = JSON.stringify(value, function (_key, v) {
+        return v && typeof v === 'object' && !Array.isArray(v)
+            ? Object.fromEntries(Object.entries(v).sort(function (_a, _b) {
+                var a = _a[0];
+                var b = _b[0];
+                return a.localeCompare(b);
+            }))
+            : v;
+    })) !== null && _a !== void 0 ? _a : '';
+};
+/**
+ * Default store: <repo>/project-manager/permission_escalations.json, resolved from this
+ * module (src/utils or dist/utils) so the server and the approve CLI share one file no
+ * matter which directory the MCP client launches the server from.
+ */
+var defaultStoragePath = fileURLToPath(new URL('../../../project-manager/permission_escalations.json', import.meta.url));
+/**
+ * The escalation store lives inside the Godot project, so Godot tools can rewrite it.
+ * Approvals are therefore signed with a key kept outside the project; the store alone
+ * can never grant anything.
+ */
+var defaultKeyPath = (_a = process.env.GODOT_MCP_APPROVAL_KEY_PATH) !== null && _a !== void 0 ? _a : path.join(os.homedir(), '.config', 'godot-mcp', 'approval.key');
+var KEY_FORMAT = /^[0-9a-f]{64}$/;
+/** Signed approvals expire, which bounds replay if someone strips consumedAt from the file. */
+export var APPROVAL_TTL_MS = 10 * 60 * 1000;
+var CLOCK_SKEW_MS = 60 * 1000;
 /**
  * Persists permission escalation requests so that humans can review and
  * resolve them outside of the automated patch workflow.
  */
 var EscalationManager = /** @class */ (function () {
-    function EscalationManager(storagePath) {
+    function EscalationManager(storagePath, keyPath) {
+        if (keyPath === void 0) { keyPath = defaultKeyPath; }
         this.queue = Promise.resolve();
-        this.storagePath =
-            storagePath !== null && storagePath !== void 0 ? storagePath : path.resolve(process.cwd(), '..', 'project-manager', 'permission_escalations.json');
+        // Survives a rollback of consumedAt in the file (until restart; the TTL covers the rest).
+        this.consumedIds = new Set();
+        this.storagePath = storagePath !== null && storagePath !== void 0 ? storagePath : defaultStoragePath;
+        this.keyPath = keyPath;
     }
+    Object.defineProperty(EscalationManager.prototype, "filePath", {
+        get: function () {
+            return this.storagePath;
+        },
+        enumerable: false,
+        configurable: true
+    });
     EscalationManager.prototype.recordEscalation = function (_a) {
         return __awaiter(this, arguments, void 0, function (_b) {
             var _this = this;
@@ -76,7 +118,8 @@ var EscalationManager = /** @class */ (function () {
                                             record.path === normalizedPath &&
                                             record.mode === mode &&
                                             record.reason === reason &&
-                                            record.requestedBy === requestedBy;
+                                            record.requestedBy === requestedBy &&
+                                            canonicalJson(record.metadata) === canonicalJson(metadata);
                                     });
                                     if (existing) {
                                         this.log('Escalation already pending', {
@@ -134,6 +177,61 @@ var EscalationManager = /** @class */ (function () {
             });
         });
     };
+    /**
+     * Finds an approved, unused escalation for this path/mode whose recorded args match
+     * `args`, marks it consumed, and returns it. Returns undefined when none matches.
+     */
+    EscalationManager.prototype.consumeApproval = function (relativePath, mode, args) {
+        return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            return __generator(this, function (_a) {
+                return [2 /*return*/, this.withLock(function () { return __awaiter(_this, void 0, void 0, function () {
+                        var state, normalizedPath, wanted, key, now, record;
+                        var _this = this;
+                        return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0: return [4 /*yield*/, this.loadState()];
+                                case 1:
+                                    state = _a.sent();
+                                    normalizedPath = this.normalizePath(relativePath);
+                                    wanted = canonicalJson(args);
+                                    return [4 /*yield*/, this.loadKey(false)];
+                                case 2:
+                                    key = _a.sent();
+                                    if (!key) {
+                                        return [2 /*return*/, undefined];
+                                    }
+                                    now = Date.now();
+                                    record = state.records.find(function (item) {
+                                        var _a;
+                                        return item.status === 'approved' &&
+                                            !item.consumedAt &&
+                                            !_this.consumedIds.has(item.id) &&
+                                            item.path === normalizedPath &&
+                                            item.mode === mode &&
+                                            canonicalJson((_a = item.metadata) === null || _a === void 0 ? void 0 : _a.args) === wanted &&
+                                            _this.isFresh(item.resolvedAt, now) &&
+                                            _this.hasValidSignature(item, key);
+                                    });
+                                    if (!record) {
+                                        return [2 /*return*/, undefined];
+                                    }
+                                    this.consumedIds.add(record.id);
+                                    record.consumedAt = new Date(now).toISOString();
+                                    return [4 /*yield*/, this.saveState(state)];
+                                case 3:
+                                    _a.sent();
+                                    this.log('Consumed approved escalation', {
+                                        systemSection: 'consume',
+                                        details: { id: record.id, path: record.path, mode: record.mode },
+                                    });
+                                    return [2 /*return*/, record];
+                            }
+                        });
+                    }); })];
+            });
+        });
+    };
     EscalationManager.prototype.resolveEscalation = function (_a) {
         return __awaiter(this, arguments, void 0, function (_b) {
             var _this = this;
@@ -143,7 +241,7 @@ var EscalationManager = /** @class */ (function () {
                     throw new Error('Cannot resolve escalation to pending state.');
                 }
                 return [2 /*return*/, this.withLock(function () { return __awaiter(_this, void 0, void 0, function () {
-                        var state, record;
+                        var state, record, key;
                         return __generator(this, function (_a) {
                             switch (_a.label) {
                                 case 0: return [4 /*yield*/, this.loadState()];
@@ -169,8 +267,14 @@ var EscalationManager = /** @class */ (function () {
                                     record.resolvedAt = new Date().toISOString();
                                     record.resolver = resolver;
                                     record.notes = notes;
-                                    return [4 /*yield*/, this.saveState(state)];
+                                    if (!(status === 'approved')) return [3 /*break*/, 3];
+                                    return [4 /*yield*/, this.loadKey(true)];
                                 case 2:
+                                    key = _a.sent();
+                                    record.approvalSignature = this.sign(record, key);
+                                    _a.label = 3;
+                                case 3: return [4 /*yield*/, this.saveState(state)];
+                                case 4:
                                     _a.sent();
                                     this.log('Resolved escalation request', {
                                         systemSection: 'resolve',
@@ -180,6 +284,79 @@ var EscalationManager = /** @class */ (function () {
                             }
                         });
                     }); })];
+            });
+        });
+    };
+    EscalationManager.prototype.sign = function (record, key) {
+        var _a, _b;
+        var payload = canonicalJson({
+            id: record.id,
+            path: record.path,
+            mode: record.mode,
+            args: (_b = (_a = record.metadata) === null || _a === void 0 ? void 0 : _a.args) !== null && _b !== void 0 ? _b : null,
+            approvedAt: record.resolvedAt,
+        });
+        return createHmac('sha256', key).update(payload).digest('hex');
+    };
+    EscalationManager.prototype.hasValidSignature = function (record, key) {
+        var _a;
+        var given = Buffer.from((_a = record.approvalSignature) !== null && _a !== void 0 ? _a : '', 'utf8');
+        var expected = Buffer.from(this.sign(record, key), 'utf8');
+        return given.length === expected.length && timingSafeEqual(given, expected);
+    };
+    EscalationManager.prototype.isFresh = function (resolvedAt, now) {
+        var age = now - Date.parse(resolvedAt !== null && resolvedAt !== void 0 ? resolvedAt : '');
+        return age >= -CLOCK_SKEW_MS && age <= APPROVAL_TTL_MS;
+    };
+    /**
+     * Reads the 64-hex-char approval key. With `create`, makes one (mode 0600) when missing.
+     * A file in any other format is rejected, so a Godot resource saved over it can't become a key.
+     */
+    EscalationManager.prototype.loadKey = function (create) {
+        return __awaiter(this, void 0, void 0, function () {
+            var text, error_1;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (this.key) {
+                            return [2 /*return*/, this.key];
+                        }
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 3, , 6]);
+                        return [4 /*yield*/, fs.readFile(this.keyPath, 'utf8')];
+                    case 2:
+                        text = (_a.sent()).trim();
+                        return [3 /*break*/, 6];
+                    case 3:
+                        error_1 = _a.sent();
+                        if (error_1.code !== 'ENOENT' || !create) {
+                            return [2 /*return*/, undefined];
+                        }
+                        return [4 /*yield*/, fs.mkdir(path.dirname(this.keyPath), { recursive: true, mode: 448 })];
+                    case 4:
+                        _a.sent();
+                        text = randomBytes(32).toString('hex');
+                        return [4 /*yield*/, fs.writeFile(this.keyPath, "".concat(text, "\n"), { mode: 384, flag: 'wx' })];
+                    case 5:
+                        _a.sent();
+                        this.log('Created approval key', { systemSection: 'key', details: { keyPath: this.keyPath } });
+                        return [3 /*break*/, 6];
+                    case 6:
+                        if (!KEY_FORMAT.test(text)) {
+                            this.log('Approval key has an invalid format; ignoring all approvals', {
+                                systemSection: 'key',
+                                error: true,
+                                details: { keyPath: this.keyPath },
+                            });
+                            if (create) {
+                                throw new Error("Approval key at ".concat(this.keyPath, " is not 64 hex characters. Delete it to create a new one."));
+                            }
+                            return [2 /*return*/, undefined];
+                        }
+                        this.key = Buffer.from(text, 'hex');
+                        return [2 /*return*/, this.key];
+                }
             });
         });
     };
@@ -199,7 +376,7 @@ var EscalationManager = /** @class */ (function () {
     };
     EscalationManager.prototype.loadState = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var raw, parsed, error_1, err;
+            var raw, parsed, error_2, err;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -210,8 +387,8 @@ var EscalationManager = /** @class */ (function () {
                         parsed = JSON.parse(raw);
                         return [2 /*return*/, parsed.records ? parsed : { records: [] }];
                     case 2:
-                        error_1 = _a.sent();
-                        err = error_1;
+                        error_2 = _a.sent();
+                        err = error_2;
                         if (err.code === 'ENOENT') {
                             return [2 /*return*/, { records: [] }];
                         }
