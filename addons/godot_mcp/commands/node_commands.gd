@@ -1267,13 +1267,27 @@ func _set_node_script(client_id: int, params: Dictionary, command_id: String) ->
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 
+	var created_new_script := false
 	if create_script and not FileAccess.file_exists(script_path):
 		var script_extends := extends_type if not extends_type.is_empty() else node.get_class()
+		if script_path.get_extension() != "gd":
+			return _send_error(client_id, "create_script only writes GDScript; script_path must end in .gd", command_id)
+		var extends_is_global_class := false
+		for global_class in ProjectSettings.get_global_class_list():
+			if str(global_class.get("class", "")) == script_extends:
+				extends_is_global_class = true
+				break
+		if not ClassDB.class_exists(script_extends) and not extends_is_global_class and not (script_extends.begins_with("res://") and FileAccess.file_exists(script_extends)):
+			return _send_error(client_id, "extends_type '%s' is not a known class or script path" % script_extends, command_id)
 		if not ScriptUtils.create_script_file(script_path, "", script_extends):
 			return _send_error(client_id, "Failed to create script at %s" % script_path, command_id)
+		created_new_script = true
 
 	var script_resource = ResourceLoader.load(script_path, "Script", ResourceLoader.CACHE_MODE_REPLACE)
 	if not script_resource or not (script_resource is Script):
+		if created_new_script:
+			# Don't leave a broken orphan behind.
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(script_path))
 		return _send_error(client_id, "Failed to load script at %s" % script_path, command_id)
 
 	var new_script: Script = script_resource
@@ -2537,12 +2551,24 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 	var next_cursor: int = posmod(cursor + spawn_count, spawn_points_count)
 	var next_wave: int = current_wave + 1 if advance_wave else current_wave
 	var reached_limit: bool = next_wave >= max_waves
+	if advance_wave and current_wave >= max_waves:
+		return _send_success(client_id, {
+			"spawner_path": spawner_path,
+			"current_wave": current_wave,
+			"next_wave": current_wave,
+			"reached_wave_limit": true,
+			"spawn_count": 0,
+			"spawned_count": 0,
+			"spawned_nodes": [],
+			"status": "wave_limit_reached",
+		}, command_id)
 
 	var instantiate_enemy: bool = bool(params.get("instantiate_enemy", false))
 	var enemy_scene_path: String = str(params.get("enemy_scene_path", spawner.get_meta("mcp_enemy_scene_path") if spawner.has_meta("mcp_enemy_scene_path") else "")).strip_edges()
 	var spawned_nodes: Array = []
 	var created_nodes: Array = []
 	var attach_plans: Array = []
+	var pending_names: Dictionary = {}
 
 	if instantiate_enemy:
 		if enemy_scene_path.is_empty():
@@ -2558,7 +2584,7 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 			if not instance or not (instance is Node2D):
 				return _send_error(client_id, "Spawned scene instance must inherit Node2D for wave spawner 2D", command_id)
 			var enemy_instance: Node2D = instance
-			enemy_instance.name = _resolve_unique_child_name(spawner.get_parent(), str(enemy_instance.name))
+			enemy_instance.name = _resolve_unique_child_name_pending(spawner.get_parent(), str(enemy_instance.name), pending_names)
 			enemy_instance.global_position = point
 			attach_plans.append({
 				"parent": spawner.get_parent(),
@@ -2661,6 +2687,7 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 		"reached_wave_limit": reached_limit,
 		"spawn_positions": serialized_points,
 		"spawn_count": serialized_points.size(),
+		"spawned_count": spawned_paths.size(),
 		"spawned_nodes": spawned_paths,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -2711,12 +2738,24 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 	var next_cursor: int = posmod(cursor + spawn_count, spawn_points_count)
 	var next_wave: int = current_wave + 1 if advance_wave else current_wave
 	var reached_limit: bool = next_wave >= max_waves
+	if advance_wave and current_wave >= max_waves:
+		return _send_success(client_id, {
+			"spawner_path": spawner_path,
+			"current_wave": current_wave,
+			"next_wave": current_wave,
+			"reached_wave_limit": true,
+			"spawn_count": 0,
+			"spawned_count": 0,
+			"spawned_nodes": [],
+			"status": "wave_limit_reached",
+		}, command_id)
 
 	var instantiate_enemy: bool = bool(params.get("instantiate_enemy", false))
 	var enemy_scene_path: String = str(params.get("enemy_scene_path", spawner.get_meta("mcp_enemy_scene_path") if spawner.has_meta("mcp_enemy_scene_path") else "")).strip_edges()
 	var spawned_nodes: Array = []
 	var created_nodes: Array = []
 	var attach_plans: Array = []
+	var pending_names: Dictionary = {}
 
 	if instantiate_enemy:
 		if enemy_scene_path.is_empty():
@@ -2732,7 +2771,7 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 			if not instance or not (instance is Node3D):
 				return _send_error(client_id, "Spawned scene instance must inherit Node3D for wave spawner 3D", command_id)
 			var enemy_instance: Node3D = instance
-			enemy_instance.name = _resolve_unique_child_name(spawner.get_parent(), str(enemy_instance.name))
+			enemy_instance.name = _resolve_unique_child_name_pending(spawner.get_parent(), str(enemy_instance.name), pending_names)
 			enemy_instance.global_position = point
 			attach_plans.append({
 				"parent": spawner.get_parent(),
@@ -2835,6 +2874,7 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 		"reached_wave_limit": reached_limit,
 		"spawn_positions": serialized_points,
 		"spawn_count": serialized_points.size(),
+		"spawned_count": spawned_paths.size(),
 		"spawned_nodes": spawned_paths,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -2996,7 +3036,11 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 	var target_h_offset: float = offset_x_delta
 	var target_v_offset: float = offset_y_delta
 	var target_rotation: Vector3 = Vector3(camera.rotation.x, camera.rotation.y, roll_delta)
-	var target_fov: float = camera.fov + fov_delta
+	# Pulse from a remembered base fov so repeated shakes don't ratchet it up; re-base if fov was changed since.
+	var base_fov: float = camera.fov
+	if camera.has_meta("mcp_shake_base_fov") and camera.has_meta("mcp_shake_applied_fov") and is_equal_approx(camera.fov, float(camera.get_meta("mcp_shake_applied_fov"))):
+		base_fov = float(camera.get_meta("mcp_shake_base_fov"))
+	var target_fov: float = base_fov + fov_delta
 	if add_to_existing:
 		target_h_offset += camera.h_offset
 		target_v_offset += camera.v_offset
@@ -3006,7 +3050,7 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 	pending_changes.append_array(_capture_property_change(camera, "h_offset", target_h_offset))
 	pending_changes.append_array(_capture_property_change(camera, "v_offset", target_v_offset))
 	pending_changes.append_array(_capture_property_change(camera, "rotation", target_rotation))
-	if fov_pulse > 0.0:
+	if fov_pulse > 0.0 or not is_equal_approx(target_fov, camera.fov):
 		pending_changes.append_array(_capture_property_change(camera, "fov", target_fov))
 
 	if pending_changes.is_empty():
@@ -3015,6 +3059,8 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 			"status": "no_change",
 			"h_offset": camera.h_offset,
 			"v_offset": camera.v_offset,
+			"rotation": _vector3_to_dict(camera.rotation),
+			"fov": camera.fov,
 		}, command_id)
 
 	var transaction_metadata := {
@@ -3050,6 +3096,8 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 		})
 
 	transaction.register_on_commit(func():
+		camera.set_meta("mcp_shake_base_fov", base_fov)
+		camera.set_meta("mcp_shake_applied_fov", target_fov)
 		_mark_scene_modified()
 		_log("Simulated Camera3D shake", "_simulate_camera3d_shake", {
 			"node_path": _to_mcp_path(camera),
@@ -4424,9 +4472,7 @@ func _generate_heightmap_gridmap_3d(client_id: int, params: Dictionary, command_
 	var min_height: int = int(params.get("min_height", 0))
 	var max_height: int = int(params.get("max_height", 4))
 	if max_height < min_height:
-		var swapped := min_height
-		min_height = max_height
-		max_height = swapped
+		return _send_error(client_id, "min_height (%d) must not exceed max_height (%d)" % [min_height, max_height], command_id)
 	var local_min_y: int = origin.y + min_height
 	var local_max_y: int = origin.y + max_height
 
@@ -4633,6 +4679,8 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var rotation_max: float = max(rotation_range.x, rotation_range.y)
 	var random_scale: bool = bool(params.get("random_scale", false))
 	var scale_range: Vector2 = _parse_vector2_param(params.get("scale_range", Vector2.ONE))
+	if params.has("scale_range") and (scale_range.x <= 0.0 or scale_range.y <= 0.0):
+		return _send_error(client_id, "scale_range values must be greater than zero (got %s, %s)" % [scale_range.x, scale_range.y], command_id)
 	var scale_min: float = max(0.001, min(scale_range.x, scale_range.y))
 	var scale_max: float = max(scale_min, max(scale_range.x, scale_range.y))
 
@@ -4654,6 +4702,8 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var parent = _get_editor_node(parent_path)
 	if not parent:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+	if not (parent is CanvasItem):
+		return _send_error(client_id, "Parent %s is a %s, not a 2D/CanvasItem node; pass parent_path of a Node2D or Control" % [parent_path, parent.get_class()], command_id)
 
 	var packed_scene = ResourceLoader.load(scene_path, "PackedScene", ResourceLoader.CACHE_MODE_REPLACE)
 	if not packed_scene or not (packed_scene is PackedScene):
@@ -5155,6 +5205,12 @@ func _configure_camera3d_rig(client_id: int, params: Dictionary, command_id: Str
 		pending_changes.append_array(_capture_property_change(camera, "fov", fov_value))
 	if params.has("size"):
 		pending_changes.append_array(_capture_property_change(camera, "size", float(params.get("size"))))
+	if params.has("near") or params.has("far"):
+		var new_near: float = float(params.get("near", camera.near))
+		var new_far: float = float(params.get("far", camera.far))
+		# Same rule as the build path: far must clear near by at least 1 unit.
+		if new_far < new_near + 1.0:
+			return _send_error(client_id, "far (%s) must be at least near + 1 (near=%s)" % [new_far, new_near], command_id)
 	if params.has("near"):
 		pending_changes.append_array(_capture_property_change(camera, "near", float(params.get("near"))))
 	if params.has("far"):
@@ -5806,6 +5862,12 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 	var progress_delta: float = float(params.get("progress_delta", speed * delta)) * direction_multiplier
 	var progress_ratio_delta: float = float(params.get("progress_ratio_delta", 0.0)) * direction_multiplier
 
+	# Apply loop first so an explicit progress wraps/clamps against the new loop setting.
+	if params.has("loop"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
+	if params.has("cubic_interp"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
+
 	if params.has("progress"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "progress", float(params.get("progress"))))
 	elif absf(progress_delta) > 0.000001:
@@ -5820,10 +5882,6 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 			_capture_property_change(path_follow, "progress_ratio", path_follow.progress_ratio + progress_ratio_delta)
 		)
 
-	if params.has("loop"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
-	if params.has("cubic_interp"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
 	if params.has("rotates"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "rotates", bool(params.get("rotates"))))
 	if params.has("h_offset"):
@@ -5904,8 +5962,8 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 
 	var response := {
 		"node_path": _to_mcp_path(path_follow),
-		"progress": path_follow.progress + progress_delta,
-		"progress_ratio": path_follow.progress_ratio + progress_ratio_delta,
+		"progress": float(params.get("progress")) if params.has("progress") else path_follow.progress + progress_delta,
+		"progress_ratio": float(params.get("progress_ratio")) if params.has("progress_ratio") else path_follow.progress_ratio + progress_ratio_delta,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -5948,6 +6006,12 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 	var progress_delta: float = float(params.get("progress_delta", speed * delta)) * direction_multiplier
 	var progress_ratio_delta: float = float(params.get("progress_ratio_delta", 0.0)) * direction_multiplier
 
+	# Apply loop first so an explicit progress wraps/clamps against the new loop setting.
+	if params.has("loop"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
+	if params.has("cubic_interp"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
+
 	if params.has("progress"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "progress", float(params.get("progress"))))
 	elif absf(progress_delta) > 0.000001:
@@ -5962,10 +6026,6 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 			_capture_property_change(path_follow, "progress_ratio", path_follow.progress_ratio + progress_ratio_delta)
 		)
 
-	if params.has("loop"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
-	if params.has("cubic_interp"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
 	if params.has("rotation_mode"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "rotation_mode", int(params.get("rotation_mode"))))
 	if params.has("tilt_enabled"):
@@ -6046,8 +6106,8 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 
 	var response := {
 		"node_path": _to_mcp_path(path_follow),
-		"progress": path_follow.progress + progress_delta,
-		"progress_ratio": path_follow.progress_ratio + progress_ratio_delta,
+		"progress": float(params.get("progress")) if params.has("progress") else path_follow.progress + progress_delta,
+		"progress_ratio": float(params.get("progress_ratio")) if params.has("progress_ratio") else path_follow.progress_ratio + progress_ratio_delta,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -6099,6 +6159,17 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 	for child in path_node.get_children():
 		if child is PathFollow2D:
 			followers.append(child)
+
+	# Godot rejects progress on a curve with no length, so fail loudly instead of reporting an update.
+	if path_node.curve == null or path_node.curve.get_baked_length() <= 0.0:
+		var wants_progress: bool = params.has("spacing") or params.has("start_progress") or params.has("use_progress_ratio")
+		var override_list = params.get("followers", [])
+		if typeof(override_list) == TYPE_ARRAY:
+			for override_entry in override_list:
+				if typeof(override_entry) == TYPE_DICTIONARY and (override_entry.has("progress") or override_entry.has("progress_ratio")):
+					wants_progress = true
+		if wants_progress:
+			return _send_error(client_id, "Path curve has zero length; add curve points before setting follower progress", command_id)
 
 	var created_followers: Array = []
 	if follower_count > followers.size():
@@ -6175,7 +6246,12 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 						follower_target = follower_entry
 						break
 				if follower_target == null:
-					return _send_error(client_id, "No PathFollow2D child named %s" % target_name, command_id)
+					if not create_missing or target_name.is_empty() or path_node.has_node(NodePath(target_name)):
+						return _send_error(client_id, "No PathFollow2D child named %s" % target_name, command_id)
+					follower_target = PathFollow2D.new()
+					follower_target.name = target_name
+					created_followers.append(follower_target)
+					followers.append(follower_target)
 			else:
 				return _send_error(client_id, "Each followers entry must include node_path, index, or name", command_id)
 
@@ -6355,6 +6431,17 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 		if child is PathFollow3D:
 			followers.append(child)
 
+	# Godot rejects progress on a curve with no length, so fail loudly instead of reporting an update.
+	if path_node.curve == null or path_node.curve.get_baked_length() <= 0.0:
+		var wants_progress: bool = params.has("spacing") or params.has("start_progress") or params.has("use_progress_ratio")
+		var override_list = params.get("followers", [])
+		if typeof(override_list) == TYPE_ARRAY:
+			for override_entry in override_list:
+				if typeof(override_entry) == TYPE_DICTIONARY and (override_entry.has("progress") or override_entry.has("progress_ratio")):
+					wants_progress = true
+		if wants_progress:
+			return _send_error(client_id, "Path curve has zero length; add curve points before setting follower progress", command_id)
+
 	var created_followers: Array = []
 	if follower_count > followers.size():
 		if not create_missing:
@@ -6430,7 +6517,12 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 						follower_target = follower_entry
 						break
 				if follower_target == null:
-					return _send_error(client_id, "No PathFollow3D child named %s" % target_name, command_id)
+					if not create_missing or target_name.is_empty() or path_node.has_node(NodePath(target_name)):
+						return _send_error(client_id, "No PathFollow3D child named %s" % target_name, command_id)
+					follower_target = PathFollow3D.new()
+					follower_target.name = target_name
+					created_followers.append(follower_target)
+					followers.append(follower_target)
 			else:
 				return _send_error(client_id, "Each followers entry must include node_path, index, or name", command_id)
 
@@ -6780,14 +6872,15 @@ func _simulate_characterbody2d_movement(client_id: int, params: Dictionary, comm
 
 	var speed: float = float(params.get("speed", body.get_meta("mcp_topdown_speed") if body.has_meta("mcp_topdown_speed") else 200.0))
 	var acceleration: float = float(params.get("acceleration", body.get_meta("mcp_topdown_acceleration") if body.has_meta("mcp_topdown_acceleration") else speed * 7.0))
-	var deceleration: float = float(params.get("deceleration", body.get_meta("mcp_topdown_deceleration") if body.has_meta("mcp_topdown_deceleration") else speed * 9.0))
+	# Base the default on the current speed too so speed=0 still brakes instead of getting a zero rate.
+	var deceleration: float = float(params.get("deceleration", body.get_meta("mcp_topdown_deceleration") if body.has_meta("mcp_topdown_deceleration") else maxf(speed, body.velocity.length()) * 9.0))
 	var delta: float = max(0.0001, float(params.get("delta", 1.0 / 60.0)))
 	var set_rotation: bool = bool(params.get("set_rotation", false))
 	var flip_sprite_h: bool = bool(params.get("flip_sprite_h", true))
 
 	var current_velocity: Vector2 = body.velocity
 	var target_velocity: Vector2 = direction * speed
-	var interpolation: float = (acceleration if direction.length() > 0.001 else deceleration) * delta
+	var interpolation: float = (acceleration if target_velocity.length() > 0.001 else deceleration) * delta
 	var new_velocity: Vector2 = current_velocity.move_toward(target_velocity, interpolation)
 	var new_position: Vector2 = body.position + new_velocity * delta
 
@@ -7057,7 +7150,7 @@ func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, comm
 	var speed: float = float(params.get("speed", speed_default))
 	var acceleration_default = body.get_meta("mcp_enemy_acceleration") if body.has_meta("mcp_enemy_acceleration") else speed * 8.0
 	var acceleration: float = float(params.get("acceleration", acceleration_default))
-	var deceleration: float = float(params.get("deceleration", speed * 10.0))
+	var deceleration: float = float(params.get("deceleration", maxf(speed, body.velocity.length()) * 10.0))
 	var stop_distance: float = max(0.0, float(params.get("stop_distance", agent.path_desired_distance)))
 	var set_rotation: bool = bool(params.get("set_rotation", false))
 	var update_agent_velocity: bool = bool(params.get("update_agent_velocity", true))
@@ -7079,7 +7172,7 @@ func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, comm
 		direction = to_target / distance_to_target
 
 	var target_velocity: Vector2 = direction * speed
-	var interpolation: float = (acceleration if direction.length() > 0.001 else deceleration) * delta
+	var interpolation: float = (acceleration if target_velocity.length() > 0.001 else deceleration) * delta
 	var new_velocity: Vector2 = body.velocity.move_toward(target_velocity, interpolation)
 	var new_global_position: Vector2 = body.global_position + new_velocity * delta
 
@@ -7226,7 +7319,7 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 	var speed: float = float(params.get("speed", speed_default))
 	var acceleration_default = body.get_meta("mcp_enemy_acceleration") if body.has_meta("mcp_enemy_acceleration") else speed * 8.0
 	var acceleration: float = float(params.get("acceleration", acceleration_default))
-	var deceleration: float = float(params.get("deceleration", speed * 10.0))
+	var deceleration: float = float(params.get("deceleration", maxf(speed, body.velocity.length()) * 10.0))
 	var stop_distance: float = max(0.0, float(params.get("stop_distance", agent.path_desired_distance)))
 	var planar_only: bool = bool(params.get("planar_only", true))
 	var preserve_vertical_velocity: bool = bool(params.get("preserve_vertical_velocity", true))
@@ -7254,7 +7347,7 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 		direction = to_target / distance_to_target
 
 	var target_velocity: Vector3 = direction * speed
-	var interpolation: float = (acceleration if direction.length() > 0.001 else deceleration) * delta
+	var interpolation: float = (acceleration if target_velocity.length() > 0.001 else deceleration) * delta
 	var current_velocity: Vector3 = body.velocity
 	var new_velocity: Vector3
 	if planar_only:
@@ -7266,6 +7359,12 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 	else:
 		new_velocity = current_velocity.move_toward(target_velocity, interpolation)
 
+	# Never step past the target: scale the step (and velocity) down to the remaining distance.
+	var step_vector: Vector3 = new_velocity * delta
+	if planar_only:
+		step_vector.y = 0.0
+	if step_vector.length() > distance_to_target and step_vector.length() > 0.0:
+		new_velocity *= distance_to_target / step_vector.length()
 	var new_global_position: Vector3 = body.global_position + new_velocity * delta
 	var pending_changes: Array = []
 	pending_changes.append_array(_capture_property_change(body, "velocity", new_velocity))
@@ -7730,6 +7829,8 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		return _send_success(client_id, {
 			"node_path": _to_mcp_path(node),
 			"light_type": node.get_class(),
+			"enabled": node.get("enabled") if node is Light2D else node.get("light_enabled"),
+			"energy": float(node.get("energy") if node is Light2D else node.get("light_energy")),
 			"status": "no_change",
 		}, command_id)
 
@@ -8781,6 +8882,7 @@ func _edit_light_occluder_polygon_2d(client_id: int, params: Dictionary, command
 		if next_polygon.size() < 3:
 			return _send_error(client_id, "Resulting polygon must contain at least 3 points", command_id)
 		pending_property_changes.append_array(_capture_property_change(occluder_polygon, "polygon", next_polygon))
+		pending_meta_changes.append_array(_capture_meta_change(occluder_node, "mcp_light_occluder_point_count", next_polygon.size()))
 
 	if params.has("closed"):
 		pending_property_changes.append_array(_capture_property_change(occluder_polygon, "closed", bool(params.get("closed"))))
@@ -10729,6 +10831,8 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 	var segment_count: int = clampi(int(params.get("segment_count", 18)), 1, 512)
 	var min_platform_width: float = max(8.0, float(params.get("min_platform_width", 96.0)))
 	var max_platform_width: float = max(min_platform_width, float(params.get("max_platform_width", 224.0)))
+	if float(params.get("max_platform_width", 224.0)) < float(params.get("min_platform_width", 96.0)):
+		return _send_error(client_id, "min_platform_width (%s) must not exceed max_platform_width (%s)" % [params.get("min_platform_width", 96.0), params.get("max_platform_width", 224.0)], command_id)
 	var platform_height: float = max(4.0, float(params.get("platform_height", 32.0)))
 	var min_gap: float = max(0.0, float(params.get("min_gap", 36.0)))
 	var max_gap: float = max(min_gap, float(params.get("max_gap", 132.0)))
@@ -13433,7 +13537,7 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 			enable_precipitation and
 			precipitation_mode != "none" and
 			max_particles > 0 and
-			precipitation_amount > 0
+			emission_scale > 0.0 # amount is clamped to >=1 (Godot rejects 0), so gate on intensity instead
 		)
 		pending_property_changes.append_array(_capture_property_change(precipitation, "amount", precipitation_amount))
 		pending_property_changes.append_array(_capture_property_change(precipitation, "lifetime", particle_lifetime))
@@ -13682,7 +13786,7 @@ func _simulate_water_current_step_2d(client_id: int, params: Dictionary, command
 			"status": "out_of_water",
 		}, command_id)
 
-	var submersion: float = clampf(local_position.y / max(0.0001, water_size.y), 0.0, 1.0) if inside_water else 1.0
+	var submersion: float = clampf(local_position.y / max(0.0001, water_size.y), 0.0, 1.0) if inside_water else 0.0
 	var flow_direction := _parse_vector2_param(
 		params.get(
 			"flow_direction",
@@ -13919,7 +14023,7 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 			"status": "out_of_water",
 		}, command_id)
 
-	var submersion: float = clampf((-local_position.y) / max(0.0001, water_depth), 0.0, 1.0) if inside_water else 1.0
+	var submersion: float = clampf((-local_position.y) / max(0.0001, water_depth), 0.0, 1.0) if inside_water else 0.0
 	var flow_direction_2d := _parse_vector2_param(
 		params.get(
 			"flow_direction",
@@ -14866,6 +14970,7 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_points", serialized_patrol_points))
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_index", 0))
 
+	var signal_warnings: Array = []
 	if connect_signals:
 		var signal_target_path: String = str(params.get("signal_target_path", enemy_mcp_path)).strip_edges()
 		if signal_target_path.is_empty():
@@ -14877,17 +14982,20 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		if vision_area:
 			var entered_method: String = str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
 			var exited_method: String = str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
-			)
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
-			)
+			if _signal_method_exists(signal_target, entered_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
+				)
+			if _signal_method_exists(signal_target, exited_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
+				)
 		if attack_timer:
 			var timeout_method: String = str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
-			)
+			if _signal_method_exists(signal_target, timeout_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
+				)
 
 	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty():
 		return _send_success(client_id, {
@@ -15006,6 +15114,7 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		"property_changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"signal_changes": serialized_signal_changes,
+		"warnings": signal_warnings,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -15221,6 +15330,7 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_points", serialized_patrol_points))
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_index", 0))
 
+	var signal_warnings: Array = []
 	if connect_signals:
 		var signal_target_path: String = str(params.get("signal_target_path", enemy_mcp_path)).strip_edges()
 		if signal_target_path.is_empty():
@@ -15232,17 +15342,20 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		if vision_area:
 			var entered_method: String = str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
 			var exited_method: String = str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
-			)
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
-			)
+			if _signal_method_exists(signal_target, entered_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
+				)
+			if _signal_method_exists(signal_target, exited_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
+				)
 		if attack_timer:
 			var timeout_method: String = str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
-			)
+			if _signal_method_exists(signal_target, timeout_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
+				)
 
 	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty():
 		return _send_success(client_id, {
@@ -15361,6 +15474,7 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		"property_changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"signal_changes": serialized_signal_changes,
+		"warnings": signal_warnings,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -16105,6 +16219,15 @@ func _configure_camera2d_limits(client_id: int, params: Dictionary, command_id: 
 		}, true)
 		return _send_error(client_id, "Provide at least one limit or smoothing property to update", command_id)
 
+	var effective_left: int = int(limit_config.get("left", node.limit_left))
+	var effective_right: int = int(limit_config.get("right", node.limit_right))
+	var effective_top: int = int(limit_config.get("top", node.limit_top))
+	var effective_bottom: int = int(limit_config.get("bottom", node.limit_bottom))
+	if effective_left > effective_right:
+		return _send_error(client_id, "limits.left (%d) must not be greater than limits.right (%d)" % [effective_left, effective_right], command_id)
+	if effective_top > effective_bottom:
+		return _send_error(client_id, "limits.top (%d) must not be greater than limits.bottom (%d)" % [effective_top, effective_bottom], command_id)
+
 	var pending_changes: Array = []
 	var limit_property_map := {
 		"enabled": "limit_enabled",
@@ -16271,6 +16394,8 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	# Validation
 	if not ClassDB.class_exists(node_type):
 		return _send_error(client_id, "Invalid node type: %s" % node_type, command_id)
+	if params.has("node_name") and str(node_name) != "" and str(node_name).strip_edges().is_empty():
+		return _send_error(client_id, "node_name cannot be whitespace only", command_id)
 	
 	# Get editor plugin and interfaces
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -16298,8 +16423,10 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not node:
 		return _send_error(client_id, "Failed to create node of type: %s" % node_type, command_id)
 
-	# Set the node name
-	node.name = node_name
+	# Set the node name (an empty name would raise an engine error; keep the type-name default instead)
+	if str(node_name) != "":
+		node.name = node_name
+	node_name = str(node.name)
 
 	var parent_mcp_path: String = _to_mcp_path(parent)
 	var expected_child_path: String = parent_mcp_path + "/" + node_name
@@ -16601,6 +16728,9 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 	for prop in property_list:
 		var name = prop["name"]
 		if prop.get("usage", 0) & header_usage:
+			continue
+		# GPUParticles3D lists draw_pass_1..4 but reading one beyond draw_passes raises an engine error.
+		if name.begins_with("draw_pass_") and name.substr(10).is_valid_int() and "draw_passes" in node and name.substr(10).to_int() > int(node.get("draw_passes")):
 			continue
 		if not name.begins_with("_"):  # Skip internal properties
 			properties[name] = node.get(name)
@@ -16952,6 +17082,10 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 
 	if not (node is Control):
 		return _send_error(client_id, "Container must inherit from Control to layout children", command_id)
+
+	# Container subclasses (GridContainer, VBoxContainer, ...) re-layout children and ignore anchors/offsets.
+	if node is Container:
+		return _send_error(client_id, "%s is a Container (%s) and lays out its children itself; offsets would be ignored. Use a plain Control parent, or configure the container's own properties (e.g. GridContainer.columns)." % [container_path, node.get_class()], command_id)
 
 	var container: Control = node
 	var controls: Array = []
@@ -17714,6 +17848,14 @@ func _build_signal_flags_from_params(params: Dictionary) -> int:
 	return signal_flags
 
 
+# Skip connections to handlers the target script does not define (they would error on every emit).
+func _signal_method_exists(target: Object, method_name: String, warnings: Array) -> bool:
+	if target.has_method(method_name):
+		return true
+	warnings.append("Skipped signal connection: %s has no method %s (add it or use wire_signal_handler)" % [target.name, method_name])
+	return false
+
+
 func _capture_signal_connection_change(
 	emitter: Object, signal_name: String, target: Object, method_name: String, flags: int = 0
 ) -> Array:
@@ -17839,6 +17981,20 @@ func _resolve_unique_child_name(parent: Node, desired_name: String, exclude_node
 	while _has_child_with_name(parent, candidate, exclude_node):
 		suffix += 1
 		candidate = "%s%d" % [base_name, suffix]
+	return candidate
+
+
+# Like _resolve_unique_child_name but also avoids names of siblings that are planned but not yet added.
+func _resolve_unique_child_name_pending(parent: Node, desired_name: String, pending: Dictionary) -> String:
+	var base_name := desired_name.strip_edges()
+	if base_name.is_empty():
+		base_name = "Node"
+	var candidate := base_name
+	var suffix := 2
+	while pending.has(candidate) or _has_child_with_name(parent, candidate):
+		candidate = "%s%d" % [base_name, suffix]
+		suffix += 1
+	pending[candidate] = true
 	return candidate
 
 

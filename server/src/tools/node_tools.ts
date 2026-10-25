@@ -1633,7 +1633,7 @@ const camera2DLimitsSchema = z
     bottom: z.number().int().optional().describe('Bottom boundary in pixels.'),
   })
   .refine(value => Object.values(value).some(entry => entry !== undefined), {
-    message: 'Provide at least one limit property to update.',
+    message: 'Provide at least one limit property to update (enabled, draw_limits, smoothed, left, right, top, bottom)',
   });
 
 const camera2DSmoothingSchema = z
@@ -1652,7 +1652,7 @@ const camera2DSmoothingSchema = z
       .describe('Smoothing speed used when rotating towards the target angle.'),
   })
   .refine(value => Object.values(value).some(entry => entry !== undefined), {
-    message: 'Provide at least one smoothing property to update.',
+    message: 'Provide at least one smoothing property to update (position_enabled, position_speed, rotation_enabled, rotation_speed)',
   });
 
 const vector2ParamSchema = z.union([
@@ -2586,9 +2586,10 @@ export const nodeTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('simulate_wave_spawner_step_2d', args);
         const status = (result.status as string) ?? 'committed';
-        const spawnCount = Number(result.spawn_count ?? 0);
+        const spawnedCount = Number(result.spawned_count ?? 0);
+        const positions = Number(result.spawn_count ?? 0);
         const nextWave = Number(result.next_wave ?? 0);
-        return `Simulated 2D wave step at ${args.spawner_path} -> spawned ${spawnCount}, next_wave=${nextWave} [${status}]`;
+        return `Simulated 2D wave step at ${args.spawner_path} -> spawned ${spawnedCount} (${positions} spawn positions), next_wave=${nextWave} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate wave spawner step 2D: ${(error as Error).message}`);
       }
@@ -2615,9 +2616,10 @@ export const nodeTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('simulate_wave_spawner_step_3d', args);
         const status = (result.status as string) ?? 'committed';
-        const spawnCount = Number(result.spawn_count ?? 0);
+        const spawnedCount = Number(result.spawned_count ?? 0);
+        const positions = Number(result.spawn_count ?? 0);
         const nextWave = Number(result.next_wave ?? 0);
-        return `Simulated 3D wave step at ${args.spawner_path} -> spawned ${spawnCount}, next_wave=${nextWave} [${status}]`;
+        return `Simulated 3D wave step at ${args.spawner_path} -> spawned ${spawnedCount} (${positions} spawn positions), next_wave=${nextWave} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate wave spawner step 3D: ${(error as Error).message}`);
       }
@@ -2635,7 +2637,8 @@ export const nodeTools: MCPTool[] = [
       trauma: z.number().min(0).max(1).optional(),
       amplitude: z.number().nonnegative().optional(),
       rotation_amplitude_degrees: z.number().nonnegative().optional(),
-      add_to_existing: z.boolean().optional(),
+      add_to_existing: z.boolean().optional()
+        .describe('Default true: add the shake onto the camera\'s current offset/rotation, so repeated calls accumulate even with the same seed. Use false for a repeatable, absolute shake.'),
       seed: z.number().int().optional(),
       transaction_id: z.string().optional(),
     }),
@@ -2666,8 +2669,10 @@ export const nodeTools: MCPTool[] = [
       horizontal_amplitude: z.number().nonnegative().optional(),
       vertical_amplitude: z.number().nonnegative().optional(),
       roll_amplitude_degrees: z.number().nonnegative().optional(),
-      fov_pulse: z.number().nonnegative().optional(),
-      add_to_existing: z.boolean().optional(),
+      fov_pulse: z.number().nonnegative().optional()
+        .describe('FOV pulse added to the camera\'s base fov (remembered between shakes, so it does not accumulate)'),
+      add_to_existing: z.boolean().optional()
+        .describe('Default true: add h/v offset and roll onto the current values (repeated calls accumulate). Use false for a repeatable, absolute shake.'),
       seed: z.number().int().optional(),
       transaction_id: z.string().optional(),
     }),
@@ -2680,8 +2685,8 @@ export const nodeTools: MCPTool[] = [
         const rotation = result.rotation ? JSON.stringify(result.rotation) : 'unknown';
         const hOffset = Number(result.h_offset ?? 0);
         const vOffset = Number(result.v_offset ?? 0);
-        const fov = Number(result.fov ?? 0);
-        return `Simulated Camera3D shake on ${args.node_path} [${status}] -> h_offset=${hOffset.toFixed(4)}, v_offset=${vOffset.toFixed(4)}, fov=${fov.toFixed(3)}, rotation=${rotation}`;
+        const fov = result.fov === undefined ? 'unknown' : Number(result.fov).toFixed(3);
+        return `Simulated Camera3D shake on ${args.node_path} [${status}] -> h_offset=${hOffset.toFixed(4)}, v_offset=${vOffset.toFixed(4)}, fov=${fov}, rotation=${rotation}`;
       } catch (error) {
         throw new Error(`Failed to simulate Camera3D shake: ${(error as Error).message}`);
       }
@@ -4591,8 +4596,9 @@ export const nodeTools: MCPTool[] = [
         const nodePath = (result.node_path as string) ?? args.node_path;
         const lightType = String(result.light_type ?? 'Light');
         const enabled = Boolean(result.enabled ?? args.enabled ?? true);
-        const energy = Number(result.energy ?? args.energy ?? 0);
-        return `Configured ${lightType} at ${nodePath} enabled=${enabled} energy=${energy.toFixed(2)} [${status}]`;
+        const energyValue = result.energy ?? args.energy;
+        const energy = energyValue === undefined ? 'unknown' : Number(energyValue).toFixed(2);
+        return `Configured ${lightType} at ${nodePath} enabled=${enabled} energy=${energy} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to configure light node: ${(error as Error).message}`);
       }
@@ -5078,7 +5084,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const inside = Boolean(result.inside_water ?? false);
         const submersion = Number(result.submersion ?? 0);
-        return `Simulated 3D water step for ${args.body_path} in ${args.water_path} (inside=${inside}, submersion=${submersion.toFixed(2)}) [${status}]`;
+        const position = result.position ? ` position=${JSON.stringify(result.position)} velocity=${JSON.stringify(result.velocity)}` : '';
+        return `Simulated 3D water step for ${args.body_path} in ${args.water_path} (inside=${inside}, submersion=${submersion.toFixed(2)})${position} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate 3D water current step: ${(error as Error).message}`);
       }
@@ -5255,7 +5262,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-        return `Authored enemy AI 2D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]`;
+        const warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
+        return `Authored enemy AI 2D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${warnings}`;
       } catch (error) {
         throw new Error(`Failed to author enemy AI 2D: ${(error as Error).message}`);
       }
@@ -5313,7 +5321,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-        return `Authored enemy AI 3D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]`;
+        const warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
+        return `Authored enemy AI 3D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${warnings}`;
       } catch (error) {
         throw new Error(`Failed to author enemy AI 3D: ${(error as Error).message}`);
       }
@@ -5376,7 +5385,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'set_menu_ui_flow_state',
-    description: 'Switch a generated menu flow between main, pause, game-over, or hidden states',
+    description: 'Switch a generated menu flow between main, pause, game_over (or gameover), or hidden states',
     parameters: z.object({
       flow_path: z.string()
         .describe('Path to the menu flow root node'),
