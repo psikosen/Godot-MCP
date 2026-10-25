@@ -581,6 +581,16 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var parent_path := params.get("parent_path", "/root")
 	var node_name := params.get("node_name", "ProceduralPlanet")
 
+	# Check the parent and name before anything is written to disk; failing later left saved
+	# textures behind.
+	if create_node:
+		var early_parent := _get_editor_node(parent_path)
+		if early_parent == null:
+			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var early_name_error := _sibling_name_error(early_parent, node_name)
+		if not early_name_error.is_empty():
+			return _send_error(client_id, early_name_error, command_id)
+
 	var elevation_noise := FastNoiseLite.new()
 	elevation_noise.seed = seed
 	elevation_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH

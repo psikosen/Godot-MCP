@@ -50,7 +50,7 @@ var camera2DLimitsSchema = z
     bottom: z.number().int().optional().describe('Bottom boundary in pixels.'),
 })
     .refine(function (value) { return Object.values(value).some(function (entry) { return entry !== undefined; }); }, {
-    message: 'Provide at least one limit property to update.',
+    message: 'Provide at least one limit property to update (enabled, draw_limits, smoothed, left, right, top, bottom)',
 });
 var camera2DSmoothingSchema = z
     .object({
@@ -68,7 +68,7 @@ var camera2DSmoothingSchema = z
         .describe('Smoothing speed used when rotating towards the target angle.'),
 })
     .refine(function (value) { return Object.values(value).some(function (entry) { return entry !== undefined; }); }, {
-    message: 'Provide at least one smoothing property to update.',
+    message: 'Provide at least one smoothing property to update (position_enabled, position_speed, rotation_enabled, rotation_speed)',
 });
 var vector2ParamSchema = z.union([
     z.object({ x: z.number().optional(), y: z.number().optional() }),
@@ -1197,24 +1197,25 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_21, spawnCount, nextWave, error_24;
-            var _a, _b, _c;
-            return __generator(this, function (_d) {
-                switch (_d.label) {
+            var godot, result, status_21, spawnedCount, positions, nextWave, error_24;
+            var _a, _b, _c, _d;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _d.label = 1;
+                        _e.label = 1;
                     case 1:
-                        _d.trys.push([1, 3, , 4]);
+                        _e.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('simulate_wave_spawner_step_2d', args)];
                     case 2:
-                        result = _d.sent();
+                        result = _e.sent();
                         status_21 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
-                        spawnCount = Number((_b = result.spawn_count) !== null && _b !== void 0 ? _b : 0);
-                        nextWave = Number((_c = result.next_wave) !== null && _c !== void 0 ? _c : 0);
-                        return [2 /*return*/, "Simulated 2D wave step at ".concat(args.spawner_path, " -> spawned ").concat(spawnCount, ", next_wave=").concat(nextWave, " [").concat(status_21, "]")];
+                        spawnedCount = Number((_b = result.spawned_count) !== null && _b !== void 0 ? _b : 0);
+                        positions = Number((_c = result.spawn_count) !== null && _c !== void 0 ? _c : 0);
+                        nextWave = Number((_d = result.next_wave) !== null && _d !== void 0 ? _d : 0);
+                        return [2 /*return*/, "Simulated 2D wave step at ".concat(args.spawner_path, " -> spawned ").concat(spawnedCount, " (").concat(positions, " spawn positions), next_wave=").concat(nextWave, " [").concat(status_21, "]")];
                     case 3:
-                        error_24 = _d.sent();
+                        error_24 = _e.sent();
                         throw new Error("Failed to simulate wave spawner step 2D: ".concat(error_24.message));
                     case 4: return [2 /*return*/];
                 }
@@ -1237,24 +1238,25 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_22, spawnCount, nextWave, error_25;
-            var _a, _b, _c;
-            return __generator(this, function (_d) {
-                switch (_d.label) {
+            var godot, result, status_22, spawnedCount, positions, nextWave, error_25;
+            var _a, _b, _c, _d;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _d.label = 1;
+                        _e.label = 1;
                     case 1:
-                        _d.trys.push([1, 3, , 4]);
+                        _e.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('simulate_wave_spawner_step_3d', args)];
                     case 2:
-                        result = _d.sent();
+                        result = _e.sent();
                         status_22 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
-                        spawnCount = Number((_b = result.spawn_count) !== null && _b !== void 0 ? _b : 0);
-                        nextWave = Number((_c = result.next_wave) !== null && _c !== void 0 ? _c : 0);
-                        return [2 /*return*/, "Simulated 3D wave step at ".concat(args.spawner_path, " -> spawned ").concat(spawnCount, ", next_wave=").concat(nextWave, " [").concat(status_22, "]")];
+                        spawnedCount = Number((_b = result.spawned_count) !== null && _b !== void 0 ? _b : 0);
+                        positions = Number((_c = result.spawn_count) !== null && _c !== void 0 ? _c : 0);
+                        nextWave = Number((_d = result.next_wave) !== null && _d !== void 0 ? _d : 0);
+                        return [2 /*return*/, "Simulated 3D wave step at ".concat(args.spawner_path, " -> spawned ").concat(spawnedCount, " (").concat(positions, " spawn positions), next_wave=").concat(nextWave, " [").concat(status_22, "]")];
                     case 3:
-                        error_25 = _d.sent();
+                        error_25 = _e.sent();
                         throw new Error("Failed to simulate wave spawner step 3D: ".concat(error_25.message));
                     case 4: return [2 /*return*/];
                 }
@@ -1273,7 +1275,8 @@ export var nodeTools = [
             trauma: z.number().min(0).max(1).optional(),
             amplitude: z.number().nonnegative().optional(),
             rotation_amplitude_degrees: z.number().nonnegative().optional(),
-            add_to_existing: z.boolean().optional(),
+            add_to_existing: z.boolean().optional()
+                .describe('Default true: add the shake onto the camera\'s current offset/rotation, so repeated calls accumulate even with the same seed. Use false for a repeatable, absolute shake.'),
             seed: z.number().int().optional(),
             transaction_id: z.string().optional(),
         }),
@@ -1315,32 +1318,34 @@ export var nodeTools = [
             horizontal_amplitude: z.number().nonnegative().optional(),
             vertical_amplitude: z.number().nonnegative().optional(),
             roll_amplitude_degrees: z.number().nonnegative().optional(),
-            fov_pulse: z.number().nonnegative().optional(),
-            add_to_existing: z.boolean().optional(),
+            fov_pulse: z.number().nonnegative().optional()
+                .describe('FOV pulse added to the camera\'s base fov (remembered between shakes, so it does not accumulate)'),
+            add_to_existing: z.boolean().optional()
+                .describe('Default true: add h/v offset and roll onto the current values (repeated calls accumulate). Use false for a repeatable, absolute shake.'),
             seed: z.number().int().optional(),
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
             var godot, result, status_24, rotation, hOffset, vOffset, fov, error_27;
-            var _a, _b, _c, _d;
-            return __generator(this, function (_e) {
-                switch (_e.label) {
+            var _a, _b, _c;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _e.label = 1;
+                        _d.label = 1;
                     case 1:
-                        _e.trys.push([1, 3, , 4]);
+                        _d.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('simulate_camera3d_shake', args)];
                     case 2:
-                        result = _e.sent();
+                        result = _d.sent();
                         status_24 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         rotation = result.rotation ? JSON.stringify(result.rotation) : 'unknown';
                         hOffset = Number((_b = result.h_offset) !== null && _b !== void 0 ? _b : 0);
                         vOffset = Number((_c = result.v_offset) !== null && _c !== void 0 ? _c : 0);
-                        fov = Number((_d = result.fov) !== null && _d !== void 0 ? _d : 0);
-                        return [2 /*return*/, "Simulated Camera3D shake on ".concat(args.node_path, " [").concat(status_24, "] -> h_offset=").concat(hOffset.toFixed(4), ", v_offset=").concat(vOffset.toFixed(4), ", fov=").concat(fov.toFixed(3), ", rotation=").concat(rotation)];
+                        fov = result.fov === undefined ? 'unknown' : Number(result.fov).toFixed(3);
+                        return [2 /*return*/, "Simulated Camera3D shake on ".concat(args.node_path, " [").concat(status_24, "] -> h_offset=").concat(hOffset.toFixed(4), ", v_offset=").concat(vOffset.toFixed(4), ", fov=").concat(fov, ", rotation=").concat(rotation)];
                     case 3:
-                        error_27 = _e.sent();
+                        error_27 = _d.sent();
                         throw new Error("Failed to simulate Camera3D shake: ".concat(error_27.message));
                     case 4: return [2 /*return*/];
                 }
@@ -3694,26 +3699,27 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_66, nodePath, lightType, enabled, energy, error_69;
-            var _a, _b, _c, _d, _e, _f, _g;
-            return __generator(this, function (_h) {
-                switch (_h.label) {
+            var godot, result, status_66, nodePath, lightType, enabled, energyValue, energy, error_69;
+            var _a, _b, _c, _d, _e, _f;
+            return __generator(this, function (_g) {
+                switch (_g.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _h.label = 1;
+                        _g.label = 1;
                     case 1:
-                        _h.trys.push([1, 3, , 4]);
+                        _g.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('configure_light_node', args)];
                     case 2:
-                        result = _h.sent();
+                        result = _g.sent();
                         status_66 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         nodePath = (_b = result.node_path) !== null && _b !== void 0 ? _b : args.node_path;
                         lightType = String((_c = result.light_type) !== null && _c !== void 0 ? _c : 'Light');
                         enabled = Boolean((_e = (_d = result.enabled) !== null && _d !== void 0 ? _d : args.enabled) !== null && _e !== void 0 ? _e : true);
-                        energy = Number((_g = (_f = result.energy) !== null && _f !== void 0 ? _f : args.energy) !== null && _g !== void 0 ? _g : 0);
-                        return [2 /*return*/, "Configured ".concat(lightType, " at ").concat(nodePath, " enabled=").concat(enabled, " energy=").concat(energy.toFixed(2), " [").concat(status_66, "]")];
+                        energyValue = (_f = result.energy) !== null && _f !== void 0 ? _f : args.energy;
+                        energy = energyValue === undefined ? 'unknown' : Number(energyValue).toFixed(2);
+                        return [2 /*return*/, "Configured ".concat(lightType, " at ").concat(nodePath, " enabled=").concat(enabled, " energy=").concat(energy, " [").concat(status_66, "]")];
                     case 3:
-                        error_69 = _h.sent();
+                        error_69 = _g.sent();
                         throw new Error("Failed to configure light node: ".concat(error_69.message));
                     case 4: return [2 /*return*/];
                 }
@@ -4292,7 +4298,7 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_76, inside, submersion, error_79;
+            var godot, result, status_76, inside, submersion, position, error_79;
             var _a, _b, _c;
             return __generator(this, function (_d) {
                 switch (_d.label) {
@@ -4307,7 +4313,8 @@ export var nodeTools = [
                         status_76 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         inside = Boolean((_b = result.inside_water) !== null && _b !== void 0 ? _b : false);
                         submersion = Number((_c = result.submersion) !== null && _c !== void 0 ? _c : 0);
-                        return [2 /*return*/, "Simulated 3D water step for ".concat(args.body_path, " in ").concat(args.water_path, " (inside=").concat(inside, ", submersion=").concat(submersion.toFixed(2), ") [").concat(status_76, "]")];
+                        position = result.position ? " position=".concat(JSON.stringify(result.position), " velocity=").concat(JSON.stringify(result.velocity)) : '';
+                        return [2 /*return*/, "Simulated 3D water step for ".concat(args.body_path, " in ").concat(args.water_path, " (inside=").concat(inside, ", submersion=").concat(submersion.toFixed(2), ")").concat(position, " [").concat(status_76, "]")];
                     case 3:
                         error_79 = _d.sent();
                         throw new Error("Failed to simulate 3D water current step: ".concat(error_79.message));
@@ -4513,7 +4520,7 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_80, createdCount, signalCount, error_83;
+            var godot, result, status_80, createdCount, signalCount, warnings, error_83;
             var _a;
             return __generator(this, function (_b) {
                 switch (_b.label) {
@@ -4528,7 +4535,8 @@ export var nodeTools = [
                         status_80 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
                         signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-                        return [2 /*return*/, "Authored enemy AI 2D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_80, "]")];
+                        warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? "\nWarnings:\n- ".concat(result.warnings.join('\n- ')) : '';
+                        return [2 /*return*/, "Authored enemy AI 2D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_80, "]").concat(warnings)];
                     case 3:
                         error_83 = _b.sent();
                         throw new Error("Failed to author enemy AI 2D: ".concat(error_83.message));
@@ -4582,7 +4590,7 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_81, createdCount, signalCount, error_84;
+            var godot, result, status_81, createdCount, signalCount, warnings, error_84;
             var _a;
             return __generator(this, function (_b) {
                 switch (_b.label) {
@@ -4597,7 +4605,8 @@ export var nodeTools = [
                         status_81 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
                         signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-                        return [2 /*return*/, "Authored enemy AI 3D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_81, "]")];
+                        warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? "\nWarnings:\n- ".concat(result.warnings.join('\n- ')) : '';
+                        return [2 /*return*/, "Authored enemy AI 3D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_81, "]").concat(warnings)];
                     case 3:
                         error_84 = _b.sent();
                         throw new Error("Failed to author enemy AI 3D: ".concat(error_84.message));
@@ -4674,7 +4683,7 @@ export var nodeTools = [
     },
     {
         name: 'set_menu_ui_flow_state',
-        description: 'Switch a generated menu flow between main, pause, game-over, or hidden states',
+        description: 'Switch a generated menu flow between main, pause, game_over (or gameover), or hidden states',
         parameters: z.object({
             flow_path: z.string()
                 .describe('Path to the menu flow root node'),

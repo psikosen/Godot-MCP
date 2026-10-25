@@ -322,7 +322,7 @@ export var sceneTools = [
                         return [4 /*yield*/, godot.sendCommand('create_scene', { path: path, root_node_type: root_node_type })];
                     case 2:
                         result = _d.sent();
-                        return [2 /*return*/, "Created new scene at ".concat(result.scene_path, " with root node type ").concat(result.root_node_type)];
+                        return [2 /*return*/, "Created new scene at ".concat(result.scene_path, " with root node type ").concat(result.root_node_type, ". It is now the open scene; use open_scene to go back.")];
                     case 3:
                         error_1 = _d.sent();
                         throw new Error("Failed to create scene: ".concat(error_1.message));
@@ -584,7 +584,7 @@ export var sceneTools = [
     },
     {
         name: 'rollback_scene_transaction',
-        description: 'Rollback a pending or committed scene transaction',
+        description: 'Rollback a pending scene transaction (committed transactions cannot be rolled back; use the editor\'s Undo)',
         parameters: z.object({
             transaction_id: z.string()
                 .describe('Identifier of the transaction to rollback'),

@@ -514,6 +514,10 @@ var formatEnvironmentResponse = function (result) {
 };
 var formatSunPreviewResponse = function (result) {
     var _a, _b, _c;
+    // apply:true returns the configure_environment result (changes/status), not a current/preview pair.
+    if (result.preview === undefined) {
+        return formatEnvironmentResponse(result);
+    }
     var environmentPath = (_a = result.environment_path) !== null && _a !== void 0 ? _a : 'Environment';
     var current = (_b = result.current) !== null && _b !== void 0 ? _b : {};
     var preview = (_c = result.preview) !== null && _c !== void 0 ? _c : {};

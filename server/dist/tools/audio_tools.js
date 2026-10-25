@@ -51,7 +51,6 @@ var audioPlayerTypeSchema = z.enum([
     'AudioStreamPlayer',
     'AudioStreamPlayer2D',
     'AudioStreamPlayer3D',
-    'AudioStreamPlayerMicrophone',
 ]);
 var authorAudioStreamPlayerSchema = z
     .object({
@@ -467,8 +466,9 @@ var formatDynamicLayerResponse = function (result) {
     }
     return lines.join('\n');
 };
-var formatWaveformAnalysis = function (result) {
+var formatWaveformAnalysis = function (result, showEnvelope) {
     var _a, _b, _c, _d, _e;
+    if (showEnvelope === void 0) { showEnvelope = false; }
     var metadata = (_a = result.metadata) !== null && _a !== void 0 ? _a : {};
     var resourcePath = (_c = (_b = metadata.resource_path) !== null && _b !== void 0 ? _b : result.resource_path) !== null && _c !== void 0 ? _c : 'res://audio/stream.audio';
     var lengthSeconds = typeof metadata.length_seconds === 'number' ? metadata.length_seconds : undefined;
@@ -546,6 +546,18 @@ var formatWaveformAnalysis = function (result) {
                 parts.push("ZCR ".concat(zcr.toFixed(1), "/s"));
             }
             lines.push("- Channel ".concat(channelIndex, ": ").concat(parts.join(' | ')));
+            var envelope = Array.isArray(summary.envelope) ? summary.envelope : [];
+            if (showEnvelope && envelope.length > 0) {
+                // Collapse the bins to at most 8 segments of peak amplitude so the shape is readable as text.
+                var segments = Math.min(8, envelope.length);
+                var peaks = [];
+                for (var seg = 0; seg < segments; seg++) {
+                    var slice = envelope.slice(Math.floor((seg * envelope.length) / segments), Math.floor(((seg + 1) * envelope.length) / segments));
+                    var peak = Math.max.apply(Math, slice.map(function (bin) { var _a, _b; return Math.max(Math.abs((_a = bin.min) !== null && _a !== void 0 ? _a : 0), Math.abs((_b = bin.max) !== null && _b !== void 0 ? _b : 0)); }));
+                    peaks.push(peak.toFixed(3));
+                }
+                lines.push("  Envelope (".concat(envelope.length, " bins, peak per ").concat(segments, " segments): ").concat(peaks.join(' ')));
+            }
         });
     }
     return lines.join('\n');
@@ -566,6 +578,9 @@ var formatBatchImportAudioResult = function (result) {
             var preset = (_d = asset.preset) !== null && _d !== void 0 ? _d : '';
             var optionsApplied = typeof asset.options_applied === 'number' ? asset.options_applied : undefined;
             var details = ["status=".concat(status)];
+            if (typeof asset.reimport_status === 'string') {
+                details.push("reimport=".concat(asset.reimport_status));
+            }
             if (preset) {
                 details.push("preset=".concat(preset));
             }
@@ -836,7 +851,7 @@ export var audioTools = [
                         return [4 /*yield*/, godot.sendCommand('analyze_waveform', payload)];
                     case 2:
                         result = _a.sent();
-                        return [2 /*return*/, formatWaveformAnalysis(result)];
+                        return [2 /*return*/, formatWaveformAnalysis(result, args.envelope_bins !== undefined)];
                     case 3:
                         error_4 = _a.sent();
                         throw new Error("Failed to analyze waveform: ".concat(error_4.message));

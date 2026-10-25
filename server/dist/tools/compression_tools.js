@@ -55,7 +55,7 @@ export var compressionTools = [
             save: z
                 .boolean()
                 .optional()
-                .describe('Persist settings to project.godot when true (default).'),
+                .describe('Write project.godot now when true (default). When false the values still stay in memory and any later ProjectSettings.save() persists them.'),
         }),
         execute: function (_a) {
             return __awaiter(this, arguments, void 0, function (_b) {
