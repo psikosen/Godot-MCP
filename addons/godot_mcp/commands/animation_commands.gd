@@ -268,10 +268,18 @@ func _edit_animation(client_id: int, params: Dictionary, command_id: String) -> 
 		var requested_name := str(rename_operation.get("new_name", rename_operation.get("name", "")))
 		if requested_name.is_empty():
 			continue
+		# Renames stay inside the animation's library.
+		var library_name := _split_animation_name(final_animation_name)[0]
+		requested_name = _split_animation_name(requested_name)[1]
+		if not library_name.is_empty():
+			requested_name = "%s/%s" % [library_name, requested_name]
 		if requested_name == final_animation_name:
 			continue
-		transaction.add_do_method(player, "rename_animation", [final_animation_name, requested_name])
-		transaction.add_undo_method(player, "rename_animation", [requested_name, final_animation_name])
+		if player.has_animation(requested_name):
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, "Animation '%s' already exists on player" % requested_name, command_id)
+		_register_rename_player_animation(transaction, player, final_animation_name, requested_name)
 		rename_summary.append({
 			"previous_name": final_animation_name,
 			"new_name": requested_name,
@@ -374,9 +382,10 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 
 	if typeof(property_updates) == TYPE_DICTIONARY:
 		for property_name in property_updates.keys():
-			var new_value = _parse_property_value(property_updates[property_name])
+			# Coerce to the property's type (e.g. anim_player is a NodePath): == between mismatched types errors.
+			var new_value = _convert_property_value(tree, property_name, property_updates[property_name])
 			var previous_value = tree.get(property_name)
-			if previous_value == new_value:
+			if typeof(previous_value) == typeof(new_value) and previous_value == new_value:
 				continue
 			transaction.add_do_method(tree, "set", [property_name, new_value])
 			transaction.add_undo_method(tree, "set", [property_name, previous_value])
@@ -537,7 +546,8 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 		}, true)
 		return _send_error(client_id, "None of the requested bones were found on the skeleton", command_id)
 
-	var existing_animation: Animation = player.get_animation(animation_name)
+	# has_animation first: get_animation prints an error for a missing (to be created) animation.
+	var existing_animation: Animation = player.get_animation(animation_name) if player.has_animation(animation_name) else null
 	var animation_exists := existing_animation != null
 	if not animation_exists:
 		existing_animation = Animation.new()
@@ -622,8 +632,7 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 	else:
 		var new_animation_resource = working_copy.duplicate(true)
 		transaction.add_do_reference(new_animation_resource)
-		transaction.add_do_method(player, "add_animation", [animation_name, new_animation_resource])
-		transaction.add_undo_method(player, "remove_animation", [animation_name])
+		_register_add_player_animation(transaction, player, animation_name, new_animation_resource)
 		response["animation_created"] = true
 
 	transaction.register_on_commit(func():
@@ -686,7 +695,8 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		}, true)
 		return _send_error(client_id, "AnimationPlayer not found at %s" % player_path, command_id)
 
-	var existing_animation: Animation = player.get_animation(animation_name)
+	# has_animation first: get_animation prints an error for a missing (to be created) animation.
+	var existing_animation: Animation = player.get_animation(animation_name) if player.has_animation(animation_name) else null
 	var animation_exists := existing_animation != null
 	if not animation_exists:
 		existing_animation = Animation.new()
@@ -811,8 +821,7 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 	else:
 		var new_resource := working_copy.duplicate(true)
 		transaction.add_do_reference(new_resource)
-		transaction.add_do_method(player, "add_animation", [animation_name, new_resource])
-		transaction.add_undo_method(player, "remove_animation", [animation_name])
+		_register_add_player_animation(transaction, player, animation_name, new_resource)
 		response["animation_created"] = true
 
 	transaction.register_on_commit(func():
@@ -1181,6 +1190,36 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 
 	return summary
 
+# Godot 4 has no AnimationPlayer.add/remove/rename_animation: animations live in AnimationLibrary
+# resources and are addressed as "library/animation" ("" is the default library).
+# Do/undo target the player and its library (scene objects), so the action stays in the scene's undo history.
+func _split_animation_name(full_name: String) -> PackedStringArray:
+	var slash := full_name.find("/")
+	if slash == -1:
+		return PackedStringArray(["", full_name])
+	return PackedStringArray([full_name.substr(0, slash), full_name.substr(slash + 1)])
+
+
+func _register_add_player_animation(transaction, player: AnimationPlayer, full_name: String, animation: Animation) -> void:
+	var parts := _split_animation_name(full_name)
+	var library: AnimationLibrary = player.get_animation_library(parts[0]) if player.has_animation_library(parts[0]) else null
+	if library == null:
+		library = AnimationLibrary.new()
+		transaction.add_do_method(player, "add_animation_library", [parts[0], library])
+		transaction.add_undo_method(player, "remove_animation_library", [parts[0]])
+	transaction.add_do_method(library, "add_animation", [parts[1], animation])
+	transaction.add_undo_method(library, "remove_animation", [parts[1]])
+	transaction.add_do_reference(library)
+
+
+func _register_rename_player_animation(transaction, player: AnimationPlayer, old_name: String, new_name: String) -> void:
+	var old_parts := _split_animation_name(old_name)
+	var new_parts := _split_animation_name(new_name)
+	var library := player.get_animation_library(old_parts[0])
+	transaction.add_do_method(library, "rename_animation", [old_parts[1], new_parts[1]])
+	transaction.add_undo_method(library, "rename_animation", [new_parts[1], old_parts[1]])
+
+
 func _apply_animation_clone(target: Animation, source: Animation) -> void:
 	if target == null or source == null:
 		return
@@ -1199,8 +1238,8 @@ func _apply_animation_clone(target: Animation, source: Animation) -> void:
 		target.track_set_path(new_index, source.track_get_path(track_index))
 		if source.has_method("track_get_interpolation_type") and target.has_method("track_set_interpolation_type"):
 			target.track_set_interpolation_type(new_index, source.track_get_interpolation_type(track_index))
-		if source.has_method("track_get_wrap_mode") and target.has_method("track_set_wrap_mode"):
-			target.track_set_wrap_mode(new_index, source.track_get_wrap_mode(track_index))
+		# Godot 4 name for the Godot 3 track wrap mode.
+		target.track_set_interpolation_loop_wrap(new_index, source.track_get_interpolation_loop_wrap(track_index))
 		if source.has_method("track_is_enabled") and target.has_method("track_set_enabled"):
 			target.track_set_enabled(new_index, source.track_is_enabled(track_index))
 
@@ -1445,7 +1484,7 @@ func _serialize_animation_tracks(animation: Animation, include_keys: bool) -> Ar
 			"type": _animation_track_type_to_string(track_type),
 			"path": _serialize_node_path(animation.track_get_path(track_index)),
 			"key_count": animation.track_get_key_count(track_index),
-			"loop_wrap": animation.track_get_wrap_mode(track_index),
+			"loop_wrap": animation.track_get_interpolation_loop_wrap(track_index),
 		}
 
 		if animation.has_method("track_is_enabled"):

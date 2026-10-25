@@ -75,12 +75,23 @@ func _batch_reimport_textures(client_id: int, params: Dictionary, command_id: St
 	if filesystem == null:
 		return _send_error(client_id, "EditorFileSystem is not available", command_id)
 
-	filesystem.reimport_files(paths)
+	var existing := PackedStringArray()
+	var missing: Array = []
+	for path in paths:
+		if FileAccess.file_exists(str(path)):
+			existing.append(str(path))
+		else:
+			missing.append(path)
+	if existing.is_empty():
+		return _send_error(client_id, "None of the paths exist: %s" % str(missing), command_id)
 
-	_log_event("_batch_reimport_textures", "Triggered texture reimport", {"count": paths.size()})
+	filesystem.reimport_files(existing)
+
+	_log_event("_batch_reimport_textures", "Triggered texture reimport", {"count": existing.size()})
 	_send_success(client_id, {
-		"paths": paths,
-		"reimported": paths.size(),
+		"paths": existing,
+		"missing": missing,
+		"reimported": existing.size(),
 	}, command_id)
 
 func _create_texture_import_preset(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -114,11 +125,16 @@ func _list_texture_compression_settings(client_id: int, command_id: String) -> v
 	var result := {}
 	var categories := ["rendering/textures/vram_compression", "import/presets/texture"]
 
+	# Settings are stored as individual keys, not one dictionary per section.
+	var setting_names: Array = []
+	for property in ProjectSettings.get_property_list():
+		setting_names.append(str(property.get("name", "")))
 	for base_path in categories:
 		var section := {}
-		var section_keys := ProjectSettings.get_setting(base_path, null)
-		if typeof(section_keys) == TYPE_DICTIONARY:
-			section = section_keys.duplicate(true)
+		var prefix: String = base_path + "/"
+		for setting_name in setting_names:
+			if setting_name.begins_with(prefix):
+				section[setting_name.substr(prefix.length())] = ProjectSettings.get_setting(setting_name)
 		result[base_path] = section
 
 	_log_event("_list_texture_compression_settings", "Collected compression settings snapshot", {"categories": result.keys()})

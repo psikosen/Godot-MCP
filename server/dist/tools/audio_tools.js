@@ -189,7 +189,7 @@ var authorInteractiveMusicGraphSchema = z.object({
     resource_path: z
         .string()
         .min(1, 'Interactive music resource path is required')
-        .describe('Destination resource path (e.g. "res://audio/music.interactive")'),
+        .describe('Destination resource path (e.g. "res://audio/music.tres")'),
     clips: z
         .array(interactiveClipSchema)
         .min(1, 'At least one interactive music clip must be provided'),
@@ -234,7 +234,7 @@ var generateDynamicMusicLayerSchema = z
     resource_path: z
         .string()
         .min(1)
-        .describe('AudioStreamInteractive resource path to update (e.g. "res://audio/music.interactive")'),
+        .describe('AudioStreamInteractive resource path to update (e.g. "res://audio/music.tres")'),
     base_clip: clipReferenceSchema.describe('Base clip that the dynamic layer extends'),
     layer_clip: dynamicLayerClipSchema
         .optional()
@@ -347,7 +347,7 @@ var formatAudioPlayerResponse = function (result) {
 };
 var formatInteractiveMusicResponse = function (result) {
     var _a, _b;
-    var resourcePath = (_a = result.resource_path) !== null && _a !== void 0 ? _a : 'res://resource.interactive';
+    var resourcePath = (_a = result.resource_path) !== null && _a !== void 0 ? _a : 'res://resource.tres';
     var status = (_b = result.status) !== null && _b !== void 0 ? _b : 'updated';
     var clipCount = typeof result.clip_count === 'number' ? result.clip_count : undefined;
     var clips = Array.isArray(result.clips) ? result.clips : [];
@@ -411,7 +411,7 @@ var formatInteractiveMusicResponse = function (result) {
 };
 var formatDynamicLayerResponse = function (result) {
     var _a, _b, _c, _d, _e, _f;
-    var resourcePath = (_a = result.resource_path) !== null && _a !== void 0 ? _a : 'res://resource.interactive';
+    var resourcePath = (_a = result.resource_path) !== null && _a !== void 0 ? _a : 'res://resource.tres';
     var baseClip = (_b = result.base_clip) !== null && _b !== void 0 ? _b : {};
     var layerClip = (_c = result.layer_clip) !== null && _c !== void 0 ? _c : {};
     var transitions = Array.isArray(result.transitions) ? result.transitions : [];

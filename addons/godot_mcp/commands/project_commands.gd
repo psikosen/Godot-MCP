@@ -618,7 +618,9 @@ func _add_input_event_to_action(client_id: int, params: Dictionary, command_id: 
 
 func _remove_input_event_from_action(client_id: int, params: Dictionary, command_id: String) -> void:
 	var action_name: String = params.get("action_name", "")
-	var event_index = params.get("event_index", -1)
+	# JSON numbers arrive as float, so accept any number.
+	var event_index_raw = params.get("event_index", -1)
+	var event_index: int = int(event_index_raw) if (event_index_raw is int or event_index_raw is float) else -1
 	var event_data = params.get("event", null)
 	var persistent: bool = params.get("persistent", true)
 
@@ -634,7 +636,7 @@ func _remove_input_event_from_action(client_id: int, params: Dictionary, command
 
 	var removed_event: InputEvent = null
 
-	if event_index is int and event_index >= 0 and event_index < events.size():
+	if event_index >= 0 and event_index < events.size():
 		removed_event = events[event_index]
 	elif typeof(event_data) == TYPE_DICTIONARY:
 		for existing_event in events:

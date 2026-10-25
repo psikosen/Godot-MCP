@@ -483,7 +483,7 @@ func _commit_scene_transaction(client_id: int, params: Dictionary, command_id: S
 
 	var result = SceneTransactionManager.commit_registered(transaction_id)
 	if not result:
-		return _send_error(client_id, "Failed to commit scene transaction: %s" % transaction_id, command_id)
+		return _send_error(client_id, "Unknown transaction or commit failed: %s" % transaction_id, command_id)
 
 	_send_success(client_id, {
 		"transaction_id": transaction_id,
@@ -1219,7 +1219,7 @@ func _configure_physics_node(
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
 
-		if old_value == coerced_value:
+		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 
 		property_changes.append({
@@ -1819,7 +1819,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
-		if old_value == coerced_value:
+		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 		property_changes.append({
 			"property": property_name,
@@ -2374,7 +2374,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 	if save_result != OK:
 		context["save_error"] = save_result
 		_log("Failed to save AudioStreamInteractive resource", function_name, context, true)
-		return _send_error(client_id, "Failed to save interactive music resource: %s" % normalized_path, command_id)
+		return _send_error(client_id, "Failed to save interactive music resource: %s (%s; use a .tres or .res path)" % [normalized_path, error_string(save_result)], command_id)
 
 	var response := {
 		"resource_path": normalized_path,
@@ -2733,7 +2733,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 	if save_status != OK:
 		context["save_error"] = save_status
 		_log("Failed to persist dynamic music layer", function_name, context, true)
-		return _send_error(client_id, "Failed to save interactive music resource: %s" % normalized_path, command_id)
+		return _send_error(client_id, "Failed to save interactive music resource: %s (%s; use a .tres or .res path)" % [normalized_path, error_string(save_status)], command_id)
 
 	var entry_summary := {
 		"from": base_summary["label"],
@@ -3769,7 +3769,7 @@ func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
 
-		if old_value == coerced_value:
+		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 
 		property_changes.append({
@@ -4020,7 +4020,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			var parsed_value = resolved_value.get("value", null)
 			var old_value = material.get(normalized_property)
 			var coerced_value = _coerce_property_value(old_value, parsed_value)
-			if old_value == coerced_value:
+			if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 				continue
 			material.set(normalized_property, coerced_value)
 			var change := {
@@ -5051,8 +5051,9 @@ func _coerce_property_value(old_value, new_value):
 			return _convert_to_int(new_value, old_value)
 		TYPE_FLOAT:
 			return _convert_to_float(new_value, old_value)
-		TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I:
-			return new_value
+		TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_COLOR:
+			# JSON gives {"x":..}, [..] or "#hex"; build the real type so callers can compare it.
+			return _coerce_value_to_match(old_value, new_value)
 		TYPE_NODE_PATH:
 			if typeof(new_value) == TYPE_STRING:
 				return NodePath(new_value)
@@ -5191,12 +5192,10 @@ func _parse_gridmap_position(data) -> Dictionary:
 func _vector3i_to_dictionary(vector: Vector3i) -> Dictionary:
 	return {"x": vector.x, "y": vector.y, "z": vector.z}
 
+# Report paths the way clients address them (/root/...), not the editor-internal tree path.
 func _node_path_to_string(node: Node, fallback: String) -> String:
 	if node:
-		var node_path_value = node.get_path()
-		if typeof(node_path_value) == TYPE_NODE_PATH:
-			return str(node_path_value)
-		return str(node_path_value)
+		return _to_mcp_path(node)
 	return fallback
 
 

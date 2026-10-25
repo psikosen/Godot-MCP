@@ -97,15 +97,15 @@ export var nodeTools = [
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var godot, result, status_1, error_1;
-            var _c;
+            var _c, _d;
             var parent_path = _b.parent_path, node_type = _b.node_type, node_name = _b.node_name, transaction_id = _b.transaction_id;
-            return __generator(this, function (_d) {
-                switch (_d.label) {
+            return __generator(this, function (_e) {
+                switch (_e.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _d.label = 1;
+                        _e.label = 1;
                     case 1:
-                        _d.trys.push([1, 3, , 4]);
+                        _e.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('create_node', {
                                 parent_path: parent_path,
                                 node_type: node_type,
@@ -113,11 +113,11 @@ export var nodeTools = [
                                 transaction_id: transaction_id,
                             })];
                     case 2:
-                        result = _d.sent();
+                        result = _e.sent();
                         status_1 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
-                        return [2 /*return*/, "Created ".concat(node_type, " node named \"").concat(node_name, "\" at ").concat(result.node_path, " [").concat(status_1, "]")];
+                        return [2 /*return*/, "Created ".concat(node_type, " node named \"").concat((_d = result.node_name) !== null && _d !== void 0 ? _d : node_name, "\" at ").concat(result.node_path, " [").concat(status_1, "]")];
                     case 3:
-                        error_1 = _d.sent();
+                        error_1 = _e.sent();
                         throw new Error("Failed to create node: ".concat(error_1.message));
                     case 4: return [2 /*return*/];
                 }
@@ -4229,7 +4229,8 @@ export var nodeTools = [
             drag_scale: z.number().nonnegative().optional(),
             sink_bias: z.number().optional(),
             clamp_speed: z.number().nonnegative().optional(),
-            apply_position: z.boolean().optional(),
+            apply_position: z.boolean().optional()
+                .describe('When false, only report the simulated position and velocity; nothing is written (default true)'),
             require_inside: z.boolean().optional(),
             current_velocity: vector2ParamSchema.optional(),
             transaction_id: z.string().optional(),
@@ -4283,7 +4284,8 @@ export var nodeTools = [
             drag_scale: z.number().nonnegative().optional(),
             sink_bias: z.number().optional(),
             clamp_speed: z.number().nonnegative().optional(),
-            apply_position: z.boolean().optional(),
+            apply_position: z.boolean().optional()
+                .describe('When false, only report the simulated position and velocity; nothing is written (default true)'),
             require_inside: z.boolean().optional(),
             preserve_vertical_velocity: z.boolean().optional(),
             current_velocity: vector3ParamSchema.optional(),

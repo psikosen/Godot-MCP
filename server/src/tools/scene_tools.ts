@@ -543,7 +543,7 @@ export const sceneTools: MCPTool[] = [
         const godotVersion = `${result.godot_version.major}.${result.godot_version.minor}.${result.godot_version.patch}`;
         
         let output = `Project Name: ${result.project_name}\n`;
-        output += `Project Version: ${result.project_version}\n`;
+        output += `Project Version: ${result.project_version || '(not set)'}\n`;
         output += `Project Path: ${result.project_path}\n`;
         output += `Godot Version: ${godotVersion}\n`;
         

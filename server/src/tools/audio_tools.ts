@@ -255,7 +255,7 @@ const authorInteractiveMusicGraphSchema = z.object({
   resource_path: z
     .string()
     .min(1, 'Interactive music resource path is required')
-    .describe('Destination resource path (e.g. "res://audio/music.interactive")'),
+    .describe('Destination resource path (e.g. "res://audio/music.tres")'),
   clips: z
     .array(interactiveClipSchema)
     .min(1, 'At least one interactive music clip must be provided'),
@@ -303,7 +303,7 @@ const generateDynamicMusicLayerSchema = z
     resource_path: z
       .string()
       .min(1)
-      .describe('AudioStreamInteractive resource path to update (e.g. "res://audio/music.interactive")'),
+      .describe('AudioStreamInteractive resource path to update (e.g. "res://audio/music.tres")'),
     base_clip: clipReferenceSchema.describe('Base clip that the dynamic layer extends'),
     layer_clip: dynamicLayerClipSchema
       .optional()
@@ -425,7 +425,7 @@ const formatAudioPlayerResponse = (result: CommandResult): string => {
 };
 
 const formatInteractiveMusicResponse = (result: CommandResult): string => {
-  const resourcePath = (result.resource_path as string) ?? 'res://resource.interactive';
+  const resourcePath = (result.resource_path as string) ?? 'res://resource.tres';
   const status = (result.status as string) ?? 'updated';
   const clipCount = typeof result.clip_count === 'number' ? (result.clip_count as number) : undefined;
   const clips = Array.isArray(result.clips) ? (result.clips as any[]) : [];
@@ -497,7 +497,7 @@ const formatInteractiveMusicResponse = (result: CommandResult): string => {
 };
 
 const formatDynamicLayerResponse = (result: CommandResult): string => {
-  const resourcePath = (result.resource_path as string) ?? 'res://resource.interactive';
+  const resourcePath = (result.resource_path as string) ?? 'res://resource.tres';
   const baseClip = (result.base_clip as Record<string, unknown>) ?? {};
   const layerClip = (result.layer_clip as Record<string, unknown>) ?? {};
   const transitions = Array.isArray(result.transitions) ? (result.transitions as any[]) : [];

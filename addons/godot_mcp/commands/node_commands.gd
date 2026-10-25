@@ -596,7 +596,9 @@ func _move_node_in_parent(client_id: int, params: Dictionary, command_id: String
 
 	var old_index: int = parent.get_children().find(node)
 	var max_index: int = max(0, parent.get_child_count() - 1)
-	var clamped_target_index: int = int(clamp(target_index, 0, max_index))
+	if target_index > max_index:
+		return _send_error(client_id, "Index %d is out of range (0-%d)" % [target_index, max_index], command_id)
+	var clamped_target_index: int = target_index
 	if old_index == clamped_target_index:
 		return _send_success(client_id, {
 			"node_path": node_path,
@@ -1557,6 +1559,9 @@ func _paint_tilemap_cells_2d(client_id: int, params: Dictionary, command_id: Str
 			return _send_error(client_id, "cells[%d]: invalid atlas_coords" % idx, command_id)
 		var atlas_coords: Vector2i = atlas_result.get("value")
 		var alternative_tile: int = int(entry.get("alternative_tile", 0))
+		var tile_error := _validate_tilemap_tile(node, source_id, atlas_coords)
+		if not tile_error.is_empty():
+			return _send_error(client_id, "cells[%d]: %s" % [idx, tile_error], command_id)
 
 		var new_cell := _make_tilemap_cell_data(source_id, atlas_coords, alternative_tile)
 		var previous_cell := _get_tilemap_cell_data(node, layer, coords)
@@ -2078,9 +2083,13 @@ func _set_animation_tree_parameters(client_id: int, params: Dictionary, command_
 		var parameter_path: String = str(raw_key).strip_edges()
 		if parameter_path.is_empty():
 			return _send_error(client_id, "Parameter key cannot be empty", command_id)
-		var new_value = parameter_values[raw_key]
+		if not parameter_path.begins_with("parameters/"):
+			parameter_path = "parameters/%s" % parameter_path
+		if _get_property_info(tree, parameter_path).is_empty():
+			return _send_error(client_id, "AnimationTree has no parameter: %s" % parameter_path, command_id)
+		var new_value = _convert_property_value(tree, parameter_path, parameter_values[raw_key])
 		var previous_value = tree.get(parameter_path)
-		if previous_value == new_value:
+		if typeof(previous_value) == typeof(new_value) and previous_value == new_value:
 			continue
 		pending_changes.append({
 			"property": parameter_path,
@@ -3690,6 +3699,9 @@ func _fill_tilemap_rect_2d(client_id: int, params: Dictionary, command_id: Strin
 			return _send_error(client_id, "atlas_coords must be Vector2i-compatible", command_id)
 		atlas_coords = atlas_result.get("value")
 		alternative_tile = int(params.get("alternative_tile", 0))
+		var tile_error := _validate_tilemap_tile(node, source_id, atlas_coords)
+		if not tile_error.is_empty():
+			return _send_error(client_id, tile_error, command_id)
 
 	var target_cell = _make_tilemap_cell_data(source_id, atlas_coords, alternative_tile)
 	var pending_changes: Array = []
@@ -3843,6 +3855,9 @@ func _generate_tilemap_noise_2d(client_id: int, params: Dictionary, command_id: 
 		return _send_error(client_id, "atlas_coords must be Vector2i-compatible", command_id)
 	var atlas_coords: Vector2i = atlas_result.get("value")
 	var alternative_tile: int = int(params.get("alternative_tile", 0))
+	var tile_error := _validate_tilemap_tile(node, source_id, atlas_coords)
+	if not tile_error.is_empty():
+		return _send_error(client_id, tile_error, command_id)
 	var target_cell := _make_tilemap_cell_data(source_id, atlas_coords, alternative_tile)
 	var empty_cell := _make_tilemap_cell_data(-1, Vector2i(-1, -1), -1)
 
@@ -4044,6 +4059,14 @@ func _tilemap_terrain_autopaint_2d(client_id: int, params: Dictionary, command_i
 
 	var terrain_set: int = int(params.get("terrain_set", 0))
 	var terrain: int = int(params.get("terrain", 0))
+	# Missing terrains make set_cells_terrain_* paint nothing, so reject them up front.
+	var tile_set: TileSet = node.tile_set
+	if tile_set == null:
+		return _send_error(client_id, "%s has no TileSet" % node.name, command_id)
+	if terrain_set < 0 or terrain_set >= tile_set.get_terrain_sets_count():
+		return _send_error(client_id, "TileSet has no terrain set %d (count %d)" % [terrain_set, tile_set.get_terrain_sets_count()], command_id)
+	if terrain < -1 or terrain >= tile_set.get_terrains_count(terrain_set):  # -1 erases
+		return _send_error(client_id, "Terrain set %d has no terrain %d (count %d)" % [terrain_set, terrain, tile_set.get_terrains_count(terrain_set)], command_id)
 	var ignore_empty_terrains: bool = bool(params.get("ignore_empty_terrains", true))
 	var neighbor_margin: int = max(0, int(params.get("neighbor_margin", 1)))
 
@@ -4788,8 +4811,9 @@ func _scatter_scene_instances_3d(client_id: int, params: Dictionary, command_id:
 
 	var origin: Vector3 = _parse_vector3_param(params.get("origin", Vector3.ZERO))
 	var size: Vector3 = _parse_vector3_param(params.get("size", Vector3.ZERO))
-	if size.x <= 0.0 or size.y <= 0.0 or size.z <= 0.0:
-		return _send_error(client_id, "size must be greater than zero on all axes", command_id)
+	# size.y may be 0 to scatter on a flat XZ area.
+	if size.x <= 0.0 or size.y < 0.0 or size.z <= 0.0:
+		return _send_error(client_id, "size.x and size.z must be greater than zero and size.y at least zero", command_id)
 
 	var random_yaw: bool = bool(params.get("random_yaw", false))
 	var yaw_range: Vector2 = _parse_vector2_param(params.get("yaw_range_degrees", Vector2(-180.0, 180.0)))
@@ -5109,7 +5133,10 @@ func _configure_camera3d_rig(client_id: int, params: Dictionary, command_id: Str
 	if params.has("projection"):
 		pending_changes.append_array(_capture_property_change(camera, "projection", int(params.get("projection"))))
 	if params.has("fov"):
-		pending_changes.append_array(_capture_property_change(camera, "fov", float(params.get("fov"))))
+		var fov_value: float = float(params.get("fov"))
+		if fov_value < 1.0 or fov_value > 179.0:
+			return _send_error(client_id, "fov must be between 1 and 179 degrees (got %s)" % fov_value, command_id)
+		pending_changes.append_array(_capture_property_change(camera, "fov", fov_value))
 	if params.has("size"):
 		pending_changes.append_array(_capture_property_change(camera, "size", float(params.get("size"))))
 	if params.has("near"):
@@ -6253,7 +6280,8 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 		"path_path": path_mcp_path,
 		"follower_count": predicted_paths.size(),
 		"created_count": created_followers.size(),
-		"updated_count": serialized_property_changes.size() + serialized_meta_changes.size(),
+		"updated_count": _count_updated_followers(pending_property_changes + pending_meta_changes, created_followers),
+		"change_count": serialized_property_changes.size() + serialized_meta_changes.size(),
 		"follower_paths": predicted_paths,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
@@ -6507,7 +6535,8 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 		"path_path": path_mcp_path,
 		"follower_count": predicted_paths.size(),
 		"created_count": created_followers.size(),
-		"updated_count": serialized_property_changes.size() + serialized_meta_changes.size(),
+		"updated_count": _count_updated_followers(pending_property_changes + pending_meta_changes, created_followers),
+		"change_count": serialized_property_changes.size() + serialized_meta_changes.size(),
 		"follower_paths": predicted_paths,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
@@ -7581,6 +7610,10 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Light node not found: %s" % node_path, command_id)
 	if not (node is Light2D or node is Light3D):
 		return _send_error(client_id, "Node at %s must inherit Light2D or Light3D" % node_path, command_id)
+
+	for energy_key in ["energy", "indirect_energy", "volumetric_fog_energy"]:
+		if params.has(energy_key) and float(params.get(energy_key)) < 0.0:
+			return _send_error(client_id, "%s must be >= 0" % energy_key, command_id)
 
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
@@ -13687,14 +13720,27 @@ func _simulate_water_current_step_2d(client_id: int, params: Dictionary, command
 		new_velocity = new_velocity.normalized() * clamp_speed
 
 	var new_global_position: Vector2 = body.global_position + new_velocity * delta
+	if not apply_position:
+		# Preview only: report the simulated step and write nothing (not even velocity).
+		return _send_success(client_id, {
+			"water_path": _to_mcp_path(water),
+			"body_path": _to_mcp_path(body),
+			"inside_water": inside_water,
+			"submersion": submersion,
+			"delta": delta,
+			"flow_velocity": _vector2_to_dict(target_flow_velocity),
+			"position": _vector2_to_dict(new_global_position),
+			"velocity": _vector2_to_dict(new_velocity),
+			"status": "preview",
+		}, command_id)
+
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 	if not velocity_property.is_empty():
 		pending_property_changes.append_array(_capture_property_change(body, velocity_property, new_velocity))
 	else:
 		pending_meta_changes.append_array(_capture_meta_change(body, "mcp_water_velocity_2d", _vector2_to_dict(new_velocity)))
-	if apply_position:
-		pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
+	pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
 
 	if pending_property_changes.is_empty() and pending_meta_changes.is_empty():
 		return _send_success(client_id, {
@@ -13914,14 +13960,27 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 		new_velocity = new_velocity.normalized() * clamp_speed
 
 	var new_global_position: Vector3 = body.global_position + new_velocity * delta
+	if not apply_position:
+		# Preview only: report the simulated step and write nothing (not even velocity).
+		return _send_success(client_id, {
+			"water_path": _to_mcp_path(water),
+			"body_path": _to_mcp_path(body),
+			"inside_water": inside_water,
+			"submersion": submersion,
+			"delta": delta,
+			"flow_velocity": _vector3_to_dict(target_flow_velocity),
+			"position": _vector3_to_dict(new_global_position),
+			"velocity": _vector3_to_dict(new_velocity),
+			"status": "preview",
+		}, command_id)
+
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 	if not velocity_property.is_empty():
 		pending_property_changes.append_array(_capture_property_change(body, velocity_property, new_velocity))
 	else:
 		pending_meta_changes.append_array(_capture_meta_change(body, "mcp_water_velocity_3d", _vector3_to_dict(new_velocity)))
-	if apply_position:
-		pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
+	pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
 
 	if pending_property_changes.is_empty() and pending_meta_changes.is_empty():
 		return _send_success(client_id, {
@@ -16249,7 +16308,8 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for node creation", command_id)
 
-	transaction.add_do_method(parent, "add_child", [node])
+	# force_readable_name: a name collision becomes "Name2", not "@Node3D@123".
+	transaction.add_do_method(parent, "add_child", [node, true])
 	transaction.add_do_method(node, "set_owner", [edited_scene_root])
 	transaction.add_undo_method(parent, "remove_child", [node])
 	transaction.add_undo_method(node, "queue_free")
@@ -16285,6 +16345,9 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			return _send_error(client_id, "Failed to commit node creation", command_id)
 		var path_string = _to_mcp_path(node)
 		response["node_path"] = path_string
+		# The parent renames the node when the requested name is taken.
+		response["node_name"] = str(node.name)
+		response["requested_name"] = node_name
 		response["status"] = "committed"
 		_send_success(client_id, response, command_id)
 	else:
@@ -16510,8 +16573,12 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 	var properties = {}
 	var property_list = node.get_property_list()
 	
+	# Inspector category/group headers are list entries, not properties (they read as null).
+	var header_usage := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 	for prop in property_list:
 		var name = prop["name"]
+		if prop.get("usage", 0) & header_usage:
+			continue
 		if not name.begins_with("_"):  # Skip internal properties
 			properties[name] = node.get(name)
 	
@@ -17044,6 +17111,10 @@ func _register_theme_override_transaction(transaction, control: Control, overrid
 		transaction.add_undo_method(control, removal_method, [override_name])
 
 
+func _is_numeric_value(value) -> bool:
+	return value is int or value is float or (value is String and value.is_valid_float())
+
+
 func _parse_theme_override_value(override_type: String, value, resource_path: String) -> Dictionary:
 	match override_type:
 		"color":
@@ -17052,12 +17123,13 @@ func _parse_theme_override_value(override_type: String, value, resource_path: St
 				return {"ok": false, "error": "Color overrides require a valid color value"}
 			return {"ok": true, "value": color}
 		"constant":
-			if value == null:
+			# float("abc") is 0.0, so check the input is a number first.
+			if not _is_numeric_value(value):
 				return {"ok": false, "error": "Constant overrides require a numeric value"}
 			return {"ok": true, "value": int(round(float(value)))}
 		"font_size":
-			if value == null:
-				return {"ok": false, "error": "Font size overrides require an integer value"}
+			if not _is_numeric_value(value) or float(value) < 1.0:
+				return {"ok": false, "error": "Font size overrides require a positive integer value"}
 			return {"ok": true, "value": int(round(float(value)))}
 		"font":
 			var font_resource = _load_theme_resource(resource_path, value, "Font")
@@ -17426,6 +17498,32 @@ func _make_tilemap_cell_data(source_id: int, atlas_coords: Vector2i, alternative
 		"atlas_coords": atlas_coords,
 		"alternative_tile": alternative_tile,
 	}
+
+
+# Existing followers touched by the changes (not the number of property changes).
+func _count_updated_followers(changes: Array, created_followers: Array) -> int:
+	var touched := {}
+	for change in changes:
+		var target = change.get("target")
+		if (target is PathFollow2D or target is PathFollow3D) and not created_followers.has(target):
+			touched[target] = true
+	return touched.size()
+
+
+# A cell that points at a missing TileSet, source or atlas tile paints nothing, so reject it.
+# Returns an error message, or "" when the tile exists (source_id -1 means erase).
+func _validate_tilemap_tile(node: Node, source_id: int, atlas_coords: Vector2i) -> String:
+	if source_id == -1:
+		return ""
+	var tile_set: TileSet = node.tile_set
+	if tile_set == null:
+		return "%s has no TileSet" % node.name
+	if not tile_set.has_source(source_id):
+		return "TileSet has no source with id %d" % source_id
+	var source := tile_set.get_source(source_id)
+	if source is TileSetAtlasSource and not source.has_tile(atlas_coords):
+		return "TileSet source %d has no tile at atlas_coords %s" % [source_id, atlas_coords]
+	return ""
 
 
 func _get_tilemap_cell_data(node: Node, layer: int, coords: Vector2i) -> Dictionary:

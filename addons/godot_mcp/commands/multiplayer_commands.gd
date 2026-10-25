@@ -147,24 +147,28 @@ func _spawn_multiplayer_scene(client_id: int, params: Dictionary, command_id: St
 	if instance == null:
 		return _send_error(client_id, "Failed to instantiate scene: %s" % scene_path, command_id)
 
-	var parent_path := params.get("parent_path", "/root")
+	var parent_path := str(params.get("parent_path", "/root"))
 	var parent := _get_editor_node(parent_path)
 	if parent == null:
-		parent = get_tree().root
+		# Never fall back to get_tree().root: in the editor that is the editor UI, not the scene.
+		instance.free()
+		return _send_error(client_id, "Parent node not found in edited scene: %s" % parent_path, command_id)
 
-	parent.add_child(instance)
+	parent.add_child(instance, true)
+	# Owner = edited scene root so the instance is saved with the scene.
+	instance.owner = EditorInterface.get_edited_scene_root()
 
 	if params.has("owner_peer_id") and instance.has_method("set_multiplayer_authority"):
 		instance.set_multiplayer_authority(int(params.get("owner_peer_id")))
 
 	_mark_scene_modified()
 
-	var instance_path := instance.get_path()
+	var instance_path := _to_mcp_path(instance)
 	_log_event("_spawn_multiplayer_scene", "Spawned multiplayer scene", {
 		"scene": scene_path,
-		"node_path": str(instance_path),
+		"node_path": instance_path,
 	})
 	_send_success(client_id, {
 		"scene": scene_path,
-		"node_path": str(instance_path),
+		"node_path": instance_path,
 	}, command_id)

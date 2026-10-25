@@ -441,10 +441,10 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 		_log("TileMap node not found", function_name, context, true)
 		return _send_error(client_id, "TileMap not found: %s" % tilemap_path, command_id)
 
-	if not (tilemap is TileMap):
+	if not (tilemap is TileMap or tilemap is TileMapLayer):
 		context["node_type"] = tilemap.get_class()
-		_log("Node at path is not a TileMap", function_name, context, true)
-		return _send_error(client_id, "Node at path is not a TileMap", command_id)
+		_log("Node at path is not a TileMap or TileMapLayer", function_name, context, true)
+		return _send_error(client_id, "Node at path is not a TileMap or TileMapLayer", command_id)
 
 	var requested_region_paths: Array = []
 	if params.has("region_paths"):
@@ -494,10 +494,15 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 	elif tilemap.has_method("queue_navigation_update"):
 		tilemap.queue_navigation_update()
 		navigation_map_updated = true
-	elif tilemap.has_method("get_navigation_map"):
-		var nav_map = tilemap.get_navigation_map()
-		if typeof(nav_map) == TYPE_RID:
-			var rid: RID = nav_map
+	else:
+		# TileMap.get_navigation_map takes a layer index; TileMapLayer's takes none.
+		var nav_maps: Array = []
+		if tilemap is TileMap:
+			for layer in tilemap.get_layers_count():
+				nav_maps.append(tilemap.get_navigation_map(layer))
+		else:
+			nav_maps.append(tilemap.get_navigation_map())
+		for rid in nav_maps:
 			if rid.is_valid():
 				NavigationServer2D.map_force_update(rid)
 				navigation_map_updated = true

@@ -1694,7 +1694,7 @@ export const nodeTools: MCPTool[] = [
         });
 
         const status = (result.status as string) ?? 'committed';
-        return `Created ${node_type} node named "${node_name}" at ${result.node_path} [${status}]`;
+        return `Created ${node_type} node named "${result.node_name ?? node_name}" at ${result.node_path} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to create node: ${(error as Error).message}`);
       }
@@ -5019,7 +5019,8 @@ export const nodeTools: MCPTool[] = [
       drag_scale: z.number().nonnegative().optional(),
       sink_bias: z.number().optional(),
       clamp_speed: z.number().nonnegative().optional(),
-      apply_position: z.boolean().optional(),
+      apply_position: z.boolean().optional()
+        .describe('When false, only report the simulated position and velocity; nothing is written (default true)'),
       require_inside: z.boolean().optional(),
       current_velocity: vector2ParamSchema.optional(),
       transaction_id: z.string().optional(),
@@ -5062,7 +5063,8 @@ export const nodeTools: MCPTool[] = [
       drag_scale: z.number().nonnegative().optional(),
       sink_bias: z.number().optional(),
       clamp_speed: z.number().nonnegative().optional(),
-      apply_position: z.boolean().optional(),
+      apply_position: z.boolean().optional()
+        .describe('When false, only report the simulated position and velocity; nothing is written (default true)'),
       require_inside: z.boolean().optional(),
       preserve_vertical_velocity: z.boolean().optional(),
       current_velocity: vector3ParamSchema.optional(),

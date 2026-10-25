@@ -122,10 +122,10 @@ const environmentCommonSchema = z.object({
     .describe('Ambient light overrides (color, energy, sky_contribution).'),
   fog: dictionarySchema
     .optional()
-    .describe('Fog overrides including color, density, height, and sun scattering parameters.'),
+    .describe('Fog overrides: color, energy, density, height, height_density, sun_color, sun_amount, sun_scatter.'),
   sun: dictionarySchema
     .optional()
-    .describe('Sun preview overrides mapped to fog sun properties (color, amount, scatter).'),
+    .describe('Sun overrides: color -> fog_light_color, amount -> fog_light_energy, scatter -> fog_sun_scatter.'),
   sky: dictionarySchema
     .optional()
     .describe('Sky overrides including { path, custom_fov, rotation, energy }.'),

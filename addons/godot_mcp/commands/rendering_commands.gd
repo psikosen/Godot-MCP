@@ -4,6 +4,13 @@ extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/rendering_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "rendering_commands"
+const SHADER_PROBE_UNIFORM := "mcp_compile_probe"
+# Godot 4 Environment has no fog_sun_color/fog_sun_amount; sun-scattered fog uses the fog light color/energy.
+const SUN_PROPERTY_MAP := {
+	"color": "fog_light_color",
+	"amount": "fog_light_energy",
+	"scatter": "fog_sun_scatter",
+}
 
 var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
 
@@ -209,22 +216,33 @@ func _compile_shader_preview(client_id: int, params: Dictionary, command_id: Str
 	var shader_code := params.get("shader_code", "")
 	var shader_path := params.get("shader_path", "")
 
-	var shader: Shader = null
-	if shader_code != "":
-		shader = Shader.new()
-		shader.code = shader_code
-	elif shader_path != "":
-		var loaded = ResourceUtils.safe_load(shader_path)
-		if loaded is Shader:
-			shader = loaded
-			shader_code = shader.code
-	if shader == null:
+	if shader_code == "" and shader_path == "":
 		_log("shader_code or shader_path is required", "_compile_shader_preview", {"system_section": "shader", "line_num": 0}, true)
 		return _send_error(client_id, "Provide shader_code or shader_path", command_id)
+	if shader_code == "" and not ResourceLoader.exists(shader_path):
+		return _send_error(client_id, "Shader file not found: %s" % shader_path, command_id)
+
+	if shader_code == "":
+		var loaded = ResourceLoader.load(shader_path)
+		if not (loaded is Shader):
+			return _send_error(client_id, "Resource at %s is not a Shader" % shader_path, command_id)
+		shader_code = loaded.code
+
+	# The renderer reports compile errors only in the output log (not to scripts or custom
+	# Loggers) and then exposes no uniforms, so compile with an extra probe uniform:
+	# if it is missing, compilation failed.
+	var shader := Shader.new()
+	shader.code = "%s\nuniform float %s;\n" % [shader_code, SHADER_PROBE_UNIFORM]
+	var compiled := false
+	for uniform_dict in shader.get_shader_uniform_list(true):
+		if typeof(uniform_dict) == TYPE_DICTIONARY and uniform_dict.get("name", "") == SHADER_PROBE_UNIFORM:
+			compiled = true
+	if not compiled:
+		return _send_error(client_id, "Shader compilation failed; see the Godot output log for the error line", command_id)
 
 	var uniform_list := []
 	for uniform_dict in shader.get_shader_uniform_list(true):
-		if typeof(uniform_dict) == TYPE_DICTIONARY:
+		if typeof(uniform_dict) == TYPE_DICTIONARY and uniform_dict.get("name", "") != SHADER_PROBE_UNIFORM:
 			uniform_list.append(uniform_dict.duplicate(true))
 
 	var default_textures := []
@@ -293,15 +311,7 @@ func _unwrap_lightmap_uv2(client_id: int, params: Dictionary, command_id: String
 	if mesh == null:
 		return _send_error(client_id, "Mesh could not be resolved", command_id)
 
-	var array_mesh: ArrayMesh = null
-	if mesh is ArrayMesh:
-		array_mesh = mesh
-	else:
-		array_mesh = ArrayMesh.new()
-		for surface_index in mesh.get_surface_count():
-			var arrays = mesh.surface_get_arrays(surface_index)
-			var blend_shapes = mesh.surface_get_blend_shape_arrays(surface_index)
-			array_mesh.add_surface_from_arrays(mesh.surface_get_primitive_type(surface_index), arrays, blend_shapes)
+	var array_mesh := _to_array_mesh(mesh)
 
 	var unwrap_result = array_mesh.lightmap_unwrap(transform, texel_size)
 	if unwrap_result != OK:
@@ -435,7 +445,22 @@ func _optimize_mesh_lods(client_id: int, params: Dictionary, command_id: String)
 		"lods": lod_results,
 	}, command_id)
 
-func _generate_lod_mesh(mesh: Mesh, ratio: float) -> ArrayMesh:
+# Only ArrayMesh has surface_get_primitive_type; PrimitiveMesh (BoxMesh, ...) surfaces are triangle lists.
+func _to_array_mesh(mesh: Mesh) -> ArrayMesh:
+	if mesh is ArrayMesh:
+		return mesh
+	var array_mesh := ArrayMesh.new()
+	for surface_index in mesh.get_surface_count():
+		array_mesh.add_surface_from_arrays(
+			Mesh.PRIMITIVE_TRIANGLES,
+			mesh.surface_get_arrays(surface_index),
+			mesh.surface_get_blend_shape_arrays(surface_index)
+		)
+		array_mesh.surface_set_material(surface_index, mesh.surface_get_material(surface_index))
+	return array_mesh
+
+func _generate_lod_mesh(source_mesh: Mesh, ratio: float) -> ArrayMesh:
+	var mesh := _to_array_mesh(source_mesh)
 	var result := ArrayMesh.new()
 	for surface_index in mesh.get_surface_count():
 		var arrays: Array = mesh.surface_get_arrays(surface_index)
@@ -446,17 +471,21 @@ func _generate_lod_mesh(mesh: Mesh, ratio: float) -> ArrayMesh:
 		result.add_surface_from_arrays(primitive, new_arrays, mesh.surface_get_blend_shape_arrays(surface_index))
 	return result
 
+# Channels a mesh does not use (colors, bones, ...) are null in surface arrays.
+func _surface_channel(arrays: Array, index: int, empty):
+	return arrays[index] if arrays[index] != null else empty
+
 func _decimate_surface_arrays(arrays: Array, ratio: float) -> Array:
 	var new_arrays := arrays.duplicate(true)
-	var vertices: PackedVector3Array = new_arrays[Mesh.ARRAY_VERTEX]
-	var normals: PackedVector3Array = new_arrays[Mesh.ARRAY_NORMAL]
-	var tangents: PackedFloat32Array = new_arrays[Mesh.ARRAY_TANGENT]
-	var colors: PackedColorArray = new_arrays[Mesh.ARRAY_COLOR]
-	var uv: PackedVector2Array = new_arrays[Mesh.ARRAY_TEX_UV]
-	var uv2: PackedVector2Array = new_arrays[Mesh.ARRAY_TEX_UV2]
-	var bones: PackedInt32Array = new_arrays[Mesh.ARRAY_BONES]
-	var weights: PackedFloat32Array = new_arrays[Mesh.ARRAY_WEIGHTS]
-	var indices: PackedInt32Array = new_arrays[Mesh.ARRAY_INDEX]
+	var vertices: PackedVector3Array = _surface_channel(new_arrays, Mesh.ARRAY_VERTEX, PackedVector3Array())
+	var normals: PackedVector3Array = _surface_channel(new_arrays, Mesh.ARRAY_NORMAL, PackedVector3Array())
+	var tangents: PackedFloat32Array = _surface_channel(new_arrays, Mesh.ARRAY_TANGENT, PackedFloat32Array())
+	var colors: PackedColorArray = _surface_channel(new_arrays, Mesh.ARRAY_COLOR, PackedColorArray())
+	var uv: PackedVector2Array = _surface_channel(new_arrays, Mesh.ARRAY_TEX_UV, PackedVector2Array())
+	var uv2: PackedVector2Array = _surface_channel(new_arrays, Mesh.ARRAY_TEX_UV2, PackedVector2Array())
+	var bones: PackedInt32Array = _surface_channel(new_arrays, Mesh.ARRAY_BONES, PackedInt32Array())
+	var weights: PackedFloat32Array = _surface_channel(new_arrays, Mesh.ARRAY_WEIGHTS, PackedFloat32Array())
+	var indices: PackedInt32Array = _surface_channel(new_arrays, Mesh.ARRAY_INDEX, PackedInt32Array())
 
 	if not indices.is_empty():
 		var triangle_count := indices.size() / 3
@@ -2220,27 +2249,17 @@ func _preview_environment_sun_settings(client_id: int, params: Dictionary, comma
 	var environment_path: String = resolve.get("environment_path", "")
 	var node_path: String = resolve.get("node_path", "")
 	var overrides := params.get("sun", {})
-	var preview := {
-		"fog_sun_color": environment.get("fog_sun_color"),
-		"fog_sun_amount": environment.get("fog_sun_amount"),
-		"fog_sun_scatter": environment.get("fog_sun_scatter"),
-	}
+	var current := {}
+	for property_name in SUN_PROPERTY_MAP.values():
+		current[property_name] = environment.get(property_name)
+	var preview := current.duplicate()
 
 	if typeof(overrides) == TYPE_DICTIONARY:
 		for key in overrides.keys():
-			var property_name = ""
-			match key:
-				"color":
-					property_name = "fog_sun_color"
-				"amount":
-					property_name = "fog_sun_amount"
-				"scatter":
-					property_name = "fog_sun_scatter"
-				_:
-					if key is String:
-						property_name = key
-			if property_name != "":
-				preview[property_name] = _parse_property_value(overrides[key])
+			var property_name: String = SUN_PROPERTY_MAP.get(key, key if SUN_PROPERTY_MAP.values().has(key) else "")
+			if property_name.is_empty():
+				return _send_error(client_id, "Unknown sun key: %s (supported: %s)" % [key, ", ".join(SUN_PROPERTY_MAP.keys())], command_id)
+			preview[property_name] = _coerce_value_to_match(current[property_name], _parse_property_value(overrides[key]))
 
 	var apply_changes := params.get("apply", false)
 	if apply_changes:
@@ -2252,11 +2271,7 @@ func _preview_environment_sun_settings(client_id: int, params: Dictionary, comma
 	_send_success(client_id, {
 		"environment_path": environment_path,
 		"node_path": node_path,
-		"current": {
-			"fog_sun_color": environment.get("fog_sun_color"),
-			"fog_sun_amount": environment.get("fog_sun_amount"),
-			"fog_sun_scatter": environment.get("fog_sun_scatter"),
-		},
+		"current": current,
 		"preview": preview,
 	}, command_id)
 
@@ -2266,14 +2281,7 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 	var direct_properties := params.get("properties", {})
 	if typeof(direct_properties) == TYPE_DICTIONARY:
 		for property_name in direct_properties.keys():
-			var parsed: Variant = _parse_property_value(direct_properties[property_name])
-			var previous = environment.get(property_name)
-			if previous != parsed:
-				changes.append({
-					"property": property_name,
-					"previous": previous,
-					"value": parsed,
-				})
+			_append_environment_change(environment, property_name, direct_properties[property_name], changes)
 
 	var ambient := params.get("ambient_light", {})
 	if typeof(ambient) == TYPE_DICTIONARY:
@@ -2288,24 +2296,20 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 	if typeof(fog) == TYPE_DICTIONARY:
 		var fog_map := {
 			"enabled": "fog_enabled",
-			"color": "fog_color",
+			"color": "fog_light_color",
+			"energy": "fog_light_energy",
 			"density": "fog_density",
 			"height": "fog_height",
-			"height_range": "fog_height_max",
-			"sun_color": "fog_sun_color",
-			"sun_amount": "fog_sun_amount",
-			"sun_scatter": "fog_sun_scatter",
+			"height_density": "fog_height_density",
+			"sun_color": SUN_PROPERTY_MAP["color"],
+			"sun_amount": SUN_PROPERTY_MAP["amount"],
+			"sun_scatter": SUN_PROPERTY_MAP["scatter"],
 		}
 		_merge_environment_section_changes(environment, fog_map, fog, changes)
 
 	var sun := params.get("sun", {})
 	if typeof(sun) == TYPE_DICTIONARY:
-		var sun_map := {
-			"color": "fog_sun_color",
-			"amount": "fog_sun_amount",
-			"scatter": "fog_sun_scatter",
-		}
-		_merge_environment_section_changes(environment, sun_map, sun, changes)
+		_merge_environment_section_changes(environment, SUN_PROPERTY_MAP, sun, changes)
 
 	var sky := params.get("sky", {})
 	if typeof(sky) == TYPE_DICTIONARY:
@@ -2330,16 +2334,20 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 
 func _merge_environment_section_changes(environment: Environment, property_map: Dictionary, values: Dictionary, changes: Array) -> void:
 	for key in property_map.keys():
-			if values.has(key):
-				var property_name: String = property_map[key]
-				var parsed: Variant = _parse_property_value(values[key])
-				var previous = environment.get(property_name)
-				if previous != parsed:
-					changes.append({
-						"property": property_name,
-						"previous": previous,
-						"value": parsed,
-					})
+		if values.has(key):
+			_append_environment_change(environment, property_map[key], values[key], changes)
+
+func _append_environment_change(environment: Environment, property_name: String, raw_value, changes: Array) -> void:
+	var previous = environment.get(property_name)
+	# Coerce JSON input ("#hex", {"r":..}) to the property's type; != between mismatched types errors.
+	var parsed: Variant = _coerce_value_to_match(previous, _parse_property_value(raw_value))
+	if typeof(previous) == typeof(parsed) and previous == parsed:
+		return
+	changes.append({
+		"property": property_name,
+		"previous": previous,
+		"value": parsed,
+	})
 
 func _resolve_environment(params: Dictionary) -> Dictionary:
 	var environment_path := params.get("environment_path", "")

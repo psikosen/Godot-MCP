@@ -444,7 +444,7 @@ export var sceneTools = [
                         result = _a.sent();
                         godotVersion = "".concat(result.godot_version.major, ".").concat(result.godot_version.minor, ".").concat(result.godot_version.patch);
                         output = "Project Name: ".concat(result.project_name, "\n");
-                        output += "Project Version: ".concat(result.project_version, "\n");
+                        output += "Project Version: ".concat(result.project_version || '(not set)', "\n");
                         output += "Project Path: ".concat(result.project_path, "\n");
                         output += "Godot Version: ".concat(godotVersion, "\n");
                         if (result.current_scene) {
