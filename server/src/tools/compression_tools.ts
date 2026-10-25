@@ -22,7 +22,7 @@ export const compressionTools: MCPTool[] = [
       save: z
         .boolean()
         .optional()
-        .describe('Persist settings to project.godot when true (default).'),
+        .describe('Write project.godot now when true (default). When false the values still stay in memory and any later ProjectSettings.save() persists them.'),
     }),
     async execute({ platform, settings, save }): Promise<string> {
       const godot = getGodotConnection();

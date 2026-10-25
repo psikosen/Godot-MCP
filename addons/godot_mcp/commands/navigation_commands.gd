@@ -118,6 +118,8 @@ func _bake_navigation_region(client_id: int, params: Dictionary, command_id: Str
 		return _send_error(client_id, "Navigation region not found: %s" % node_path, command_id)
 
 	if node is NavigationRegion2D:
+		if node.navigation_polygon == null:
+			return _send_error(client_id, "NavigationRegion2D has no navigation_polygon to bake; assign one first", command_id)
 		node.bake_navigation_polygon(on_thread)
 		_log("Triggered 2D navigation bake", "_bake_navigation_region", {
 			"node_path": _path_to_string(node),
@@ -130,6 +132,8 @@ func _bake_navigation_region(client_id: int, params: Dictionary, command_id: Str
 			"on_thread": on_thread,
 		}, command_id)
 	elif node is NavigationRegion3D:
+		if node.navigation_mesh == null:
+			return _send_error(client_id, "NavigationRegion3D has no navigation_mesh to bake; assign one first", command_id)
 		node.bake_navigation_mesh(on_thread)
 		_log("Triggered 3D navigation bake", "_bake_navigation_region", {
 			"node_path": _path_to_string(node),
@@ -467,6 +471,9 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 		_log("Node at path is not a TileMap or TileMapLayer", function_name, context, true)
 		return _send_error(client_id, "Node at path is not a TileMap or TileMapLayer", command_id)
 
+	if tilemap.tile_set == null:
+		return _send_error(client_id, "%s at %s has no TileSet; nothing to synchronize" % [tilemap.get_class(), tilemap_path], command_id)
+
 	var requested_region_paths: Array = []
 	if params.has("region_paths"):
 		if typeof(region_paths_param) == TYPE_ARRAY:
@@ -500,7 +507,12 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 				continue
 			target_regions.append(region_node)
 
+	var skipped_regions: Array = []
 	for region in target_regions:
+		if (region is NavigationRegion2D and region.navigation_polygon == null) \
+				or (region is NavigationRegion3D and region.navigation_mesh == null):
+			skipped_regions.append("%s (no navigation mesh)" % _path_to_string(region))
+			continue
 		if region is NavigationRegion2D:
 			region.bake_navigation_polygon(on_thread)
 			rebaked_regions.append(_path_to_string(region))
@@ -538,6 +550,7 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 		"tilemap_path": _path_to_string(tilemap),
 		"rebaked_regions": rebaked_regions,
 		"invalid_regions": invalid_regions,
+		"skipped_regions": skipped_regions,
 		"navigation_map_updated": navigation_map_updated,
 	}
 
@@ -555,7 +568,7 @@ func _summarize_region_2d(region: NavigationRegion2D) -> Dictionary:
 		"travel_cost": region.travel_cost,
 		"enter_cost": region.enter_cost,
 		"use_edge_connections": region.use_edge_connections,
-		"resource": _summarize_navigation_polygon(polygon),
+		"resource": _summarize_navigation_polygon(polygon) if polygon != null else null,
 	}
 	return summary
 
@@ -569,7 +582,7 @@ func _summarize_region_3d(region: NavigationRegion3D) -> Dictionary:
 		"travel_cost": region.travel_cost,
 		"enter_cost": region.enter_cost,
 		"use_edge_connections": region.use_edge_connections,
-		"resource": _summarize_navigation_mesh(mesh),
+		"resource": _summarize_navigation_mesh(mesh) if mesh != null else null,
 	}
 	return summary
 

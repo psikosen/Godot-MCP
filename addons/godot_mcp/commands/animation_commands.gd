@@ -226,6 +226,8 @@ func _edit_animation(client_id: int, params: Dictionary, command_id: String) -> 
 
 	var working_copy: Animation = animation.duplicate(true)
 	var apply_summary := _apply_animation_operations(working_copy, data_operations)
+	if apply_summary.has("error"):
+		return _send_error(client_id, str(apply_summary["error"]), command_id)
 	var animation_changed := bool(apply_summary.get("changed", false))
 
 	var metadata := {
@@ -383,10 +385,25 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 	if typeof(property_updates) == TYPE_DICTIONARY:
 		for property_name in property_updates.keys():
 			# Coerce to the property's type (e.g. anim_player is a NodePath): == between mismatched types errors.
-			var new_value = _convert_property_value(tree, property_name, property_updates[property_name])
-			var value_error := _property_value_error(tree, property_name, new_value)
+			var raw_value = property_updates[property_name]
+			var value_error := ""
+			if property_name == "tree_root" and typeof(raw_value) == TYPE_DICTIONARY:
+				# {"type": "AnimationNodeStateMachine"} builds a fresh root node.
+				var root_type := str(raw_value.get("type", ""))
+				if root_type.is_empty() or not ClassDB.class_exists(root_type) \
+						or not ClassDB.is_parent_class(root_type, "AnimationRootNode") or not ClassDB.can_instantiate(root_type):
+					value_error = "tree_root type must be an instantiable AnimationRootNode class, got '%s'" % root_type
+				else:
+					raw_value = ClassDB.instantiate(root_type)
+			var new_value = _convert_property_value(tree, property_name, raw_value)
+			if value_error.is_empty():
+				value_error = _property_value_error(tree, property_name, new_value)
 			if _get_property_info(tree, property_name).is_empty():
 				value_error = "AnimationTree has no property: %s" % property_name
+			elif value_error.is_empty() and property_name == "anim_player" and not str(new_value).is_empty():
+				var player_node = tree.get_node_or_null(new_value)
+				if not (player_node is AnimationPlayer):
+					value_error = "anim_player %s does not resolve to an AnimationPlayer from the tree" % str(new_value)
 			if not value_error.is_empty():
 				if transaction_id.is_empty():
 					transaction.rollback()  # inline transaction opened above; do not leave it dangling
@@ -408,6 +425,10 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 			var parameter_path = parameter_key
 			if not str(parameter_path).begins_with("parameters/"):
 				parameter_path = "parameters/%s" % parameter_key
+			if _get_property_info(tree, str(parameter_path)).is_empty():
+				if transaction_id.is_empty():
+					transaction.rollback()
+				return _send_error(client_id, "AnimationTree has no parameter: %s" % parameter_path, command_id)
 			var new_parameter = _parse_property_value(parameter_updates[parameter_key])
 			var previous_parameter = tree.get(parameter_path)
 			if previous_parameter == new_parameter:
@@ -431,6 +452,10 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 				continue
 			if not playback_path.begins_with("parameters/"):
 				playback_path = "parameters/%s" % playback_path
+			if _get_property_info(tree, playback_path).is_empty():
+				if transaction_id.is_empty():
+					transaction.rollback()
+				return _send_error(client_id, "AnimationTree has no parameter: %s" % playback_path, command_id)
 			var previous_state = tree.get(playback_path)
 			transaction.add_do_method(tree, "set", [playback_path, target_state])
 			transaction.add_undo_method(tree, "set", [playback_path, previous_state])
@@ -515,12 +540,14 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 		return _send_error(client_id, "Animation name is required", command_id)
 
 	var skeleton = _get_editor_node(skeleton_path)
-	if not skeleton or (not (skeleton is Skeleton3D) and not (skeleton is Skeleton2D)):
+	if not skeleton:
+		return _send_error(client_id, "Skeleton node not found at %s" % skeleton_path, command_id)
+	if not (skeleton is Skeleton3D) and not (skeleton is Skeleton2D):
 		_log("Skeleton node not found or unsupported", function_name, {
 			"client_id": client_id,
 			"skeleton_path": skeleton_path,
 		}, true)
-		return _send_error(client_id, "Skeleton node not found or unsupported type", command_id)
+		return _send_error(client_id, "Node at %s is %s, not a Skeleton3D or Skeleton2D" % [skeleton_path, skeleton.get_class()], command_id)
 
 	var player = _get_editor_node(player_path)
 	if not player or not (player is AnimationPlayer):
@@ -984,6 +1011,10 @@ func _sync_particles_with_animation(client_id: int, params: Dictionary, command_
 		if operations.size() > 0:
 			var working_copy := animation.duplicate(true)
 			animation_summary = _apply_animation_operations(working_copy, operations)
+			if animation_summary.has("error"):
+				if transaction_id.is_empty():
+					transaction.rollback()
+				return _send_error(client_id, str(animation_summary["error"]), command_id)
 			animation_changed = bool(animation_summary.get("changed", false))
 			if animation_changed:
 				var original_copy = animation.duplicate(true)
@@ -1062,8 +1093,13 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 			"set_property":
 				var property_name = str(entry.get("property", ""))
 				if property_name.is_empty():
-					continue
-				var new_value = _parse_property_value(entry.get("value"))
+					return {"error": "set_property requires a property name"}
+				if _get_property_info(animation, property_name).is_empty():
+					return {"error": "Animation has no property: %s" % property_name}
+				var new_value = _convert_property_value(animation, property_name, entry.get("value"))
+				var property_error := _property_value_error(animation, property_name, new_value)
+				if not property_error.is_empty():
+					return {"error": property_error}
 				var previous_value = animation.get(property_name)
 				if previous_value == new_value:
 					continue
@@ -1077,14 +1113,16 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 				})
 			"ensure_track":
 				var ensure_result := _ensure_animation_track(animation, entry)
+				if ensure_result.get("status", "") == "invalid_path":
+					return {"error": "ensure_track requires a track_path"}
 				if ensure_result.get("changed", false):
 					summary["changed"] = true
 				if ensure_result.size() > 0:
 					summary.operations.append(ensure_result)
 			"remove_track":
 				var track_index := _resolve_animation_track_index(animation, entry)
-				if track_index < 0:
-					continue
+				if track_index < 0 or track_index >= animation.get_track_count():
+					return {"error": "remove_track: track not found"}
 				var removed_info := _serialize_animation_track(animation, track_index)
 				animation.remove_track(track_index)
 				summary["changed"] = true
@@ -1095,8 +1133,8 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 				})
 			"clear_track":
 				var clear_index := _resolve_animation_track_index(animation, entry)
-				if clear_index < 0:
-					continue
+				if clear_index < 0 or clear_index >= animation.get_track_count():
+					return {"error": "clear_track: track not found"}
 				var key_count := animation.track_get_key_count(clear_index)
 				if key_count == 0:
 					continue
@@ -1110,7 +1148,9 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 				})
 			"set_track_enabled":
 				var enable_index := _resolve_animation_track_index(animation, entry)
-				if enable_index < 0 or not animation.has_method("track_set_enabled"):
+				if enable_index < 0 or enable_index >= animation.get_track_count():
+					return {"error": "set_track_enabled: track not found"}
+				if not animation.has_method("track_set_enabled"):
 					continue
 				var enable_value := bool(entry.get("enabled", true))
 				if animation.track_is_enabled(enable_index) == enable_value:
@@ -1125,8 +1165,10 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 			"set_key":
 				var set_index := _resolve_animation_track_index(animation, entry)
 				var key_index := int(entry.get("key_index", entry.get("index", -1)))
-				if set_index < 0 or key_index < 0 or key_index >= animation.track_get_key_count(set_index):
-					continue
+				if set_index < 0 or set_index >= animation.get_track_count():
+					return {"error": "set_key: track not found"}
+				if key_index < 0 or key_index >= animation.track_get_key_count(set_index):
+					return {"error": "set_key: key_index %d out of range (track has %d keys)" % [key_index, animation.track_get_key_count(set_index)]}
 				var key_result := {}
 				if entry.has("value"):
 					var parsed_value = _parse_property_value(entry.get("value"))
@@ -1159,10 +1201,17 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 					summary.operations.append(key_result)
 			"insert_key":
 				var insert_index := _resolve_animation_track_index(animation, entry)
-				if insert_index < 0:
-					continue
+				if insert_index < 0 or insert_index >= animation.get_track_count():
+					return {"error": "insert_key: track not found"}
 				var insert_time := float(entry.get("time", 0.0))
+				if insert_time < 0.0:
+					return {"error": "insert_key: time must be >= 0, got %s" % str(insert_time)}
 				var insert_value = _parse_property_value(entry.get("value"))
+				if animation.track_get_key_count(insert_index) > 0:
+					var existing_type := typeof(animation.track_get_key_value(insert_index, 0))
+					var both_numeric: bool = existing_type in [TYPE_INT, TYPE_FLOAT] and typeof(insert_value) in [TYPE_INT, TYPE_FLOAT]
+					if existing_type != typeof(insert_value) and not both_numeric:
+						return {"error": "insert_key: value type %s does not match the track's existing keys (%s)" % [type_string(typeof(insert_value)), type_string(existing_type)]}
 				var transition_value := 0.0
 				if entry.has("transition"):
 					transition_value = float(entry.get("transition"))
@@ -1179,8 +1228,10 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 			"remove_key":
 				var remove_index := _resolve_animation_track_index(animation, entry)
 				var remove_key := int(entry.get("key_index", entry.get("index", -1)))
-				if remove_index < 0 or remove_key < 0 or remove_key >= animation.track_get_key_count(remove_index):
-					continue
+				if remove_index < 0 or remove_index >= animation.get_track_count():
+					return {"error": "remove_key: track not found"}
+				if remove_key < 0 or remove_key >= animation.track_get_key_count(remove_index):
+					return {"error": "remove_key: key_index %d out of range (track has %d keys)" % [remove_key, animation.track_get_key_count(remove_index)]}
 				var removed_snapshot := _serialize_animation_key(animation, remove_index, remove_key)
 				animation.track_remove_key(remove_index, remove_key)
 				summary["changed"] = true
@@ -1191,7 +1242,7 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 					"removed": removed_snapshot,
 				})
 			_:
-				continue
+				return {"error": "Unknown operation type: '%s'" % op_type}
 
 	return summary
 

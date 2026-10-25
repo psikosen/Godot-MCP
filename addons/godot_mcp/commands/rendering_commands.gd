@@ -676,8 +676,6 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 
 	if mesh_save_path != "" and not ResourceUtils.safe_save(sphere_mesh, mesh_save_path):
 		return _send_error(client_id, "Failed to save planet mesh to %s" % mesh_save_path, command_id)
-	if material_save_path != "" and not ResourceUtils.safe_save(material, material_save_path):
-		return _send_error(client_id, "Failed to save planet material to %s" % material_save_path, command_id)
 	if albedo_save_path != "" and not _save_image_or_texture(albedo_image, albedo_texture, albedo_save_path):
 		return _send_error(client_id, "Failed to save albedo texture to %s" % albedo_save_path, command_id)
 	if height_save_path != "" and not _save_image_or_texture(height_image, height_texture, height_save_path):
@@ -687,11 +685,24 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	if specular_save_path != "" and not _save_image_or_texture(specular_image, specular_texture, specular_save_path):
 		return _send_error(client_id, "Failed to save specular texture to %s" % specular_save_path, command_id)
 
+	# Reference the saved files instead of embedding pixels (an embedded 1.6 MB material, orphaned PNGs).
+	var reloaded: Dictionary = await _reload_saved_textures([albedo_save_path, height_save_path, normal_save_path, specular_save_path])
+	for entry in [[albedo_save_path, "albedo_texture"], [height_save_path, "heightmap_texture"],
+			[normal_save_path, "normal_texture"], [specular_save_path, "specular_texture"]]:
+		var saved_texture = reloaded.get(_contained_res_path(entry[0]) if entry[0] != "" else "")
+		if saved_texture != null:
+			material.set(entry[1], saved_texture)
+	if material_save_path != "" and not ResourceUtils.safe_save(material, material_save_path):
+		return _send_error(client_id, "Failed to save planet material to %s" % material_save_path, command_id)
+
 	var created_node_path := ""
 	if create_node:
 		var parent := _get_editor_node(parent_path)
 		if parent == null:
 			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var planet_node := MeshInstance3D.new()
 		planet_node.name = node_name
@@ -929,6 +940,9 @@ void fragment() {
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var ocean_mesh: Mesh = null
 		if mesh_mode == "single_tile":
@@ -1010,6 +1024,12 @@ void fragment() {
 			"material": save_material_path,
 		},
 	}, command_id)
+
+# add_child would silently rename a colliding node to @Class@N; refuse instead.
+func _sibling_name_error(parent: Node, child_name: String) -> String:
+	if parent != null and parent.has_node(NodePath(child_name)):
+		return "A node named '%s' already exists under %s; choose another node_name" % [child_name, _to_mcp_path(parent)]
+	return ""
 
 func _get_edited_scene_root_node() -> Node:
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -1114,6 +1134,9 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 		var parent := _get_editor_node(parent_path)
 		if parent == null:
 			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var shell_node := MeshInstance3D.new()
 		shell_node.name = node_name
@@ -1165,8 +1188,10 @@ func _apply_triplanar_terrain_material(client_id: int, params: Dictionary, comma
 		return _send_error(client_id, "node_path is required", command_id)
 
 	var node := _get_editor_node(node_path)
-	if node == null or not (node is MeshInstance3D):
-		return _send_error(client_id, "Node at %s is not a MeshInstance3D" % node_path, command_id)
+	if node == null:
+		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+	if not (node is MeshInstance3D):
+		return _send_error(client_id, "Node at %s is %s, not a MeshInstance3D" % [node_path, node.get_class()], command_id)
 
 	var rock_texture_path := str(params.get("rock_texture_path", ""))
 	var grass_texture_path := str(params.get("grass_texture_path", ""))
@@ -1182,16 +1207,19 @@ func _apply_triplanar_terrain_material(client_id: int, params: Dictionary, comma
 	var snow_texture: Texture2D = _create_solid_texture(Color(0.92, 0.94, 0.97, 1.0))
 	if rock_texture_path != "":
 		var loaded_rock = ResourceUtils.safe_load(rock_texture_path)
-		if loaded_rock is Texture2D:
-			rock_texture = loaded_rock
+		if not (loaded_rock is Texture2D):
+			return _send_error(client_id, "rock_texture_path is not a loadable Texture2D: %s" % rock_texture_path, command_id)
+		rock_texture = loaded_rock
 	if grass_texture_path != "":
 		var loaded_grass = ResourceUtils.safe_load(grass_texture_path)
-		if loaded_grass is Texture2D:
-			grass_texture = loaded_grass
+		if not (loaded_grass is Texture2D):
+			return _send_error(client_id, "grass_texture_path is not a loadable Texture2D: %s" % grass_texture_path, command_id)
+		grass_texture = loaded_grass
 	if snow_texture_path != "":
 		var loaded_snow = ResourceUtils.safe_load(snow_texture_path)
-		if loaded_snow is Texture2D:
-			snow_texture = loaded_snow
+		if not (loaded_snow is Texture2D):
+			return _send_error(client_id, "snow_texture_path is not a loadable Texture2D: %s" % snow_texture_path, command_id)
+		snow_texture = loaded_snow
 
 	var shader_code := """
 shader_type spatial;
@@ -1393,6 +1421,9 @@ void fragment() {
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var cloud_mesh := SphereMesh.new()
 		cloud_mesh.radius = cloud_radius
@@ -1477,6 +1508,9 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var atmosphere_mesh := SphereMesh.new()
 		atmosphere_mesh.radius = radius
@@ -1523,7 +1557,9 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 	var count := clampi(int(params.get("count", 24)), 1, 2048)
 	var planet_radius := max(0.1, float(params.get("planet_radius", 1.0)))
 	var crater_min_radius := max(0.001, float(params.get("crater_min_radius", 0.03)))
-	var crater_max_radius := max(crater_min_radius, float(params.get("crater_max_radius", 0.09)))
+	var crater_max_radius := float(params.get("crater_max_radius", 0.09))
+	if crater_max_radius < crater_min_radius:
+		return _send_error(client_id, "crater_min_radius (%s) must not exceed crater_max_radius (%s)" % [crater_min_radius, crater_max_radius], command_id)
 	var crater_depth := clampf(float(params.get("crater_depth", 0.35)), 0.05, 1.0)
 	var seed := int(params.get("seed", 1337))
 	var node_name := str(params.get("node_name", "CraterField"))
@@ -1554,6 +1590,9 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 		parent = _get_editor_node("/root")
 	if parent == null:
 		return _send_error(client_id, "Parent node not found", command_id)
+	var name_error := _sibling_name_error(parent, node_name)
+	if not name_error.is_empty():
+		return _send_error(client_id, name_error, command_id)
 
 	var crater_material := StandardMaterial3D.new()
 	crater_material.albedo_color = crater_color
@@ -1611,7 +1650,9 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 
 func _create_ring_system(client_id: int, params: Dictionary, command_id: String) -> void:
 	var outer_radius := max(0.1, float(params.get("outer_radius", 2.0)))
-	var inner_radius := clampf(float(params.get("inner_radius", 1.3)), 0.01, outer_radius - 0.01)
+	var inner_radius := max(0.01, float(params.get("inner_radius", 1.3)))
+	if inner_radius >= outer_radius:
+		return _send_error(client_id, "inner_radius (%s) must be smaller than outer_radius (%s)" % [inner_radius, outer_radius], command_id)
 	var alpha := clampf(float(params.get("alpha", 0.82)), 0.0, 1.0)
 	var banding := clampf(float(params.get("banding", 0.35)), 0.0, 1.0)
 	var seed := float(params.get("seed", 12.0))
@@ -1694,6 +1735,9 @@ void fragment() {
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var ring_mesh := PlaneMesh.new()
 		ring_mesh.size = Vector2(outer_radius * 2.0, outer_radius * 2.0)
@@ -1882,6 +1926,9 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 		parent = _get_editor_node("/root")
 	if parent == null:
 		return _send_error(client_id, "Parent node not found", command_id)
+	var name_error := _sibling_name_error(parent, "%sPivot" % node_name)
+	if not name_error.is_empty():
+		return _send_error(client_id, name_error, command_id)
 
 	var pivot := Node3D.new()
 	pivot.name = "%sPivot" % node_name
@@ -1972,6 +2019,9 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 	var parent := _get_editor_node(parent_path)
 	if parent == null:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+	var name_error := _sibling_name_error(parent, root_name)
+	if not name_error.is_empty():
+		return _send_error(client_id, name_error, command_id)
 
 	var root := Node3D.new()
 	root.name = root_name
@@ -2160,6 +2210,33 @@ func _build_planet_normal_map(height_values: PackedFloat32Array, width: int, hei
 				Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5, 1.0)
 			)
 	return normal_image
+
+# Coroutine: a freshly written PNG is only loadable after the editor scans and imports it.
+func _reload_saved_textures(paths: Array) -> Dictionary:
+	var textures := {}
+	var filesystem := EditorInterface.get_resource_filesystem()
+	var wanted: Array = []
+	for raw_path in paths:
+		var path := _contained_res_path(str(raw_path)) if str(raw_path) != "" else ""
+		if not path.is_empty():
+			wanted.append(path)
+	if filesystem == null or wanted.is_empty():
+		return textures
+	filesystem.scan()
+	var deadline := Time.get_ticks_msec() + 5000
+	var pending := wanted.duplicate()
+	while not pending.is_empty() and Time.get_ticks_msec() < deadline:
+		await Engine.get_main_loop().process_frame
+		pending = pending.filter(func(path): return filesystem.get_file_type(path) == "")
+	var known := PackedStringArray(wanted.filter(func(path): return filesystem.get_file_type(path) != ""))
+	if known.is_empty():
+		return textures
+	filesystem.reimport_files(known)
+	for path in known:
+		var loaded = ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_REPLACE)
+		if loaded is Texture2D:
+			textures[path] = loaded
+	return textures
 
 func _save_image_or_texture(image: Image, texture: Texture2D, path: String) -> bool:
 	# globalize_path() passes absolute paths through unchanged, so contain first.
@@ -2399,7 +2476,7 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 		if loaded is Environment:
 			result["environment"] = loaded
 			return result
-		result["error_message"] = "Resource at %s is not an Environment" % environment_path
+		result["error_message"] = ("Resource at %s is not an Environment" % environment_path) if loaded != null else ("Environment resource not found or not loadable: %s" % environment_path)
 		return result
 
 	if node_path != "":
@@ -2413,7 +2490,7 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 			if result.get("environment") == null:
 				result["error_message"] = "WorldEnvironment at %s has no Environment resource" % node_path
 			return result
-		result["error_message"] = "Node at %s is not a WorldEnvironment" % node_path
+		result["error_message"] = ("Node at %s is %s, not a WorldEnvironment" % [node_path, node.get_class()]) if node else ("WorldEnvironment node not found: %s" % node_path)
 		return result
 
 	return result

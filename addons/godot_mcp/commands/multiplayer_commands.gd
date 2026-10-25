@@ -106,7 +106,7 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 			return _send_error(client_id, "Unsupported peer_type: %s" % peer_type, command_id)
 
 	if error_code != OK:
-		return _send_error(client_id, "Failed to configure multiplayer peer (code %d)" % error_code, command_id)
+		return _send_error(client_id, "Failed to configure multiplayer peer: %s (code %d)" % [error_string(error_code), error_code], command_id)
 
 	api.multiplayer_peer = peer
 	if mode == "server" and peer != null and peer.has_method("set_refuse_new_connections"):

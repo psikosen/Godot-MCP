@@ -76,7 +76,7 @@ func _initialize_xr_interface(client_id: int, params: Dictionary, command_id: St
 		return _send_error(client_id, "XR interface not found: %s" % interface_name, command_id)
 
 	if not xr_interface.initialize():
-		return _send_error(client_id, "Failed to initialize XR interface: %s" % interface_name, command_id)
+		return _send_error(client_id, "Failed to initialize XR interface %s: the runtime or headset is probably unavailable (no XR runtime running, device not connected, or the platform does not support it)" % interface_name, command_id)
 
 	if make_primary:
 		XRServer.set_primary_interface(xr_interface)
@@ -86,10 +86,11 @@ func _initialize_xr_interface(client_id: int, params: Dictionary, command_id: St
 		if session_error != OK and session_error != ERR_UNAVAILABLE:
 			_log_event("_initialize_xr_interface", "XR session start reported error", {"interface": interface_name, "code": session_error})
 
-	_log_event("_initialize_xr_interface", "Initialized XR interface", {"interface": interface_name, "primary": make_primary})
+	var is_primary: bool = XRServer.get_primary_interface() == xr_interface
+	_log_event("_initialize_xr_interface", "Initialized XR interface", {"interface": interface_name, "primary": is_primary})
 	_send_success(client_id, {
 		"interface": interface_name,
-		"primary": make_primary,
+		"primary": is_primary,
 	}, command_id)
 
 func _shutdown_xr_interface(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -101,23 +102,25 @@ func _shutdown_xr_interface(client_id: int, params: Dictionary, command_id: Stri
 	if xr_interface == null:
 		return _send_error(client_id, "XR interface not found: %s" % interface_name, command_id)
 
-	if xr_interface.has_method("end_session"):
-		xr_interface.end_session()
-
-	# XRServer.shutdown_interface(xr_interface)
+	var was_initialized := xr_interface.is_initialized()
+	if was_initialized:
+		if xr_interface.has_method("end_session"):
+			xr_interface.end_session()
+		xr_interface.uninitialize()
 
 	if XRServer.get_primary_interface() == xr_interface:
-			XRServer.set_primary_interface(null)
+		XRServer.set_primary_interface(null)
 
 	_log_event("_shutdown_xr_interface", "Shutdown XR interface", {"interface": interface_name})
 	_send_success(client_id, {
 		"interface": interface_name,
-		"status": "shutdown",
+		"status": "shutdown" if was_initialized else "was not initialized",
 	}, command_id)
 
 func _save_xr_project_settings(client_id: int, params: Dictionary, command_id: String) -> void:
 	var settings_param = params.get("settings", {})
 	var applied := []
+	var pending := {}  # validated first so a bad path does not leave earlier ones half-applied
 
 	if typeof(settings_param) == TYPE_ARRAY:
 		for entry in settings_param:
@@ -126,14 +129,22 @@ func _save_xr_project_settings(client_id: int, params: Dictionary, command_id: S
 			var path = entry.get("path", "")
 			if path.is_empty():
 				continue
-			ProjectSettings.set_setting(path, entry.get("value"))
-			applied.append(path)
+			var path_error := _xr_setting_path_error(str(path))
+			if not path_error.is_empty():
+				return _send_error(client_id, path_error, command_id)
+			pending[str(path)] = entry.get("value")
 	elif typeof(settings_param) == TYPE_DICTIONARY:
 		for path in settings_param.keys():
-			ProjectSettings.set_setting(str(path), settings_param[path])
-			applied.append(str(path))
+			var path_error := _xr_setting_path_error(str(path))
+			if not path_error.is_empty():
+				return _send_error(client_id, path_error, command_id)
+			pending[str(path)] = settings_param[path]
 	else:
 		return _send_error(client_id, "settings must be an array of {path, value} or dictionary", command_id)
+
+	for path in pending:
+		ProjectSettings.set_setting(path, pending[path])
+		applied.append(path)
 
 	if params.get("save", true):
 		ProjectSettings.save()
@@ -143,3 +154,10 @@ func _save_xr_project_settings(client_id: int, params: Dictionary, command_id: S
 		"paths": applied,
 		"saved": params.get("save", true),
 	}, command_id)
+
+func _xr_setting_path_error(path: String) -> String:
+	if path.is_empty():
+		return "Setting path cannot be empty"
+	if not path.begins_with("xr/") and not ProjectSettings.has_setting(path):
+		return "Unknown project setting: %s (only existing settings or paths under xr/ are accepted)" % path
+	return ""
