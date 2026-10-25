@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { FastMCP } from 'fastmcp';
+import { z } from 'zod';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
@@ -73,6 +74,10 @@ async function main() {
       ...tool,
       // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
       annotations: { readOnlyHint: (tool.metadata?.requiredRole ?? 'read') === 'read' },
+      // The listed schema already says additionalProperties:false; enforce it so a wrong argument
+      // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
+      // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
+      parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
       async execute(args: T): Promise<string> {
         await commandGuard.assertAllowed(tool, args);
         return tool.execute(args);

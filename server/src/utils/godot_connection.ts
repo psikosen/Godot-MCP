@@ -109,9 +109,13 @@ export class GodotConnection {
         
         this.ws.on('error', (error) => {
           const err = error as Error;
-          console.error('WebSocket error:', err);
-          // Don't terminate the connection on error - let the timeout handle it
-          // Just log the error and allow retry mechanism to work
+          console.error('WebSocket error:', err.message);
+          // Fail this attempt now (e.g. ECONNREFUSED) instead of waiting out connectionTimeout;
+          // otherwise a call with Godot down took ~(timeout + retryDelay) x attempts = 86s.
+          if (!this.connected) {
+            clearTimeout(connectionTimeout);
+            reject(err);
+          }
         });
         
         this.ws.on('close', () => {
@@ -119,6 +123,12 @@ export class GodotConnection {
             console.error('Disconnected from Godot WebSocket server');
             this.connected = false;
           }
+          // Commands in flight will never get a reply; fail them now instead of after their timeout.
+          this.commandQueue.forEach(pending => {
+            clearTimeout(pending.timeout);
+            pending.reject(new Error('Godot connection closed before a reply'));
+          });
+          this.commandQueue.clear();
         });
         
         // Set connection timeout
