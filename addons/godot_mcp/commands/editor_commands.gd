@@ -133,9 +133,9 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 	if resource_path.is_empty():
 		return _send_error(client_id, "Resource path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not resource_path.begins_with("res://"):
-		resource_path = "res://" + resource_path
+	resource_path = _contained_res_path(resource_path)
+	if resource_path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	# Get editor interface
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -169,7 +169,7 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 			return _send_error(client_id, "Failed to create directory: %s (Error code: %d)" % [dir, err], command_id)
 	
 	# Save the resource
-	var result = ResourceSaver.save(resource, resource_path)
+	var result = _save_resource_contained(resource, resource_path)
 	if result != OK:
 		return _send_error(client_id, "Failed to save resource: %d" % result, command_id)
 	

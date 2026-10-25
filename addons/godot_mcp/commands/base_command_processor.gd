@@ -102,6 +102,18 @@ func _to_mcp_path(node: Node) -> String:
 	return str(node.get_path())
 
 
+# Simplified res:// path, or "" when it resolves outside the project. See ResourceUtils.
+func _contained_res_path(path: String) -> String:
+	return ResourceUtils.contained_res_path(path)
+
+# ResourceSaver.save, refused (ERR_FILE_BAD_PATH) when the path is outside the project.
+func _save_resource_contained(resource: Resource, path: String) -> int:
+	var contained := _contained_res_path(path)
+	if contained.is_empty():
+		push_error("Refusing to save outside the project (res://): " + path)
+		return ERR_FILE_BAD_PATH
+	return ResourceSaver.save(resource, contained)
+
 # Helper function to mark a scene as modified
 func _mark_scene_modified() -> void:
 	var plugin = Engine.get_meta("GodotMCPPlugin")

@@ -168,9 +168,9 @@ func _save_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	if path.is_empty():
 		return _send_error(client_id, "Scene path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	if not path.ends_with(".tscn"):
 		path += ".tscn"
@@ -185,7 +185,7 @@ func _save_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	if result != OK:
 		return _send_error(client_id, "Failed to pack scene: %d" % result, command_id)
 	
-	result = ResourceSaver.save(packed_scene, path)
+	result = _save_resource_contained(packed_scene, path)
 	if result != OK:
 		return _send_error(client_id, "Failed to save scene: %d" % result, command_id)
 	
@@ -200,9 +200,9 @@ func _open_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	if path.is_empty():
 		return _send_error(client_id, "Scene path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(path):
@@ -381,9 +381,9 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 	if path.is_empty():
 		return _send_error(client_id, "Scene path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	# Ensure path ends with .tscn
 	if not path.ends_with(".tscn"):
@@ -435,7 +435,7 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 		return _send_error(client_id, "Failed to pack scene: %d" % result, command_id)
 	
 	# Save the packed scene to disk
-	result = ResourceSaver.save(packed_scene, path)
+	result = _save_resource_contained(packed_scene, path)
 	if result != OK:
 		root_node.free()
 		return _send_error(client_id, "Failed to save scene: %d" % result, command_id)
@@ -2370,7 +2370,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 		for removed_transition in removed_transitions:
 			transition_summaries.append(removed_transition)
 
-	var save_result := ResourceSaver.save(interactive_stream, normalized_path)
+	var save_result := _save_resource_contained(interactive_stream, normalized_path)
 	if save_result != OK:
 		context["save_error"] = save_result
 		_log("Failed to save AudioStreamInteractive resource", function_name, context, true)
@@ -2729,7 +2729,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		context["initial_clip"] = layer_label
 		layer_summary["made_initial"] = true
 
-	var save_status := ResourceSaver.save(interactive_stream, normalized_path)
+	var save_status := _save_resource_contained(interactive_stream, normalized_path)
 	if save_status != OK:
 		context["save_error"] = save_status
 		_log("Failed to persist dynamic music layer", function_name, context, true)
@@ -3876,7 +3876,10 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 		_log("Material resource path is required", function_name, log_context, true)
 		return _send_error(client_id, "Material resource path is required", command_id)
 
-	resource_path = _normalize_resource_path(resource_path)
+	resource_path = _contained_res_path(resource_path)
+	if resource_path.is_empty():
+		_log("Material resource path is outside the project", function_name, log_context, true)
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	if not resource_path.ends_with(".tres") and not resource_path.ends_with(".res"):
 		resource_path += ".tres"
 
@@ -4393,7 +4396,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			"status": "no_changes",
 		}, command_id)
 
-	var save_error := ResourceSaver.save(material, resource_path)
+	var save_error := _save_resource_contained(material, resource_path)
 	if save_error != OK:
 		var save_payload := log_context.duplicate(true)
 		save_payload["resource_path"] = resource_path

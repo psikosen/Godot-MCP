@@ -2142,6 +2142,10 @@ func _build_planet_normal_map(height_values: PackedFloat32Array, width: int, hei
 	return normal_image
 
 func _save_image_or_texture(image: Image, texture: Texture2D, path: String) -> bool:
+	# globalize_path() passes absolute paths through unchanged, so contain first.
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return false
 	var extension := path.get_extension().to_lower()
 	var global_path := ProjectSettings.globalize_path(path)
 	var save_error := ERR_UNAVAILABLE

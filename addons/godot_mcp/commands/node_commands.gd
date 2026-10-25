@@ -17315,6 +17315,8 @@ func %s(%s):
 
 	updated_content += stub_line
 
+	if _contained_res_path(script_path).is_empty():
+		return {"ok": false, "error": "Script path must stay inside the project (res://): %s" % script_path}
 	file = FileAccess.open(script_path, FileAccess.WRITE)
 	if file == null:
 		return {"ok": false, "error": "Failed to open script for writing: %s" % script_path}

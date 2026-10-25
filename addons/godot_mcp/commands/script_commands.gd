@@ -24,19 +24,6 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 			return true
 	return false  # Command not handled
 
-# Returns the simplified res:// path, or "" when the path escapes the project root.
-# simplify_path() keeps any ".." it cannot resolve (e.g. "res://a/../../x" -> "res://../x"),
-# so a remaining ".." segment means the path points outside res://.
-func _contained_res_path(path: String) -> String:
-	if not path.begins_with("res://"):
-		path = "res://" + path
-	var simplified := path.simplify_path()
-	if not simplified.begins_with("res://"):
-		return ""
-	if ".." in simplified.trim_prefix("res://").split("/"):
-		return ""
-	return simplified
-
 func _create_script(client_id: int, params: Dictionary, command_id: String) -> void:
 	var script_path = params.get("script_path", "")
 	var content = params.get("content", "")

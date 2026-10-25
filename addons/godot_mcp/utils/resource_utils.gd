@@ -2,6 +2,34 @@
 class_name ResourceUtils
 extends RefCounted
 
+# Returns the simplified res:// path, or "" when the path resolves outside the project folder.
+# Every MCP-driven write goes through this: a client must never write outside res://
+# (e.g. "res://../x", absolute paths, user://).
+static func contained_res_path(path: String) -> String:
+	if path.is_empty():
+		return ""
+	if "://" in path and not path.begins_with("res://"):
+		return ""
+	if not path.begins_with("res://") and path.is_absolute_path():
+		# OS path (/Users/..., C:/...): allowed only when it points inside the project folder.
+		path = ProjectSettings.localize_path(path)
+		if not path.begins_with("res://"):
+			return ""
+	if not path.begins_with("res://"):
+		path = "res://" + path
+	var simplified := path.simplify_path()
+	if not simplified.begins_with("res://"):
+		return ""
+	if ".." in simplified.trim_prefix("res://").split("/"):
+		return ""
+	# Final word: where Godot would really put the file.
+	var root := ProjectSettings.globalize_path("res://")
+	if not root.ends_with("/"):
+		root += "/"
+	if not ProjectSettings.globalize_path(simplified).begins_with(root):
+		return ""
+	return simplified
+
 # Load a resource safely, returning null if it fails
 static func safe_load(path: String) -> Resource:
 	if not ResourceLoader.exists(path):
@@ -20,6 +48,11 @@ static func safe_save(resource: Resource, path: String) -> bool:
 	if not resource:
 		push_error("Cannot save null resource")
 		return false
+	var contained := contained_res_path(path)
+	if contained.is_empty():
+		push_error("Refusing to save outside the project (res://): " + path)
+		return false
+	path = contained
 	
 	# Make sure directory exists
 	var dir_path = path.get_base_dir()

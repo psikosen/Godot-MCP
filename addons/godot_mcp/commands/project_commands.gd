@@ -469,7 +469,7 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 	if persist:
 		var bus_layout := AudioServer.generate_bus_layout()
 		var layout_path := str(ProjectSettings.get_setting("audio/bus_layout/path", "res://default_bus_layout.tres"))
-		var save_error := ResourceSaver.save(bus_layout, layout_path)
+		var save_error := _save_resource_contained(bus_layout, layout_path)
 		if save_error != OK:
 			_log("Failed to persist audio bus layout", "_configure_audio_bus", {
 				"bus_index": bus_index,
