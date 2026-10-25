@@ -287,7 +287,7 @@ Then the client retries the same call within 10 minutes. An approval is single-u
 The escalation store is inside the Godot project, so Godot tools can write to it. For that reason, editing the JSON file by hand does **not** approve anything. `npm run approve` signs each approval (HMAC-SHA256 over id, tool, role, args and approval time) with a secret key kept outside the project:
 
 - Default key path: `~/.config/godot-mcp/approval.key`. The first approval creates it with mode `0600`.
-- To use another path, set `GODOT_MCP_APPROVAL_KEY_PATH` for both the server and the CLI. Never put the key inside the Godot project.
+- To use another path, set `GODOT_MCP_APPROVAL_KEY_PATH` for both the server and the CLI. Never put the key inside the Godot project, and keep the `.key` extension: Godot cannot load or save `.key` files, so editor tools cannot read or replace the key.
 - The server ignores any `"approved"` record without a valid signature. It also ignores all approvals if the key file is not exactly 64 hex characters.
 - To revoke all approvals, delete the key file and restart the server.
 
