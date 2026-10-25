@@ -58,7 +58,7 @@ const describeAnimationStateMachinesSchema = z
 
 const editAnimationOperationSchema = z
   .object({
-    type: z.string().min(1).describe('Operation type to apply (e.g. set_property, insert_key, rename).'),
+    type: z.string().min(1).describe('Operation type: set_property, ensure_track, remove_track, clear_track, set_track_enabled, set_key, insert_key, remove_key, rename.'),
     track_path: z.string().optional().describe('Optional animation track path used for track/key operations.'),
     track_index: z.number().int().optional().describe('Optional track index used for track/key operations.'),
     property: z.string().optional().describe('Property name for set_property operations.'),
@@ -68,6 +68,12 @@ const editAnimationOperationSchema = z
     key_index: z.number().int().optional().describe('Key index used by set_key/remove_key operations.'),
     new_name: z.string().optional().describe('New animation name when renaming.'),
     name: z.string().optional().describe('Optional legacy alias for new animation name.'),
+    // Listed because FastMCP 4 hides passthrough-only fields from the published schema.
+    transition: z.number().optional().describe('Key transition (easing) for set_key/insert_key.'),
+    enabled: z.boolean().optional().describe('Track enabled state for set_track_enabled.'),
+    track_type: z.number().int().optional().describe('Animation.TrackType for ensure_track (default 0 = value track).'),
+    interpolation: z.number().int().optional().describe('Animation.InterpolationType for ensure_track.'),
+    force_type: z.boolean().optional().describe('ensure_track: replace an existing track of another type.'),
   })
   .passthrough();
 

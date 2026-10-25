@@ -56,6 +56,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
 };
 import 'dotenv/config';
 import { FastMCP } from 'fastmcp';
+import { z } from 'zod';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
@@ -106,7 +107,11 @@ function main() {
                         var _a, _b;
                         server.addTool(__assign(__assign({}, tool), { 
                             // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
-                            annotations: { readOnlyHint: ((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') === 'read' }, execute: function (args) {
+                            annotations: { readOnlyHint: ((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') === 'read' }, 
+                            // The listed schema already says additionalProperties:false; enforce it so a wrong argument
+                            // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
+                            // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
+                            parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters), execute: function (args) {
                                 return __awaiter(this, void 0, void 0, function () {
                                     return __generator(this, function (_a) {
                                         switch (_a.label) {
