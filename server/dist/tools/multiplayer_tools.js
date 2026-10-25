@@ -78,6 +78,7 @@ export var multiplayerTools = [
             max_clients: z
                 .number()
                 .int()
+                .max(4095)
                 .optional()
                 .describe('Maximum concurrent clients when creating an ENet server.'),
             address: z

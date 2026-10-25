@@ -8132,7 +8132,7 @@ func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: Stri
 		overlay_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var overlay_tint: Color = overlay_color
 		overlay_tint.a = clampf(overlay_density * intensity, 0.0, 0.92)
-		overlay_rect.color = _convert_property_value(overlay_rect, "color", overlay_tint)
+		_assign_converted(overlay_rect, "color", overlay_tint)
 		overlay_root.add_child(overlay_rect)
 		created_nodes.append(overlay_rect)
 		predicted_paths["overlay_rect_path"] = _join_mcp_path(str(predicted_paths["overlay_root_path"]), overlay_rect.name)
@@ -9489,7 +9489,7 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 		fog_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var fog_color_with_alpha: Color = fog_color
 		fog_color_with_alpha.a = clampf(fog_density * intensity, 0.0, 0.95)
-		fog_overlay.color = _convert_property_value(fog_overlay, "color", fog_color_with_alpha)
+		_assign_converted(fog_overlay, "color", fog_color_with_alpha)
 		effects_root.add_child(fog_overlay)
 		created_nodes.append(fog_overlay)
 		predicted_paths["fog_overlay_path"] = _join_mcp_path(str(predicted_paths["screen_effects_root_path"]), fog_overlay.name)
@@ -9502,7 +9502,7 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 		lightning_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var flash_color: Color = lightning_color
 		flash_color.a = 0.0
-		lightning_overlay.color = _convert_property_value(lightning_overlay, "color", flash_color)
+		_assign_converted(lightning_overlay, "color", flash_color)
 		lightning_overlay.visible = lightning_enabled
 		effects_root.add_child(lightning_overlay)
 		created_nodes.append(lightning_overlay)
@@ -9717,7 +9717,7 @@ func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String
 			Vector2(size.x, size.y),
 			Vector2(0.0, size.y),
 		])
-		polygon.color = _convert_property_value(polygon, "color", params.get("color", Color(0.16, 0.42, 0.88, 0.55)))
+		_assign_converted(polygon, "color", params.get("color", Color(0.16, 0.42, 0.88, 0.55)))
 		water_root.add_child(polygon)
 		created_nodes.append(polygon)
 		predicted_paths["visual_path"] = _join_mcp_path(predicted_water_path, polygon.name)
@@ -9887,12 +9887,12 @@ func _build_water_body_3d(client_id: int, params: Dictionary, command_id: String
 		var material := StandardMaterial3D.new()
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		material.albedo_color = _convert_property_value(material, "albedo_color", params.get("surface_color", Color(0.1, 0.35, 0.7, 0.55)))
+		_assign_converted(material, "albedo_color", params.get("surface_color", Color(0.1, 0.35, 0.7, 0.55)))
 		material.roughness = clampf(float(params.get("roughness", 0.08)), 0.0, 1.0)
 		material.metallic = clampf(float(params.get("metallic", 0.0)), 0.0, 1.0)
 		if params.has("emission_color"):
 			material.emission_enabled = true
-			material.emission = _convert_property_value(material, "emission", params.get("emission_color"))
+			_assign_converted(material, "emission", params.get("emission_color"))
 			material.emission_energy_multiplier = max(0.0, float(params.get("emission_energy", 0.25)))
 		mesh_instance.set_surface_override_material(0, material)
 
@@ -10141,7 +10141,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		grains_node.multimesh = multimesh
 
 		var material := StandardMaterial3D.new()
-		material.albedo_color = _convert_property_value(material, "albedo_color", params.get("grain_color", Color(0.76, 0.68, 0.48, 1.0)))
+		_assign_converted(material, "albedo_color", params.get("grain_color", Color(0.76, 0.68, 0.48, 1.0)))
 		material.roughness = clampf(float(params.get("grain_roughness", 0.85)), 0.0, 1.0)
 		material.metallic = clampf(float(params.get("grain_metallic", 0.0)), 0.0, 1.0)
 		grains_node.material_override = material
@@ -10427,7 +10427,7 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 			Vector2(-half_width, half_height),
 		])
 		background_node.z_index = -1
-		background_node.color = _convert_property_value(
+		_assign_converted(
 			background_node,
 			"color",
 			params.get("background_color", Color(0.12, 0.11, 0.09, 0.9))
@@ -10492,7 +10492,7 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 						Vector2(half.x, half.y),
 						Vector2(-half.x, half.y),
 					])
-					polygon.color = _convert_property_value(polygon, "color", wall_color_value)
+					_assign_converted(polygon, "color", wall_color_value)
 					wall_body.add_child(polygon)
 					created_nodes.append(polygon)
 
@@ -10735,7 +10735,7 @@ func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String
 				grain.position = point
 				if random_rotation:
 					grain.rotation = deg_to_rad(rng.randf_range(-180.0, 180.0))
-				grain.color = _convert_property_value(grain, "color", grain_color_value)
+				_assign_converted(grain, "color", grain_color_value)
 
 				grains_container.add_child(grain)
 				created_nodes.append(grain)
@@ -10993,7 +10993,7 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 				Vector2(half.x, half.y),
 				Vector2(-half.x, half.y),
 			])
-			polygon.color = _convert_property_value(polygon, "color", platform_color_value)
+			_assign_converted(polygon, "color", platform_color_value)
 			platform_body.add_child(polygon)
 			created_nodes.append(polygon)
 
@@ -11419,7 +11419,7 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 						Vector2(floor_half.x, floor_half.y),
 						Vector2(-floor_half.x, floor_half.y),
 					])
-					floor_poly.color = _convert_property_value(floor_poly, "color", floor_color_value)
+					_assign_converted(floor_poly, "color", floor_color_value)
 					floor_container.add_child(floor_poly)
 					created_nodes.append(floor_poly)
 				floor_run_start = -1
@@ -11466,7 +11466,7 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 						Vector2(wall_half.x, wall_half.y),
 						Vector2(-wall_half.x, wall_half.y),
 					])
-					polygon.color = _convert_property_value(polygon, "color", wall_color_value)
+					_assign_converted(polygon, "color", wall_color_value)
 					wall_body.add_child(polygon)
 					created_nodes.append(polygon)
 
@@ -11761,7 +11761,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 				color_value = color_value.lerp(Color.WHITE, t * height_tint_strength)
 				top_face.color = color_value
 			else:
-				top_face.color = top_face_color
+				_assign_converted(top_face, "color", top_face_color)
 			tile_node.add_child(top_face)
 			created_nodes.append(top_face)
 
@@ -11775,7 +11775,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 					Vector2(0.0, half_h + depth),
 					Vector2(-half_w, depth),
 				])
-				left_face.color = _convert_property_value(left_face, "color", left_color_value)
+				_assign_converted(left_face, "color", left_color_value)
 				tile_node.add_child(left_face)
 				created_nodes.append(left_face)
 
@@ -11787,7 +11787,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 					Vector2(half_w, depth),
 					Vector2(0.0, half_h + depth),
 				])
-				right_face.color = _convert_property_value(right_face, "color", right_color_value)
+				_assign_converted(right_face, "color", right_color_value)
 				tile_node.add_child(right_face)
 				created_nodes.append(right_face)
 
@@ -12002,7 +12002,7 @@ func _generate_tentacle_waypoints_2d(client_id: int, params: Dictionary, command
 		for point in points:
 			packed_points.append(point)
 		line_node.points = packed_points
-		line_node.default_color = _convert_property_value(
+		_assign_converted(
 			line_node,
 			"default_color",
 			params.get("line_color", Color(0.74, 0.2, 0.46, 0.95))
@@ -12256,7 +12256,7 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 					Vector2(half.x, half.y),
 					Vector2(-half.x, half.y),
 				])
-			polygon.color = _convert_property_value(polygon, "color", accent_color if use_accent else body_color)
+			_assign_converted(polygon, "color", accent_color if use_accent else body_color)
 			part_node.add_child(polygon)
 			created_nodes.append(polygon)
 
@@ -12907,7 +12907,7 @@ func _mcp_make_slime_cell_node_2d(
 			Vector2(half.x, half.y),
 			Vector2(-half.x, half.y),
 		])
-		polygon.color = _convert_property_value(polygon, "color", cell_color_value)
+		_assign_converted(polygon, "color", cell_color_value)
 		cell_node.add_child(polygon)
 
 	if create_collision:
@@ -14551,7 +14551,7 @@ func _build_stage_blockout_2d(client_id: int, params: Dictionary, command_id: St
 				Vector2(-half.x, half.y),
 			])
 			var color_value = block.get("color", default_color_value)
-			polygon.color = _convert_property_value(polygon, "color", color_value)
+			_assign_converted(polygon, "color", color_value)
 			body.add_child(polygon)
 			created_nodes.append(polygon)
 
@@ -15582,7 +15582,7 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 		var background := ColorRect.new()
 		background.name = "Backdrop"
 		_configure_control_full_rect(background)
-		background.color = _convert_property_value(background, "color", params.get("background_color", Color(0, 0, 0, 0.55)))
+		_assign_converted(background, "color", params.get("background_color", Color(0, 0, 0, 0.55)))
 		root_control.add_child(background)
 		created_nodes.append(background)
 

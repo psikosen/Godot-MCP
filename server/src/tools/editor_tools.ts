@@ -238,6 +238,7 @@ export const editorTools: MCPTool[] = [
         .number()
         .int()
         .nonnegative()
+        .max(512)
         .optional()
         .describe('Limit the number of properties captured per node (default 32).'),
       node_limit: z
@@ -250,6 +251,7 @@ export const editorTools: MCPTool[] = [
         .number()
         .int()
         .positive()
+        .max(64)
         .optional()
         .describe('Maximum depth in the scene tree to traverse (default 3).'),
     }),

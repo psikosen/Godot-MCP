@@ -238,6 +238,18 @@ func _convert_property_value(target: Object, property_name: String, value):
 	return _coerce_value_to_type(_with_missing_components(target.get(property_name), value), property_type, property_class_name)
 
 
+# Converts and stores a value on a node or resource the command is building. A direct typed
+# assignment of a value that cannot convert (a float for a Color) raises a script error and
+# stops the command, so such values are refused and the property keeps its default.
+func _assign_converted(target: Object, property_name: String, value) -> void:
+	var converted = _convert_property_value(target, property_name, value)
+	var error := _property_value_error(target, property_name, converted)
+	if error.is_empty():
+		target.set(property_name, converted)
+	elif not _refused_values.has(error):
+		_refused_values.append(error)
+
+
 func _coerce_value_to_type(value, value_type: int, property_class_name: String = ""):
 	match value_type:
 		TYPE_NIL:

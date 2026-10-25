@@ -98,6 +98,7 @@ var authorAudioStreamPlayerSchema = z
     max_polyphony: z
         .number()
         .int()
+        .max(128)
         .optional()
         .describe('Maximum simultaneous voices for 3D and microphone players'),
     stream_paused: z
