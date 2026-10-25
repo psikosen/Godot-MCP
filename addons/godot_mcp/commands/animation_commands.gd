@@ -60,7 +60,7 @@ func _list_animation_players(client_id: int, params: Dictionary, command_id: Str
 			continue
 		visited_paths[serialized_path] = true
 
-		if current is AnimationPlayer:
+		if current is AnimationPlayer and not _is_editor_internal_node(current):
 			players.append(_serialize_animation_player(current, include_tracks, include_keys))
 		for child in current.get_children():
 			if child is Node:
@@ -784,9 +784,17 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 
 		current_time += max(delay, 0.0)
 
+		# Keys must hold the property's real type ({x,y,z} for position was stored as a Dictionary).
+		var live_value = target_node.get_indexed(NodePath(property_name))
 		var from_value = _parse_property_value(from_value_raw)
 		if from_value != null:
-			working_copy.track_insert_key(track_index, current_time, from_value, 0.0)
+			from_value = _coerce_value_to_match(live_value, from_value)
+		elif working_copy.track_find_key(track_index, current_time, Animation.FIND_MODE_APPROX) == -1:
+			# No "from": start from where the animation (or the node) is, or the first segment holds still.
+			from_value = working_copy.value_track_interpolate(track_index, current_time) if working_copy.track_get_key_count(track_index) > 0 else live_value
+		if from_value != null:
+			# Key transition 1.0 = smooth; 0.0 made every segment hold, then jump at the next key.
+			working_copy.track_insert_key(track_index, current_time, from_value, 1.0)
 			operations.append({
 				"type": "key",
 				"time": current_time,
@@ -794,9 +802,9 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 				"track_path": str(track_path),
 			})
 
-		var to_value = _parse_property_value(to_value_raw)
+		var to_value = _coerce_value_to_match(live_value, _parse_property_value(to_value_raw))
 		var end_time = current_time + max(duration, 0.0)
-		working_copy.track_insert_key(track_index, end_time, to_value, 0.0)
+		working_copy.track_insert_key(track_index, end_time, to_value, 1.0)
 		operations.append({
 			"type": "key",
 			"time": end_time,
@@ -1493,7 +1501,7 @@ func _collect_animation_players(root: Node, include_tracks: bool, include_keys: 
 			continue
 		visited_paths[serialized_path] = true
 
-		if current is AnimationPlayer:
+		if current is AnimationPlayer and not _is_editor_internal_node(current):
 			players.append(_serialize_animation_player(current, include_tracks, include_keys))
 		for child in current.get_children():
 			if child is Node:

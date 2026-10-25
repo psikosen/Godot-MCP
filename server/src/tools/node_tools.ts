@@ -2137,7 +2137,10 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const count = Number(result.count ?? (Array.isArray(result.created_nodes) ? result.created_nodes.length : nodes.length));
         const resolvedParent = (result.parent_path as string) ?? parent_path ?? '/root';
-        return `Batch created ${count} node(s) under ${resolvedParent} [${status}]`;
+        const names = Array.isArray(result.created_nodes)
+          ? result.created_nodes.map((entry: { node_name?: string }) => entry?.node_name).filter(Boolean)
+          : [];
+        return `Batch created ${count} node(s) under ${resolvedParent} [${status}]${names.length ? `: ${names.join(', ')}` : ''}`;
       } catch (error) {
         throw new Error(`Failed to batch create nodes: ${(error as Error).message}`);
       }
@@ -2498,7 +2501,7 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       parent_path: z.string().optional(),
       spawner_name: z.string().optional(),
-      spawn_points: z.array(vector2ParamSchema).optional(),
+      spawn_points: z.array(vector2ParamSchema).optional().describe('Spawn positions relative to the spawner node.'),
       create_timer: z.boolean().optional(),
       timer_name: z.string().optional(),
       create_spawn_nodes: z.boolean().optional(),
@@ -2536,7 +2539,7 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       parent_path: z.string().optional(),
       spawner_name: z.string().optional(),
-      spawn_points: z.array(vector3ParamSchema).optional(),
+      spawn_points: z.array(vector3ParamSchema).optional().describe('Spawn positions relative to the spawner node.'),
       create_timer: z.boolean().optional(),
       timer_name: z.string().optional(),
       create_spawn_nodes: z.boolean().optional(),
@@ -2589,7 +2592,7 @@ export const nodeTools: MCPTool[] = [
         const spawnedCount = Number(result.spawned_count ?? 0);
         const positions = Number(result.spawn_count ?? 0);
         const nextWave = Number(result.next_wave ?? 0);
-        return `Simulated 2D wave step at ${args.spawner_path} -> spawned ${spawnedCount} (${positions} spawn positions), next_wave=${nextWave} [${status}]`;
+        return `Simulated 2D wave step at ${args.spawner_path} -> ${args.instantiate_enemy ? `spawned ${spawnedCount} enem${spawnedCount === 1 ? 'y' : 'ies'} at` : 'selected (instantiate_enemy=false, nothing spawned)'} ${positions} spawn position(s), next_wave=${nextWave} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate wave spawner step 2D: ${(error as Error).message}`);
       }
@@ -2619,7 +2622,7 @@ export const nodeTools: MCPTool[] = [
         const spawnedCount = Number(result.spawned_count ?? 0);
         const positions = Number(result.spawn_count ?? 0);
         const nextWave = Number(result.next_wave ?? 0);
-        return `Simulated 3D wave step at ${args.spawner_path} -> spawned ${spawnedCount} (${positions} spawn positions), next_wave=${nextWave} [${status}]`;
+        return `Simulated 3D wave step at ${args.spawner_path} -> ${args.instantiate_enemy ? `spawned ${spawnedCount} enem${spawnedCount === 1 ? 'y' : 'ies'} at` : 'selected (instantiate_enemy=false, nothing spawned)'} ${positions} spawn position(s), next_wave=${nextWave} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate wave spawner step 3D: ${(error as Error).message}`);
       }
@@ -3013,8 +3016,8 @@ export const nodeTools: MCPTool[] = [
         fractal_octaves: z.number().int().min(1).optional(),
         fractal_lacunarity: z.number().nonnegative().optional(),
         fractal_gain: z.number().nonnegative().optional(),
-        noise_type: z.number().int().optional(),
-        fractal_type: z.number().int().optional(),
+        noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+        fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
         transaction_id: z.string().optional(),
       })
       .superRefine((value, ctx) => {
@@ -3092,8 +3095,8 @@ export const nodeTools: MCPTool[] = [
         fractal_octaves: z.number().int().min(1).optional(),
         fractal_lacunarity: z.number().nonnegative().optional(),
         fractal_gain: z.number().nonnegative().optional(),
-        noise_type: z.number().int().optional(),
-        fractal_type: z.number().int().optional(),
+        noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+        fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
         ignore_empty_terrains: z.boolean().optional(),
         clear_unselected: z.boolean().optional(),
         neighbor_margin: z.number().int().min(0).optional(),
@@ -3157,8 +3160,8 @@ export const nodeTools: MCPTool[] = [
       fractal_octaves: z.number().int().min(1).optional(),
       fractal_lacunarity: z.number().nonnegative().optional(),
       fractal_gain: z.number().nonnegative().optional(),
-      noise_type: z.number().int().optional(),
-      fractal_type: z.number().int().optional(),
+      noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+      fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
       transaction_id: z.string().optional(),
     }),
     execute: async (args: GenerateHeightmapGridMap3DParams): Promise<string> => {
@@ -4352,8 +4355,8 @@ export const nodeTools: MCPTool[] = [
       fractal_octaves: z.number().int().positive().optional(),
       fractal_lacunarity: z.number().nonnegative().optional(),
       fractal_gain: z.number().nonnegative().optional(),
-      noise_type: z.number().int().optional(),
-      fractal_type: z.number().int().optional(),
+      noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+      fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
       sample_offset: vector2ParamSchema.optional(),
       create_collision: z.boolean().optional(),
       create_side_faces: z.boolean().optional(),

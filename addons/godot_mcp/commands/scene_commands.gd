@@ -4753,7 +4753,7 @@ func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String
 					true
 				)
 				return _send_error(client_id, "GridMap has no MeshLibrary configured", command_id)
-			elif mesh_library.has_method("has_item") and not mesh_library.has_item(item_value):
+			elif item_value != GridMap.INVALID_CELL_ITEM and not item_value in mesh_library.get_item_list():  # MeshLibrary has no has_item() in Godot 4
 				if transaction_id.is_empty():
 					transaction.rollback()
 				_log(

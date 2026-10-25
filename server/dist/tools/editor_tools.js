@@ -101,10 +101,17 @@ export var editorTools = [
                 .boolean()
                 .optional()
                 .describe('Pass --no-window alongside --headless (default true).'),
+            max_frames: z
+                .number()
+                .int()
+                .min(1)
+                .max(36000)
+                .optional()
+                .describe('With run_target: quit after this many frames (default 600) so a scene that never quits cannot hang the editor. Ignored if additional_args has --quit or --quit-after.'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var godot, payload, result;
-            var run_target = _b.run_target, binary_path = _b.binary_path, additional_args = _b.additional_args, capture_stderr = _b.capture_stderr, no_window = _b.no_window;
+            var run_target = _b.run_target, binary_path = _b.binary_path, additional_args = _b.additional_args, capture_stderr = _b.capture_stderr, no_window = _b.no_window, max_frames = _b.max_frames;
             return __generator(this, function (_c) {
                 switch (_c.label) {
                     case 0:
@@ -120,6 +127,8 @@ export var editorTools = [
                             payload.capture_stderr = capture_stderr;
                         if (no_window !== undefined)
                             payload.no_window = no_window;
+                        if (max_frames !== undefined)
+                            payload.max_frames = max_frames;
                         return [4 /*yield*/, godot.sendCommand('run_godot_headless', payload)];
                     case 1:
                         result = _c.sent();

@@ -146,10 +146,25 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 					"value": parsed_value,
 				})
 
-	if typeof(shader_parameters) == TYPE_DICTIONARY and variant is ShaderMaterial:
+	if typeof(shader_parameters) == TYPE_DICTIONARY and not shader_parameters.is_empty():
+		if not (variant is ShaderMaterial):
+			return _send_error(client_id, "shader_parameters need a ShaderMaterial; %s has no shader uniforms (use overrides)" % variant.get_class(), command_id)
 		var shader_material: ShaderMaterial = variant
+		# Convert each value to its uniform's type: a raw dict/array for a color uniform was stored as null.
+		var uniform_types := {}
+		if shader_material.shader != null:
+			for uniform in shader_material.shader.get_shader_uniform_list():
+				uniform_types[str(uniform.get("name", ""))] = int(uniform.get("type", TYPE_NIL))
 		for parameter_name in shader_parameters.keys():
-			var parsed: Variant = _parse_property_value(shader_parameters[parameter_name])
+			if not uniform_types.has(str(parameter_name)):
+				return _send_error(client_id, "Shader has no uniform %s" % parameter_name, command_id)
+			var expected_type: int = uniform_types[str(parameter_name)]
+			var parsed: Variant = _coerce_value_to_type(shader_parameters[parameter_name], expected_type)
+			var numeric := [TYPE_INT, TYPE_FLOAT]
+			if expected_type != TYPE_NIL and typeof(parsed) != expected_type \
+					and not (expected_type in numeric and typeof(parsed) in numeric) \
+					and not (expected_type == TYPE_OBJECT and (parsed == null or parsed is Object)):
+				return _send_error(client_id, "Shader uniform %s expects %s, got %s" % [parameter_name, type_string(expected_type), JSON.stringify(shader_parameters[parameter_name])], command_id)
 			var previous = shader_material.get_shader_parameter(parameter_name)
 			shader_material.set_shader_parameter(parameter_name, parsed)
 			changes.append({
@@ -177,7 +192,11 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 					if loaded_value is Texture2D:
 						texture = loaded_value
 
-			if texture != null and variant.has_method("set"):
+			if texture == null:
+				return _send_error(client_id, "texture_overrides.%s is not a loadable Texture2D: %s" % [slot, str(value)], command_id)
+			if _get_property_info(variant, str(slot)).is_empty():
+				return _send_error(client_id, "%s has no texture slot %s" % [variant.get_class(), slot], command_id)
+			if variant.has_method("set"):
 				var previous_texture = variant.get(slot)
 				variant.set(slot, texture)
 				changes.append({
@@ -805,8 +824,14 @@ func _generate_procedural_planet_ocean(client_id: int, params: Dictionary, comma
 	var requested_parent_path := str(params.get("parent_path", ""))
 
 	var deep_color = _coerce_to_color(params.get("deep_color", {"r": 0.01, "g": 0.07, "b": 0.18, "a": 1.0}))
+	if not (deep_color is Color):
+		return _send_error(client_id, "deep_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var shallow_color = _coerce_to_color(params.get("shallow_color", {"r": 0.07, "g": 0.36, "b": 0.62, "a": 1.0}))
+	if not (shallow_color is Color):
+		return _send_error(client_id, "shallow_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var foam_color = _coerce_to_color(params.get("foam_color", {"r": 0.88, "g": 0.95, "b": 0.99, "a": 1.0}))
+	if not (foam_color is Color):
+		return _send_error(client_id, "foam_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 
 	var shader_code := """
 shader_type spatial;
@@ -1114,6 +1139,8 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 	var roughness := clampf(float(params.get("roughness", 0.9)), 0.0, 1.0)
 	var metallic := clampf(float(params.get("metallic", 0.0)), 0.0, 1.0)
 	var color = _coerce_to_color(params.get("color", {"r": 0.35, "g": 0.38, "b": 0.43, "a": 1.0}))
+	if not (color is Color):
+		return _send_error(client_id, "color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var node_name := str(params.get("node_name", "PlanetShell"))
 	var parent_path := str(params.get("parent_path", "/root"))
 	var create_node := params.get("create_node", true)
@@ -1336,6 +1363,8 @@ func _generate_planet_cloud_layer(client_id: int, params: Dictionary, command_id
 	var cloud_speed := max(0.0, float(params.get("cloud_speed", 0.05)))
 	var cloud_alpha := clampf(float(params.get("cloud_alpha", 0.6)), 0.0, 1.0)
 	var cloud_color = _coerce_to_color(params.get("cloud_color", {"r": 0.95, "g": 0.97, "b": 1.0, "a": 1.0}))
+	if not (cloud_color is Color):
+		return _send_error(client_id, "cloud_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var node_name := str(params.get("node_name", "PlanetCloudLayer"))
 	var planet_node_path := str(params.get("planet_node_path", ""))
 	var parent_path := str(params.get("parent_path", ""))
@@ -1481,6 +1510,8 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 	var radial_segments := clampi(int(params.get("radial_segments", 96)), 8, 512)
 	var rings := clampi(int(params.get("rings", 64)), 8, 256)
 	var glow_color = _coerce_to_color(params.get("glow_color", {"r": 0.35, "g": 0.62, "b": 1.0, "a": 1.0}))
+	if not (glow_color is Color):
+		return _send_error(client_id, "glow_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var fresnel_power := max(0.1, float(params.get("fresnel_power", 4.0)))
 	var intensity := max(0.0, float(params.get("intensity", 1.2)))
 	var alpha := clampf(float(params.get("alpha", 0.45)), 0.0, 1.0)
@@ -1576,6 +1607,8 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 	var parent_path := str(params.get("parent_path", ""))
 	var planet_node_path := str(params.get("planet_node_path", ""))
 	var crater_color = _coerce_to_color(params.get("crater_color", {"r": 0.24, "g": 0.24, "b": 0.25, "a": 1.0}))
+	if not (crater_color is Color):
+		return _send_error(client_id, "crater_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var create_node := params.get("create_node", true)
 
 	if not create_node:
@@ -1667,6 +1700,8 @@ func _create_ring_system(client_id: int, params: Dictionary, command_id: String)
 	var banding := clampf(float(params.get("banding", 0.35)), 0.0, 1.0)
 	var seed := float(params.get("seed", 12.0))
 	var ring_color = _coerce_to_color(params.get("ring_color", {"r": 0.76, "g": 0.68, "b": 0.56, "a": 1.0}))
+	if not (ring_color is Color):
+		return _send_error(client_id, "ring_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var node_name := str(params.get("node_name", "PlanetRings"))
 	var create_node := params.get("create_node", true)
 	var planet_node_path := str(params.get("planet_node_path", ""))
@@ -1797,7 +1832,11 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	var star_count := clampi(int(params.get("star_count", 2200)), 1, 200000)
 	var seed := int(params.get("seed", 4242))
 	var background_top = _coerce_to_color(params.get("background_top", {"r": 0.01, "g": 0.02, "b": 0.06, "a": 1.0}))
+	if not (background_top is Color):
+		return _send_error(client_id, "background_top must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var background_bottom = _coerce_to_color(params.get("background_bottom", {"r": 0.0, "g": 0.0, "b": 0.02, "a": 1.0}))
+	if not (background_bottom is Color):
+		return _send_error(client_id, "background_bottom must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var apply_to_environment := params.get("apply_to_environment", true)
 	var environment_path := str(params.get("environment_path", ""))
 	var node_path := str(params.get("world_environment", params.get("node_path", "")))
@@ -1913,6 +1952,8 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 	var planet_node_path := str(params.get("planet_node_path", ""))
 	var parent_path := str(params.get("parent_path", ""))
 	var moon_color = _coerce_to_color(params.get("color", {"r": 0.74, "g": 0.74, "b": 0.78, "a": 1.0}))
+	if not (moon_color is Color):
+		return _send_error(client_id, "color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var create_node := params.get("create_node", true)
 
 	if not create_node:
@@ -2456,6 +2497,12 @@ func _append_environment_change(environment: Environment, property_name: String,
 	if _get_property_info(environment, property_name).is_empty():
 		_refused_values.append("Environment has no property %s" % property_name)
 		return
+	# Two inputs can map to one property (fog.color and sun.color are both fog_light_color);
+	# the later one silently won before.
+	for existing_change in changes:
+		if str(existing_change.get("property", "")) == property_name:
+			_refused_values.append("%s is set twice in this call (e.g. fog.color and sun.color both map to it)" % property_name)
+			return
 	var previous = environment.get(property_name)
 	# Coerce JSON input ("#hex", {"r":..}) to the property's type; != between mismatched types errors.
 	var parsed: Variant = _coerce_value_to_match(previous, _parse_property_value(raw_value))

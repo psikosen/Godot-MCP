@@ -123,6 +123,15 @@ func _save_resource_contained(resource: Resource, path: String) -> int:
 		return ERR_FILE_BAD_PATH
 	return ResourceSaver.save(resource, contained)
 
+# Groups a user can see: Godot adds viewport-internal groups ("_vp_unhandled_input<id>") to nodes.
+func _user_groups(node: Node) -> Array:
+	return node.get_groups().filter(func(group): return not str(group).begins_with("_vp_"))
+
+# Editor helper nodes (e.g. the "@AnimationPlayer@20382" an AnimationTree preview adds) have no
+# owner and an auto-generated "@" name; they are not part of the user's scene.
+func _is_editor_internal_node(node: Node) -> bool:
+	return node.owner == null and str(node.name).begins_with("@")
+
 # Helper function to mark a scene as modified
 func _mark_scene_modified() -> void:
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -416,6 +425,19 @@ func _property_value_error(target: Object, property_name: String, value) -> Stri
 	)
 	if not compatible:
 		return "Property %s expects %s, got %s" % [property_name, type_string(expected), JSON.stringify(value)]
+	# Vectors Godot silently refuses but gives no range hint for.
+	if value is Vector2 or value is Vector3:
+		var components: Array = [value.x, value.y] if value is Vector2 else [value.x, value.y, value.z]
+		match property_name:
+			"up_direction":
+				if value.is_zero_approx():
+					return "Property up_direction must not be a zero vector"
+			"zoom":
+				if components.any(func(c): return c <= 0.0):
+					return "Property zoom must be greater than 0 on every axis, got %s" % str(value)
+			"repeat_size":
+				if components.any(func(c): return c < 0.0):
+					return "Property repeat_size must not be negative, got %s" % str(value)
 	var hint := int(info.get("hint", 0))
 	if expected == TYPE_INT and hint == PROPERTY_HINT_ENUM:
 		var allowed: Array = []
@@ -508,6 +530,15 @@ func _apply_nested_property_value(base_value, path: Array, new_value):
 
 	var key = path[0]
 	var remaining = path.slice(1, path.size())
+
+	# Vector/color components are numbers; float("bad") silently became 0.
+	var component_types := [TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4,
+		TYPE_VECTOR4I, TYPE_COLOR, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I]
+	if typeof(base_value) in component_types and remaining.is_empty():
+		var is_number: bool = typeof(new_value) == TYPE_INT or typeof(new_value) == TYPE_FLOAT \
+			or (typeof(new_value) == TYPE_STRING and new_value.strip_edges().is_valid_float())
+		if not is_number:
+			return {"ok": false, "error": "Component %s expects a number, got %s" % [key, JSON.stringify(new_value)]}
 
 	match typeof(base_value):
 		TYPE_DICTIONARY:

@@ -624,7 +624,7 @@ export var nodeTools = [
                 .describe('Optional scene transaction identifier used to batch operations'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, status_9, count, resolvedParent, error_12;
+            var godot, result, status_9, count, resolvedParent, names, error_12;
             var _c, _d, _e, _f;
             var parent_path = _b.parent_path, nodes = _b.nodes, transaction_id = _b.transaction_id;
             return __generator(this, function (_g) {
@@ -644,7 +644,10 @@ export var nodeTools = [
                         status_9 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
                         count = Number((_d = result.count) !== null && _d !== void 0 ? _d : (Array.isArray(result.created_nodes) ? result.created_nodes.length : nodes.length));
                         resolvedParent = (_f = (_e = result.parent_path) !== null && _e !== void 0 ? _e : parent_path) !== null && _f !== void 0 ? _f : '/root';
-                        return [2 /*return*/, "Batch created ".concat(count, " node(s) under ").concat(resolvedParent, " [").concat(status_9, "]")];
+                        names = Array.isArray(result.created_nodes)
+                            ? result.created_nodes.map(function (entry) { return entry === null || entry === void 0 ? void 0 : entry.node_name; }).filter(Boolean)
+                            : [];
+                        return [2 /*return*/, "Batch created ".concat(count, " node(s) under ").concat(resolvedParent, " [").concat(status_9, "]").concat(names.length ? ": ".concat(names.join(', ')) : '')];
                     case 3:
                         error_12 = _g.sent();
                         throw new Error("Failed to batch create nodes: ".concat(error_12.message));
@@ -1096,7 +1099,7 @@ export var nodeTools = [
         parameters: z.object({
             parent_path: z.string().optional(),
             spawner_name: z.string().optional(),
-            spawn_points: z.array(vector2ParamSchema).optional(),
+            spawn_points: z.array(vector2ParamSchema).optional().describe('Spawn positions relative to the spawner node.'),
             create_timer: z.boolean().optional(),
             timer_name: z.string().optional(),
             create_spawn_nodes: z.boolean().optional(),
@@ -1143,7 +1146,7 @@ export var nodeTools = [
         parameters: z.object({
             parent_path: z.string().optional(),
             spawner_name: z.string().optional(),
-            spawn_points: z.array(vector3ParamSchema).optional(),
+            spawn_points: z.array(vector3ParamSchema).optional().describe('Spawn positions relative to the spawner node.'),
             create_timer: z.boolean().optional(),
             timer_name: z.string().optional(),
             create_spawn_nodes: z.boolean().optional(),
@@ -1213,7 +1216,7 @@ export var nodeTools = [
                         spawnedCount = Number((_b = result.spawned_count) !== null && _b !== void 0 ? _b : 0);
                         positions = Number((_c = result.spawn_count) !== null && _c !== void 0 ? _c : 0);
                         nextWave = Number((_d = result.next_wave) !== null && _d !== void 0 ? _d : 0);
-                        return [2 /*return*/, "Simulated 2D wave step at ".concat(args.spawner_path, " -> spawned ").concat(spawnedCount, " (").concat(positions, " spawn positions), next_wave=").concat(nextWave, " [").concat(status_21, "]")];
+                        return [2 /*return*/, "Simulated 2D wave step at ".concat(args.spawner_path, " -> ").concat(args.instantiate_enemy ? "spawned ".concat(spawnedCount, " enem").concat(spawnedCount === 1 ? 'y' : 'ies', " at") : 'selected (instantiate_enemy=false, nothing spawned)', " ").concat(positions, " spawn position(s), next_wave=").concat(nextWave, " [").concat(status_21, "]")];
                     case 3:
                         error_24 = _e.sent();
                         throw new Error("Failed to simulate wave spawner step 2D: ".concat(error_24.message));
@@ -1254,7 +1257,7 @@ export var nodeTools = [
                         spawnedCount = Number((_b = result.spawned_count) !== null && _b !== void 0 ? _b : 0);
                         positions = Number((_c = result.spawn_count) !== null && _c !== void 0 ? _c : 0);
                         nextWave = Number((_d = result.next_wave) !== null && _d !== void 0 ? _d : 0);
-                        return [2 /*return*/, "Simulated 3D wave step at ".concat(args.spawner_path, " -> spawned ").concat(spawnedCount, " (").concat(positions, " spawn positions), next_wave=").concat(nextWave, " [").concat(status_22, "]")];
+                        return [2 /*return*/, "Simulated 3D wave step at ".concat(args.spawner_path, " -> ").concat(args.instantiate_enemy ? "spawned ".concat(spawnedCount, " enem").concat(spawnedCount === 1 ? 'y' : 'ies', " at") : 'selected (instantiate_enemy=false, nothing spawned)', " ").concat(positions, " spawn position(s), next_wave=").concat(nextWave, " [").concat(status_22, "]")];
                     case 3:
                         error_25 = _e.sent();
                         throw new Error("Failed to simulate wave spawner step 3D: ".concat(error_25.message));
@@ -1739,8 +1742,8 @@ export var nodeTools = [
             fractal_octaves: z.number().int().min(1).optional(),
             fractal_lacunarity: z.number().nonnegative().optional(),
             fractal_gain: z.number().nonnegative().optional(),
-            noise_type: z.number().int().optional(),
-            fractal_type: z.number().int().optional(),
+            noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+            fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
             transaction_id: z.string().optional(),
         })
             .superRefine(function (value, ctx) {
@@ -1829,8 +1832,8 @@ export var nodeTools = [
             fractal_octaves: z.number().int().min(1).optional(),
             fractal_lacunarity: z.number().nonnegative().optional(),
             fractal_gain: z.number().nonnegative().optional(),
-            noise_type: z.number().int().optional(),
-            fractal_type: z.number().int().optional(),
+            noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+            fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
             ignore_empty_terrains: z.boolean().optional(),
             clear_unselected: z.boolean().optional(),
             neighbor_margin: z.number().int().min(0).optional(),
@@ -1905,8 +1908,8 @@ export var nodeTools = [
             fractal_octaves: z.number().int().min(1).optional(),
             fractal_lacunarity: z.number().nonnegative().optional(),
             fractal_gain: z.number().nonnegative().optional(),
-            noise_type: z.number().int().optional(),
-            fractal_type: z.number().int().optional(),
+            noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+            fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
@@ -3408,8 +3411,8 @@ export var nodeTools = [
             fractal_octaves: z.number().int().positive().optional(),
             fractal_lacunarity: z.number().nonnegative().optional(),
             fractal_gain: z.number().nonnegative().optional(),
-            noise_type: z.number().int().optional(),
-            fractal_type: z.number().int().optional(),
+            noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+            fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
             sample_offset: vector2ParamSchema.optional(),
             create_collision: z.boolean().optional(),
             create_side_faces: z.boolean().optional(),

@@ -3,6 +3,8 @@ import { getGodotConnection } from '../utils/godot_connection.js';
 import { MCPTool, CommandResult } from '../utils/types.js';
 
 const dictionarySchema = z.record(z.any());
+// Colors: the addon accepts "#hex", a color name, [r,g,b(,a)] or {r,g,b,a}; the schema only allowed objects.
+const colorSchema = z.union([z.string(), z.array(z.number()).min(3).max(4), dictionarySchema]);
 
 const materialVariantSchema = z
   .object({
@@ -212,9 +214,9 @@ const proceduralPlanetOceanSchema = z
     metallic: z.number().min(0).max(1).optional().describe('Water material metallic value.'),
     alpha: z.number().min(0).max(1).optional().describe('Water alpha/transparency value.'),
     seed: z.number().optional().describe('Noise seed offset for wave field variation.'),
-    deep_color: dictionarySchema.optional().describe('Deep water color as dictionary (r,g,b,a).'),
-    shallow_color: dictionarySchema.optional().describe('Shallow water color as dictionary (r,g,b,a).'),
-    foam_color: dictionarySchema.optional().describe('Foam highlight color as dictionary (r,g,b,a).'),
+    deep_color: colorSchema.optional().describe('Deep water color: #hex, name, [r,g,b(,a)] or {r,g,b,a}.'),
+    shallow_color: colorSchema.optional().describe('Shallow water color: #hex, name, [r,g,b(,a)] or {r,g,b,a}.'),
+    foam_color: colorSchema.optional().describe('Foam highlight color: #hex, name, [r,g,b(,a)] or {r,g,b,a}.'),
     create_node: z.boolean().optional().describe('Create a MeshInstance3D in the currently edited scene (default true).'),
     planet_node_path: z.string().optional().describe('Optional planet node path to align the ocean shell transform.'),
     parent_path: z.string().optional().describe('Optional parent path for the generated ocean node.'),
@@ -229,7 +231,7 @@ const createPlanetShellSchema = z
     radius: z.number().positive().optional(),
     radial_segments: z.number().int().min(8).max(512).optional(),
     rings: z.number().int().min(8).max(256).optional(),
-    color: dictionarySchema.optional(),
+    color: colorSchema.optional(),
     roughness: z.number().min(0).max(1).optional(),
     metallic: z.number().min(0).max(1).optional(),
     create_node: z.boolean().optional(),
@@ -255,9 +257,9 @@ const createOceanTileSchema = z
     metallic: z.number().min(0).max(1).optional(),
     alpha: z.number().min(0).max(1).optional(),
     seed: z.number().optional(),
-    deep_color: dictionarySchema.optional(),
-    shallow_color: dictionarySchema.optional(),
-    foam_color: dictionarySchema.optional(),
+    deep_color: colorSchema.optional(),
+    shallow_color: colorSchema.optional(),
+    foam_color: colorSchema.optional(),
     create_node: z.boolean().optional(),
     parent_path: z.string().optional(),
     node_name: z.string().optional(),
@@ -291,7 +293,7 @@ const cloudLayerSchema = z
     cloud_scale: z.number().positive().optional(),
     cloud_speed: z.number().min(0).optional(),
     cloud_alpha: z.number().min(0).max(1).optional(),
-    cloud_color: dictionarySchema.optional(),
+    cloud_color: colorSchema.optional(),
     create_node: z.boolean().optional(),
     planet_node_path: z.string().optional(),
     parent_path: z.string().optional(),
@@ -306,7 +308,7 @@ const atmosphereGlowSchema = z
     radius: z.number().positive().optional(),
     radial_segments: z.number().int().min(8).max(512).optional(),
     rings: z.number().int().min(8).max(256).optional(),
-    glow_color: dictionarySchema.optional(),
+    glow_color: colorSchema.optional(),
     fresnel_power: z.number().positive().optional(),
     intensity: z.number().min(0).optional(),
     alpha: z.number().min(0).max(1).optional(),
@@ -327,7 +329,7 @@ const craterScatterSchema = z
     crater_max_radius: z.number().positive().optional(),
     crater_depth: z.number().min(0.05).max(1).optional(),
     seed: z.number().int().optional(),
-    crater_color: dictionarySchema.optional(),
+    crater_color: colorSchema.optional(),
     create_node: z.boolean().optional(),
     planet_node_path: z.string().optional(),
     parent_path: z.string().optional(),
@@ -337,12 +339,12 @@ const craterScatterSchema = z
 
 const ringSystemSchema = z
   .object({
-    inner_radius: z.number().positive().optional(),
+    inner_radius: z.number().min(0).optional(),
     outer_radius: z.number().positive().optional(),
     alpha: z.number().min(0).max(1).optional(),
     banding: z.number().min(0).max(1).optional(),
     seed: z.number().optional(),
-    ring_color: dictionarySchema.optional(),
+    ring_color: colorSchema.optional(),
     tilt_degrees: z.union([z.number(), dictionarySchema, z.array(z.number())]).optional(),
     create_node: z.boolean().optional(),
     planet_node_path: z.string().optional(),
@@ -359,8 +361,8 @@ const starfieldSkyboxSchema = z
     height: z.number().int().min(32).max(2048).optional(),
     star_count: z.number().int().min(1).max(200000).optional(),
     seed: z.number().int().optional(),
-    background_top: dictionarySchema.optional(),
-    background_bottom: dictionarySchema.optional(),
+    background_top: colorSchema.optional(),
+    background_bottom: colorSchema.optional(),
     apply_to_environment: z.boolean().optional(),
     environment_path: z.string().optional(),
     world_environment: z.string().optional(),
@@ -379,7 +381,7 @@ const moonProxySchema = z
     distance: z.number().positive().optional(),
     orbit_speed_deg_per_sec: z.number().optional(),
     inclination_degrees: z.number().optional(),
-    color: dictionarySchema.optional(),
+    color: colorSchema.optional(),
     create_node: z.boolean().optional(),
     planet_node_path: z.string().optional(),
     parent_path: z.string().optional(),

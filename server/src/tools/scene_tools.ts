@@ -573,7 +573,7 @@ export const sceneTools: MCPTool[] = [
       resource_path: z.string()
         .describe('Path where the resource will be saved (e.g. "res://resources/style.tres")'),
       properties: z.record(z.any()).optional()
-        .describe('Dictionary of property values to set on the resource'),
+        .describe('Dictionary of property values to set on the resource. For Curve2D/Curve3D, "points": [[x,y(,z)], ...] builds the curve.'),
       overwrite: z.boolean().optional()
         .describe('Replace the file if it already exists (default false: refuse).'),
     }),

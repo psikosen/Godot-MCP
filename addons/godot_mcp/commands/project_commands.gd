@@ -390,6 +390,12 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 		return
 
 	var applied_changes := {}
+	# Check the send target before changing anything: an unknown bus name was stored and listed.
+	if params.has("send"):
+		var requested_send := str(params["send"])
+		if not requested_send.is_empty() and AudioServer.get_bus_index(requested_send) == -1:
+			_send_error(client_id, "Audio bus not found for send: %s" % requested_send, command_id)
+			return
 	var change_count := 0
 
 	if params.has("new_name"):

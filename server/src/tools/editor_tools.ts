@@ -65,6 +65,13 @@ export const editorTools: MCPTool[] = [
         .boolean()
         .optional()
         .describe('Pass --no-window alongside --headless (default true).'),
+      max_frames: z
+        .number()
+        .int()
+        .min(1)
+        .max(36000)
+        .optional()
+        .describe('With run_target: quit after this many frames (default 600) so a scene that never quits cannot hang the editor. Ignored if additional_args has --quit or --quit-after.'),
     }),
     execute: async ({
       run_target,
@@ -72,12 +79,14 @@ export const editorTools: MCPTool[] = [
       additional_args,
       capture_stderr,
       no_window,
+      max_frames,
     }: {
       run_target?: string;
       binary_path?: string;
       additional_args?: string[];
       capture_stderr?: boolean;
       no_window?: boolean;
+      max_frames?: number;
     }): Promise<string> => {
       const godot = getGodotConnection();
 
@@ -88,6 +97,7 @@ export const editorTools: MCPTool[] = [
       if (additional_args) payload.additional_args = additional_args;
       if (capture_stderr !== undefined) payload.capture_stderr = capture_stderr;
       if (no_window !== undefined) payload.no_window = no_window;
+      if (max_frames !== undefined) payload.max_frames = max_frames;
 
       const result = await godot.sendCommand<CommandResult>('run_godot_headless', payload);
       return JSON.stringify(result, null, 2);

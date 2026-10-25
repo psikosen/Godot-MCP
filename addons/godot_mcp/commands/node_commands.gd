@@ -1022,11 +1022,20 @@ func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String)
 				var property_name: String = str(property_key)
 				if property_name.strip_edges().is_empty():
 					return _send_error(client_id, "nodes[%d] contains an empty property name" % index, command_id)
-				if not property_name in node_instance:
-					return _send_error(client_id, "Property %s does not exist on node type %s" % [property_name, node_type], command_id)
+				# Dotted paths ("position.x") work here as they do in bulk_update_node_properties.
+				var segments: PackedStringArray = property_name.split(".")
+				var base_property: String = segments[0]
+				if not base_property in node_instance:
+					return _send_error(client_id, "nodes[%d]: property %s does not exist on node type %s" % [index, base_property, node_type], command_id)
 				var raw_value = properties_dict[property_key]
 				if raw_value == null:
 					return _send_error(client_id, "Property %s for nodes[%d] cannot be null" % [property_name, index], command_id)
+				if segments.size() > 1:
+					var nested: Dictionary = _apply_nested_property_value(node_instance.get(base_property), Array(segments.slice(1)), raw_value)
+					if not nested.get("ok", false):
+						return _send_error(client_id, "nodes[%d]: %s: %s" % [index, property_name, nested.get("error", "invalid value")], command_id)
+					node_instance.set(base_property, nested.get("value"))
+					continue
 				var converted_value = _convert_property_value(node_instance, property_name, raw_value)
 				var value_error := _property_value_error(node_instance, property_name, converted_value)
 				if not value_error.is_empty():
@@ -1977,6 +1986,10 @@ func _set_animation_tree_state(client_id: int, params: Dictionary, command_id: S
 		return _send_error(client_id, "AnimationTree does not expose AnimationNodeStateMachine playback at parameters/playback", command_id)
 
 	var state_machine_playback: AnimationNodeStateMachinePlayback = playback
+	# travel() to an unknown state silently does nothing; the tool reported it as committed.
+	var state_machine := tree.tree_root as AnimationNodeStateMachine
+	if state_machine != null and not state_machine.has_node(StringName(state_name)) and not state_name in ["Start", "End"]:
+		return _send_error(client_id, "State machine has no state %s" % state_name, command_id)
 	var previous_state: String = ""
 	if state_machine_playback.has_method("get_current_node"):
 		previous_state = str(state_machine_playback.get_current_node())
@@ -2585,7 +2598,11 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 				return _send_error(client_id, "Spawned scene instance must inherit Node2D for wave spawner 2D", command_id)
 			var enemy_instance: Node2D = instance
 			enemy_instance.name = _resolve_unique_child_name_pending(spawner.get_parent(), str(enemy_instance.name), pending_names)
-			enemy_instance.global_position = point
+			# Spawn points are local to the spawner (its markers sit there). The instance is not in
+			# the tree yet, so global_position was ignored with an engine error; set a local position.
+			var spawn_parent_node: Node = spawner.get_parent()
+			var world_point = spawner.to_global(point)
+			enemy_instance.position = spawn_parent_node.to_local(world_point) if spawn_parent_node is Node2D else world_point
 			attach_plans.append({
 				"parent": spawner.get_parent(),
 				"node": enemy_instance,
@@ -2772,7 +2789,11 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 				return _send_error(client_id, "Spawned scene instance must inherit Node3D for wave spawner 3D", command_id)
 			var enemy_instance: Node3D = instance
 			enemy_instance.name = _resolve_unique_child_name_pending(spawner.get_parent(), str(enemy_instance.name), pending_names)
-			enemy_instance.global_position = point
+			# Spawn points are local to the spawner (its markers sit there). The instance is not in
+			# the tree yet, so global_position was ignored with an engine error; set a local position.
+			var spawn_parent_node: Node = spawner.get_parent()
+			var world_point = spawner.to_global(point)
+			enemy_instance.position = spawn_parent_node.to_local(world_point) if spawn_parent_node is Node3D else world_point
 			attach_plans.append({
 				"parent": spawner.get_parent(),
 				"node": enemy_instance,
@@ -5851,6 +5872,10 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Node at %s is not a PathFollow2D" % node_path, command_id)
 
 	var path_follow: PathFollow2D = node
+	# Same rule as configure_path2d_followers: progress on a zero-length curve silently stays 0.
+	var follow_parent := path_follow.get_parent()
+	if not (follow_parent is Path2D) or follow_parent.curve == null or follow_parent.curve.get_baked_length() <= 0.0:
+		return _send_error(client_id, "Path curve has zero length; add curve points before advancing the follower", command_id)
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 
@@ -5995,6 +6020,10 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Node at %s is not a PathFollow3D" % node_path, command_id)
 
 	var path_follow: PathFollow3D = node
+	# Same rule as configure_path3d_followers: progress on a zero-length curve silently stays 0.
+	var follow_parent := path_follow.get_parent()
+	if not (follow_parent is Path3D) or follow_parent.curve == null or follow_parent.curve.get_baked_length() <= 0.0:
+		return _send_error(client_id, "Path curve has zero length; add curve points before advancing the follower", command_id)
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 
@@ -16021,7 +16050,7 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 
 func _add_node_to_group(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
-	var group_name = params.get("group_name", "")
+	var group_name = str(params.get("group_name", "")).strip_edges()
 	var persistent = params.get("persistent", true)
 	var transaction_id = params.get("transaction_id", "")
 
@@ -16099,7 +16128,7 @@ func _add_node_to_group(client_id: int, params: Dictionary, command_id: String) 
 
 func _remove_node_from_group(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
-	var group_name = params.get("group_name", "")
+	var group_name = str(params.get("group_name", "")).strip_edges()
 	var transaction_id = params.get("transaction_id", "")
 	var restore_persistent = params.get("persistent", true)
 
@@ -16357,14 +16386,14 @@ func _list_node_groups(client_id: int, params: Dictionary, command_id: String) -
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 
-	var groups: Array = node.get_groups()
+	var groups: Array = _user_groups(node)
 	_send_success(client_id, {
 		"node_path": node_path,
 		"groups": groups
 	}, command_id)
 
 func _list_nodes_in_group(client_id: int, params: Dictionary, command_id: String) -> void:
-	var group_name = params.get("group_name", "")
+	var group_name = str(params.get("group_name", "")).strip_edges()
 	if group_name.is_empty():
 		return _send_error(client_id, "Group name cannot be empty", command_id)
 
@@ -16751,6 +16780,8 @@ func _list_nodes(client_id: int, params: Dictionary, command_id: String) -> void
 	# Get children
 	var children = []
 	for child in parent.get_children():
+		if _is_editor_internal_node(child):
+			continue
 		children.append({
 			"name": child.name,
 			"type": child.get_class(),
@@ -18046,7 +18077,7 @@ func _query_nodes_recursive(node: Node, filters: Dictionary, results: Array, inc
 			"name": str(node.name),
 			"type": node.get_class(),
 			"path": _to_mcp_path(node),
-			"groups": node.get_groups(),
+			"groups": _user_groups(node),
 		})
 		if results.size() >= max_results:
 			return

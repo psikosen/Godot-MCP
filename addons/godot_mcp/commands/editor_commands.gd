@@ -162,7 +162,19 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 
 	# Set properties. set() silently ignores unknown names and wrong types (a TileSet saved
 	# empty, "banana" became 0), so convert and check each one first.
+	# Curves: "points" builds the curve ([x,y(,z)] or {x,y(,z)} each); its storage (_data) is internal.
+	if (resource is Curve2D or resource is Curve3D) and properties.has("points"):
+		var curve_points = properties["points"]
+		if typeof(curve_points) != TYPE_ARRAY:
+			return _send_error(client_id, "points must be an array of positions", command_id)
+		for point_index in curve_points.size():
+			var point = _coerce_to_vector3(curve_points[point_index]) if resource is Curve3D else _coerce_to_vector2(curve_points[point_index])
+			if not (point is Vector3 or point is Vector2):
+				return _send_error(client_id, "points[%d] must be a position like [x, y%s] or {x, y%s}" % [point_index, ", z" if resource is Curve3D else "", ", z" if resource is Curve3D else ""], command_id)
+			resource.add_point(point)
 	for key in properties:
+		if str(key) == "points" and (resource is Curve2D or resource is Curve3D):
+			continue
 		if _get_property_info(resource, str(key)).is_empty():
 			return _send_error(client_id, "%s has no property %s" % [resource_type, str(key)], command_id)
 		var converted = _convert_property_value(resource, str(key), properties[key])
@@ -375,6 +387,16 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 
 	for arg in additional_args:
 		argument_array.append(str(arg))
+
+	# OS.execute blocks the editor until the child exits, and a game scene never quits on its own:
+	# the editor hung until the child was killed. Bound the run unless the caller set a quit flag.
+	var has_quit_flag := false
+	for arg in argument_array:
+		if str(arg) == "--quit" or str(arg) == "--quit-after":
+			has_quit_flag = true
+	if not run_target.is_empty() and not has_quit_flag:
+		argument_array.append("--quit-after")
+		argument_array.append(str(clampi(int(params.get("max_frames", 600)), 1, 36000)))
 
 	var packed_arguments := PackedStringArray(argument_array)
 	log_context["arguments"] = argument_array
@@ -733,7 +755,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		if node.scene_file_path != "":
 			node_entry["scene_file_path"] = node.scene_file_path
 
-		var groups := node.get_groups()
+		var groups := _user_groups(node)
 		if groups.size() > 0:
 			node_entry["groups"] = groups
 
