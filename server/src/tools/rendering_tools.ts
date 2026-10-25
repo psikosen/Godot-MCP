@@ -502,6 +502,10 @@ const formatEnvironmentResponse = (result: CommandResult): string => {
 };
 
 const formatSunPreviewResponse = (result: CommandResult): string => {
+  // apply:true returns the configure_environment result (changes/status), not a current/preview pair.
+  if (result.preview === undefined) {
+    return formatEnvironmentResponse(result);
+  }
   const environmentPath = (result.environment_path as string) ?? 'Environment';
   const current = (result.current as Record<string, unknown>) ?? {};
   const preview = (result.preview as Record<string, unknown>) ?? {};
