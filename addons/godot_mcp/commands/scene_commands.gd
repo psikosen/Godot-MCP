@@ -1218,6 +1218,9 @@ func _configure_physics_node(
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
+		var value_error := _property_value_error(node, property_name, coerced_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 
 		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
@@ -1819,6 +1822,9 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
+		var value_error := _property_value_error(node, property_name, coerced_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 		property_changes.append({
@@ -3768,6 +3774,9 @@ func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
+		var value_error := _property_value_error(node, property_name, coerced_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 
 		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
@@ -4023,6 +4032,9 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			var parsed_value = resolved_value.get("value", null)
 			var old_value = material.get(normalized_property)
 			var coerced_value = _coerce_property_value(old_value, parsed_value)
+			var value_error := _property_value_error(material, normalized_property, coerced_value)
+			if not value_error.is_empty():
+				return _send_error(client_id, value_error, command_id)
 			if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 				continue
 			material.set(normalized_property, coerced_value)
@@ -5048,12 +5060,16 @@ func _classify_physics_node(node: Node) -> Dictionary:
 func _coerce_property_value(old_value, new_value):
 	var target_type := typeof(old_value)
 	match target_type:
+		# Unconvertible input is returned unchanged so _property_value_error refuses it.
 		TYPE_BOOL:
-			return _convert_to_bool(new_value, old_value)
+			var as_bool = _convert_to_bool(new_value, null)
+			return new_value if as_bool == null else as_bool
 		TYPE_INT:
-			return _convert_to_int(new_value, old_value)
+			var as_int = _convert_to_int(new_value, null)
+			return new_value if as_int == null else as_int
 		TYPE_FLOAT:
-			return _convert_to_float(new_value, old_value)
+			var as_float = _convert_to_float(new_value, null)
+			return new_value if as_float == null else as_float
 		TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_COLOR:
 			# JSON gives {"x":..}, [..] or "#hex"; build the real type so callers can compare it.
 			return _coerce_value_to_match(old_value, new_value)
@@ -5088,7 +5104,7 @@ func _convert_to_int(value, fallback):
 		TYPE_BOOL:
 			return (1 if value else 0)
 		TYPE_STRING:
-			return int(value)
+			return value.to_int() if value.strip_edges().is_valid_int() else fallback
 		_:
 			return fallback
 
@@ -5101,7 +5117,7 @@ func _convert_to_float(value, fallback):
 		TYPE_BOOL:
 			return (1.0 if value else 0.0)
 		TYPE_STRING:
-			return float(value)
+			return value.to_float() if value.strip_edges().is_valid_float() else fallback
 		_:
 			return fallback
 

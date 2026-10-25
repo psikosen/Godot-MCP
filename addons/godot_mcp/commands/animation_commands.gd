@@ -384,6 +384,13 @@ func _configure_animation_tree(client_id: int, params: Dictionary, command_id: S
 		for property_name in property_updates.keys():
 			# Coerce to the property's type (e.g. anim_player is a NodePath): == between mismatched types errors.
 			var new_value = _convert_property_value(tree, property_name, property_updates[property_name])
+			var value_error := _property_value_error(tree, property_name, new_value)
+			if _get_property_info(tree, property_name).is_empty():
+				value_error = "AnimationTree has no property: %s" % property_name
+			if not value_error.is_empty():
+				if transaction_id.is_empty():
+					transaction.rollback()  # inline transaction opened above; do not leave it dangling
+				return _send_error(client_id, value_error, command_id)
 			var previous_value = tree.get(property_name)
 			if typeof(previous_value) == typeof(new_value) and previous_value == new_value:
 				continue

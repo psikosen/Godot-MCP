@@ -860,6 +860,9 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 		var conversion_result: Dictionary
 		if property_segments.size() == 1:
 			var parsed_value = _convert_property_value(node, base_property_name, raw_value)
+			var value_error := _property_value_error(node, base_property_name, parsed_value)
+			if not value_error.is_empty():
+				return _send_error(client_id, value_error, command_id)
 			conversion_result = {
 				"ok": true,
 				"value": parsed_value,
@@ -1025,6 +1028,9 @@ func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String)
 				if raw_value == null:
 					return _send_error(client_id, "Property %s for nodes[%d] cannot be null" % [property_name, index], command_id)
 				var converted_value = _convert_property_value(node_instance, property_name, raw_value)
+				var value_error := _property_value_error(node_instance, property_name, converted_value)
+				if not value_error.is_empty():
+					return _send_error(client_id, "nodes[%d]: %s" % [index, value_error], command_id)
 				node_instance.set(property_name, converted_value)
 
 		pending_nodes.append(node_instance)
@@ -2088,6 +2094,9 @@ func _set_animation_tree_parameters(client_id: int, params: Dictionary, command_
 		if _get_property_info(tree, parameter_path).is_empty():
 			return _send_error(client_id, "AnimationTree has no parameter: %s" % parameter_path, command_id)
 		var new_value = _convert_property_value(tree, parameter_path, parameter_values[raw_key])
+		var value_error := _property_value_error(tree, parameter_path, new_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 		var previous_value = tree.get(parameter_path)
 		if typeof(previous_value) == typeof(new_value) and previous_value == new_value:
 			continue
@@ -16479,6 +16488,13 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 
 		if property_segments.size() == 1:
 				var parsed_value = _convert_property_value(node, base_property_name, property_value)
+				var value_error := _property_value_error(node, base_property_name, parsed_value)
+				if not value_error.is_empty():
+						return _send_error(client_id, value_error, command_id)
+				if base_property_name == "name" and node.get_parent() != null:
+						var sibling := node.get_parent().get_node_or_null(NodePath(str(parsed_value)))
+						if sibling != null and sibling != node:
+								return _send_error(client_id, "A sibling node named %s already exists (use rename_node)" % str(parsed_value), command_id)
 				conversion_result = {
 						"ok": true,
 						"value": parsed_value,
@@ -17150,30 +17166,13 @@ func _parse_theme_override_value(override_type: String, value, resource_path: St
 			return {"ok": false, "error": "Unsupported override_type: %s" % override_type}
 
 
+# Color from JSON input, or null when it is not a valid color (callers turn null into an error).
+# Reuses the shared parser: Color("notacolor") silently returned black.
 func _coerce_color(value):
-	match typeof(value):
-		TYPE_NIL:
-			return null
-		TYPE_COLOR:
-			return value
-		TYPE_DICTIONARY:
-			var dict: Dictionary = value
-			return Color(dict.get("r", 0.0), dict.get("g", 0.0), dict.get("b", 0.0), dict.get("a", 1.0))
-		TYPE_STRING:
-			var str_value: String = value
-			if str_value.is_empty():
-				return null
-			return Color(str_value)
-		TYPE_ARRAY:
-			var arr: Array = value
-			if arr.size() >= 3:
-				var r := float(arr[0])
-				var g := float(arr[1])
-				var b := float(arr[2])
-				var a := (float(arr[3]) if arr.size() > 3 else 1.0)
-				return Color(r, g, b, a)
-		_:
-			return null
+	if value == null or (typeof(value) == TYPE_STRING and value.is_empty()):
+		return null
+	var color = _coerce_to_color(value)
+	return color if color is Color else null
 
 
 func _load_theme_resource(resource_path: String, fallback, expected_class: String) -> Resource:

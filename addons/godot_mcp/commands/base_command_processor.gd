@@ -197,23 +197,39 @@ func _convert_property_value(target: Object, property_name: String, value):
 
 	var property_type: int = property_info.get("type", TYPE_NIL)
 	var property_class_name: String = property_info.get("class_name", "")
-	return _coerce_value_to_type(value, property_type, property_class_name)
+	return _coerce_value_to_type(_with_missing_components(target.get(property_name), value), property_type, property_class_name)
 
 
 func _coerce_value_to_type(value, value_type: int, property_class_name: String = ""):
 	match value_type:
 		TYPE_NIL:
 			return value
+		# Values that cannot be converted are returned unchanged so _property_value_error can
+		# refuse them; set() would otherwise store a silent default (false, 0, black).
 		TYPE_BOOL:
-			return bool(value)
+			if typeof(value) == TYPE_BOOL:
+				return value
+			if typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT:
+				return value != 0
+			if typeof(value) == TYPE_STRING:
+				var lowered: String = value.strip_edges().to_lower()
+				if lowered in ["true", "1", "yes", "on"]:
+					return true
+				if lowered in ["false", "0", "no", "off"]:
+					return false
+			return value
 		TYPE_INT:
 			if typeof(value) == TYPE_STRING:
-				return value.to_int()
-			return int(value)
+				return value.to_int() if value.strip_edges().is_valid_int() else value
+			if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_BOOL:
+				return int(value)
+			return value
 		TYPE_FLOAT:
 			if typeof(value) == TYPE_STRING:
-				return value.to_float()
-			return float(value)
+				return value.to_float() if value.strip_edges().is_valid_float() else value
+			if typeof(value) == TYPE_INT or typeof(value) == TYPE_BOOL:
+				return float(value)
+			return value
 		TYPE_STRING:
 			return str(value)
 		TYPE_VECTOR2:
@@ -250,17 +266,20 @@ func _coerce_value_to_type(value, value_type: int, property_class_name: String =
 func _coerce_to_vector2(value):
 	if value is Vector2:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and value.has("x"):
 		return Vector2(value.get("x", 0.0), value.get("y", 0.0))
 	if value is Array and value.size() >= 2:
 		return Vector2(value[0], value[1])
+	var numbers := _numbers_from_text(value, 2)
+	if not numbers.is_empty():
+		return Vector2(numbers[0], numbers[1])
 	return _parse_property_value(value)
 
 
 func _coerce_to_vector2i(value):
 	if value is Vector2i:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and value.has("x"):
 		return Vector2i(value.get("x", 0), value.get("y", 0))
 	if value is Array and value.size() >= 2:
 		return Vector2i(value[0], value[1])
@@ -270,17 +289,20 @@ func _coerce_to_vector2i(value):
 func _coerce_to_vector3(value):
 	if value is Vector3:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and value.has("x"):
 		return Vector3(value.get("x", 0.0), value.get("y", 0.0), value.get("z", 0.0))
 	if value is Array and value.size() >= 3:
 		return Vector3(value[0], value[1], value[2])
+	var numbers := _numbers_from_text(value, 3)
+	if not numbers.is_empty():
+		return Vector3(numbers[0], numbers[1], numbers[2])
 	return _parse_property_value(value)
 
 
 func _coerce_to_vector3i(value):
 	if value is Vector3i:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and value.has("x"):
 		return Vector3i(value.get("x", 0), value.get("y", 0), value.get("z", 0))
 	if value is Array and value.size() >= 3:
 		return Vector3i(value[0], value[1], value[2])
@@ -290,19 +312,22 @@ func _coerce_to_vector3i(value):
 func _coerce_to_vector4(value):
 	if value is Vector4:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and value.has("x"):
 		return Vector4(
 			value.get("x", 0.0), value.get("y", 0.0), value.get("z", 0.0), value.get("w", 0.0)
 		)
 	if value is Array and value.size() >= 4:
 		return Vector4(value[0], value[1], value[2], value[3])
+	var numbers := _numbers_from_text(value, 4)
+	if not numbers.is_empty():
+		return Vector4(numbers[0], numbers[1], numbers[2], numbers[3])
 	return _parse_property_value(value)
 
 
 func _coerce_to_vector4i(value):
 	if value is Vector4i:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and value.has("x"):
 		return Vector4i(value.get("x", 0), value.get("y", 0), value.get("z", 0), value.get("w", 0))
 	if value is Array and value.size() >= 4:
 		return Vector4i(value[0], value[1], value[2], value[3])
@@ -312,14 +337,83 @@ func _coerce_to_vector4i(value):
 func _coerce_to_color(value):
 	if value is Color:
 		return value
-	if value is Dictionary:
+	if value is Dictionary and (value.has("r") or value.has("g") or value.has("b")):
 		return Color(
 			value.get("r", 0.0), value.get("g", 0.0), value.get("b", 0.0), value.get("a", 1.0)
 		)
 	if value is Array and value.size() >= 3:
 		var alpha: float = float(value[3]) if value.size() >= 4 else 1.0
 		return Color(value[0], value[1], value[2], alpha)
-	return Color(value) if typeof(value) == TYPE_STRING else _parse_property_value(value)
+	if typeof(value) == TYPE_STRING:
+		var text: String = value.strip_edges()
+		if text.begins_with("Color"):
+			return _parse_property_value(text)
+		if Color.html_is_valid(text):
+			return Color.html(text)
+		# Named colors ("blue"): from_string returns the fallback when it cannot parse, so two
+		# different fallbacks agree only for a real color.
+		var parsed_a := Color.from_string(text, Color(0, 0, 0, 0))
+		var parsed_b := Color.from_string(text, Color(1, 1, 1, 1))
+		if parsed_a == parsed_b:
+			return parsed_a
+		return value
+	return _parse_property_value(value)
+
+
+# "(4, 5, 6)" or "4,5,6" -> [4.0, 5.0, 6.0] when it holds exactly `count` numbers, else [].
+func _numbers_from_text(value, count: int) -> Array:
+	if typeof(value) != TYPE_STRING:
+		return []
+	var parts: PackedStringArray = value.strip_edges().trim_prefix("(").trim_suffix(")").split(",")
+	if parts.size() != count:
+		return []
+	var numbers: Array = []
+	for part in parts:
+		if not part.strip_edges().is_valid_float():
+			return []
+		numbers.append(part.strip_edges().to_float())
+	return numbers
+
+
+# Why `value` cannot be stored in `property_name`, or "" when it can. set() silently falls back
+# to a default (0, false, black) on a type mismatch and ignores out-of-range values the inspector
+# would refuse, so tools that only called set() reported success for changes that never happened.
+func _property_value_error(target: Object, property_name: String, value) -> String:
+	var info := _get_property_info(target, property_name)
+	if info.is_empty():
+		return ""
+	var expected: int = info.get("type", TYPE_NIL)
+	var actual := typeof(value)
+	if expected == TYPE_NIL:
+		return ""
+	if expected == TYPE_OBJECT:
+		if value == null or value is Object:
+			return ""
+		return "Property %s expects a %s (for a resource, a res:// path to an existing file), got %s" % [
+			property_name, str(info.get("class_name", "Object")), JSON.stringify(value)]
+	var numeric := [TYPE_INT, TYPE_FLOAT]
+	var listish := [TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY,
+		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY,
+		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY, TYPE_PACKED_COLOR_ARRAY]
+	var stringish := [TYPE_STRING, TYPE_STRING_NAME, TYPE_NODE_PATH]
+	var compatible: bool = (
+		actual == expected
+		or (expected in numeric and actual in numeric)
+		or (expected in listish and actual in listish)
+		or (expected in stringish and actual in stringish)
+	)
+	if not compatible:
+		return "Property %s expects %s, got %s" % [property_name, type_string(expected), JSON.stringify(value)]
+	if expected in numeric and int(info.get("hint", 0)) == PROPERTY_HINT_RANGE:
+		var parts: PackedStringArray = str(info.get("hint_string", "")).split(",")
+		if parts.size() >= 2 and parts[0].strip_edges().is_valid_float() and parts[1].strip_edges().is_valid_float():
+			var low := parts[0].to_float()
+			var high := parts[1].to_float()
+			if value < low and not parts.has("or_less"):
+				return "Property %s must be >= %s, got %s" % [property_name, str(low), str(value)]
+			if value > high and not parts.has("or_greater"):
+				return "Property %s must be <= %s, got %s" % [property_name, str(high), str(value)]
+	return ""
 
 
 func _coerce_to_rect2(value):
@@ -343,45 +437,38 @@ func _coerce_to_rect2i(value):
 
 
 func _coerce_value_to_match(existing_value, new_value):
-	var existing_type := typeof(existing_value)
-	if existing_type == TYPE_NIL:
+	if typeof(existing_value) == TYPE_NIL:
 		return new_value
-	match existing_type:
-		TYPE_BOOL:
-			return bool(new_value)
-		TYPE_INT:
-			if typeof(new_value) == TYPE_STRING:
-				return new_value.to_int()
-			return int(new_value)
-		TYPE_FLOAT:
-			if typeof(new_value) == TYPE_STRING:
-				return new_value.to_float()
-			return float(new_value)
-		TYPE_STRING:
-			return str(new_value)
-		TYPE_VECTOR2:
-			return _coerce_to_vector2(new_value)
-		TYPE_VECTOR2I:
-			return _coerce_to_vector2i(new_value)
-		TYPE_VECTOR3:
-			return _coerce_to_vector3(new_value)
-		TYPE_VECTOR3I:
-			return _coerce_to_vector3i(new_value)
-		TYPE_VECTOR4:
-			return _coerce_to_vector4(new_value)
-		TYPE_VECTOR4I:
-			return _coerce_to_vector4i(new_value)
+	return _coerce_value_to_type(_with_missing_components(existing_value, new_value), typeof(existing_value))
+
+
+# {"x": 2, "y": 2} for a Vector3 keeps the current z instead of zeroing it (same for colors).
+func _with_missing_components(existing_value, new_value):
+	if not (new_value is Dictionary):
+		return new_value
+	var keys: Array = []
+	match typeof(existing_value):
+		TYPE_VECTOR2, TYPE_VECTOR2I:
+			keys = ["x", "y"]
+		TYPE_VECTOR3, TYPE_VECTOR3I:
+			keys = ["x", "y", "z"]
+		TYPE_VECTOR4, TYPE_VECTOR4I:
+			keys = ["x", "y", "z", "w"]
 		TYPE_COLOR:
-			return _coerce_to_color(new_value)
-		TYPE_DICTIONARY, TYPE_ARRAY:
-			return new_value
-		TYPE_OBJECT:
-			if typeof(new_value) == TYPE_STRING and new_value.begins_with("res://"):
-				var resource = ResourceLoader.load(new_value)
-				return resource if resource != null else new_value
-			return new_value
+			keys = ["r", "g", "b", "a"]
 		_:
 			return new_value
+	var named := false
+	for key in keys:
+		if new_value.has(key):
+			named = true
+	if not named:
+		return new_value  # wrong keys (e.g. x/y/z for a color): leave it for the type check to refuse
+	var filled: Dictionary = new_value.duplicate()
+	for key in keys:
+		if not filled.has(key):
+			filled[key] = existing_value[key]
+	return filled
 
 
 func _apply_nested_property_value(base_value, path: Array, new_value):
