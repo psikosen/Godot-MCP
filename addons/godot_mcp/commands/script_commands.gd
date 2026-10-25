@@ -35,8 +35,11 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	if script_path.is_empty():
 		return _send_error(client_id, "Script path cannot be empty", command_id)
 	
-	if not script_path.ends_with(".gd"):
+	# Bare names get .gd; an explicit other extension is refused rather than becoming "x.txt.gd".
+	if script_path.get_extension().is_empty():
 		script_path += ".gd"
+	elif script_path.get_extension() != "gd":
+		return _send_error(client_id, "create_script only creates .gd files: %s" % script_path, command_id)
 	
 	var requested_path: String = script_path
 	script_path = _contained_res_path(script_path)
@@ -53,6 +56,13 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	
 	var editor_interface = plugin.get_editor_interface()
 	var script_editor = editor_interface.get_script_editor()
+	
+	# Resolve the target node before writing anything so a bad node_path leaves no stray file.
+	var node: Node = null
+	if not node_path.is_empty():
+		node = _get_editor_node(node_path)
+		if not node:
+			return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 	
 	# Create the directory if it doesn't exist
 	var dir = script_path.get_base_dir()
@@ -73,11 +83,7 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	editor_interface.get_resource_filesystem().scan()
 	
 	# Attach the script to a node if specified
-	if not node_path.is_empty():
-		var node = _get_editor_node(node_path)
-		if not node:
-			return _send_error(client_id, "Node not found: %s" % node_path, command_id)
-		
+	if node:
 		# Wait for script to be recognized in the filesystem
 		await get_tree().create_timer(0.5).timeout
 		
@@ -155,6 +161,9 @@ func _get_script(client_id: int, params: Dictionary, command_id: String) -> void
 	# Validation - either script_path or node_path must be provided
 	if script_path.is_empty() and node_path.is_empty():
 		return _send_error(client_id, "Either script_path or node_path must be provided", command_id)
+	
+	if not script_path.is_empty() and not node_path.is_empty():
+		return _send_error(client_id, "Provide either script_path or node_path, not both", command_id)
 	
 	# If node_path is provided, get the script from the node
 	if not node_path.is_empty():

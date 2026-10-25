@@ -41,6 +41,7 @@ var ENTRY_LIMIT = 5000;
 // Fields must be listed: FastMCP 4 publishes objects with named fields as additionalProperties:false,
 // so passthrough-only fields would be invisible to clients. Mirrors _deserialize_input_event in
 // addons/godot_mcp/commands/project_commands.gd.
+var vec2Schema = z.object({ x: z.number(), y: z.number() });
 var inputEventSchema = z.object({
     type: z.string()
         .describe('Input event type: key, mouse_button, joypad_button, joypad_motion, mouse_motion (or the InputEvent* class name).'),
@@ -58,6 +59,10 @@ var inputEventSchema = z.object({
     pressure: z.number().optional().describe('joypad_button: pressure.'),
     axis: z.number().int().optional().describe('joypad_motion: axis index.'),
     axis_value: z.number().optional().describe('joypad_motion: axis value (-1 to 1).'),
+    position: vec2Schema.optional().describe('mouse_button/mouse_motion: position as {x, y}.'),
+    global_position: vec2Schema.optional().describe('mouse_button/mouse_motion: global position as {x, y}.'),
+    relative: vec2Schema.optional().describe('mouse_motion: relative motion as {x, y}.'),
+    velocity: vec2Schema.optional().describe('mouse_motion: velocity as {x, y}.'),
 }).passthrough();
 export var projectTools = [
     {

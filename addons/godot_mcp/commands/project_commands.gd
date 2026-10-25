@@ -532,21 +532,30 @@ func _add_input_action(client_id: int, params: Dictionary, command_id: String) -
 	if action_name.is_empty():
 		return _send_error(client_id, "Action name cannot be empty", command_id)
 
-	if InputMap.has_action(action_name):
-		if not overwrite_existing:
-			return _send_error(client_id, "Input action %s already exists" % action_name, command_id)
-		InputMap.erase_action(action_name)
+	if typeof(events_param) != TYPE_ARRAY:
+		return _send_error(client_id, "events must be an array", command_id)
 
+	if InputMap.has_action(action_name) and not overwrite_existing:
+		return _send_error(client_id, "Input action %s already exists" % action_name, command_id)
+
+	# Validate every event before touching InputMap so a bad one cannot leave a half-built action.
+	var parsed_events := []
+	for event_data in events_param:
+		if typeof(event_data) != TYPE_DICTIONARY:
+			return _send_error(client_id, "Each event definition must be a dictionary", command_id)
+		var event = _deserialize_input_event(event_data)
+		if not event:
+			return _send_error(client_id, "Unsupported input event definition: %s" % str(event_data.get("type", "")), command_id)
+		parsed_events.append(event)
+
+	if InputMap.has_action(action_name):
+		InputMap.erase_action(action_name)
 	InputMap.add_action(action_name, deadzone)
 
 	var added_events := []
-	for event_data in events_param:
-		if typeof(event_data) != TYPE_DICTIONARY:
-			continue
-		var event = _deserialize_input_event(event_data)
-		if event:
-			InputMap.action_add_event(action_name, event)
-			added_events.append(_serialize_input_event(event))
+	for event in parsed_events:
+		InputMap.action_add_event(action_name, event)
+		added_events.append(_serialize_input_event(event))
 
 	if persistent:
 		_persist_input_action(action_name)
@@ -646,7 +655,10 @@ func _remove_input_event_from_action(client_id: int, params: Dictionary, command
 
 	var removed_event: InputEvent = null
 
-	if event_index >= 0 and event_index < events.size():
+	if event_index >= events.size():
+		return _send_error(client_id, "event_index %d out of range: action %s has %d event(s)" % [event_index, action_name, events.size()], command_id)
+
+	if event_index >= 0:
 		removed_event = events[event_index]
 	elif typeof(event_data) == TYPE_DICTIONARY:
 		for existing_event in events:
@@ -658,6 +670,14 @@ func _remove_input_event_from_action(client_id: int, params: Dictionary, command
 		return _send_error(client_id, "No matching input event found for action %s" % action_name, command_id)
 
 	InputMap.action_erase_event(action_name, removed_event)
+	if InputMap.action_get_events(action_name).has(removed_event):
+		# action_erase_event can miss some event types (e.g. mouse motion); rebuild the list instead.
+		var keep := InputMap.action_get_events(action_name).filter(func(e): return e != removed_event)
+		InputMap.action_erase_events(action_name)
+		for kept_event in keep:
+			InputMap.action_add_event(action_name, kept_event)
+		if InputMap.action_get_events(action_name).has(removed_event):
+			return _send_error(client_id, "Failed to remove input event from action %s" % action_name, command_id)
 
 	if persistent:
 		_persist_input_action(action_name)
@@ -705,6 +725,9 @@ func _scan_resources(dir: DirAccess, path: String, resources: Dictionary) -> voi
 	
 	dir.list_dir_end()
 
+func _vec2_dict(v: Vector2) -> Dictionary:
+	return {"x": v.x, "y": v.y}
+
 func _serialize_input_event(event: InputEvent) -> Dictionary:
 	var data := {
 		"type": event.get_class(),
@@ -724,8 +747,8 @@ func _serialize_input_event(event: InputEvent) -> Dictionary:
 		data["button_index"] = event.button_index
 		data["pressed"] = event.pressed
 		data["double_click"] = event.double_click
-		data["position"] = event.position
-		data["global_position"] = event.global_position
+		data["position"] = _vec2_dict(event.position)
+		data["global_position"] = _vec2_dict(event.global_position)
 		data["alt_pressed"] = event.alt_pressed
 		data["ctrl_pressed"] = event.ctrl_pressed
 		data["shift_pressed"] = event.shift_pressed
@@ -738,8 +761,10 @@ func _serialize_input_event(event: InputEvent) -> Dictionary:
 		data["axis"] = event.axis
 		data["axis_value"] = event.axis_value
 	elif event is InputEventMouseMotion:
-		data["relative"] = event.relative
-		data["velocity"] = event.velocity
+		data["position"] = _vec2_dict(event.position)
+		data["global_position"] = _vec2_dict(event.global_position)
+		data["relative"] = _vec2_dict(event.relative)
+		data["velocity"] = _vec2_dict(event.velocity)
 		data["pressed_buttons"] = event.button_mask
 
 	return data
@@ -805,6 +830,8 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 		"inputeventmousemotion", "mouse_motion":
 			var mouse_motion := InputEventMouseMotion.new()
 			mouse_motion.device = data.get("device", -1)
+			mouse_motion.position = _coerce_to_vector2(data.get("position", Vector2.ZERO))
+			mouse_motion.global_position = _coerce_to_vector2(data.get("global_position", Vector2.ZERO))
 			mouse_motion.relative = _coerce_to_vector2(data.get("relative", Vector2.ZERO))
 			mouse_motion.velocity = _coerce_to_vector2(data.get("velocity", Vector2.ZERO))
 			return mouse_motion
@@ -812,16 +839,18 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 	_log("Unsupported input event type", "_deserialize_input_event", {"type": type_name}, true)
 	return null
 
+func _normalize_event_type(type_name: String) -> String:
+	return type_name.strip_edges().to_lower().trim_prefix("inputevent").replace("_", "")
+
 func _event_matches(event: InputEvent, criteria: Dictionary) -> bool:
 	var serialized := _serialize_input_event(event)
 	for key in criteria.keys():
+		if key == "type":
+			# Serialized type is the class name; accept aliases like "key" / "mouse_button".
+			if _normalize_event_type(str(serialized["type"])) != _normalize_event_type(str(criteria[key])):
+				return false
+			continue
 		if not serialized.has(key):
-			if key == "type":
-				var event_type := str(serialized.get("type", "")).to_lower()
-				var criteria_type := str(criteria[key]).to_lower()
-				if event_type != criteria_type and not event_type.ends_with(criteria_type):
-					return false
-				continue
 			return false
 
 		if serialized[key] != criteria[key]:
@@ -856,6 +885,20 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 	var events_added: Array = []
 	var events_removed: Array = []
 	var processed_actions: Dictionary = {}
+
+	# Validate everything first so a bad entry cannot leave InputMap half-modified.
+	for action_entry in actions_param:
+		if typeof(action_entry) != TYPE_DICTIONARY:
+			return _send_error(client_id, "Each action definition must be a dictionary", command_id)
+		if str(action_entry.get("name", "")).is_empty():
+			return _send_error(client_id, "Action definitions require a name", command_id)
+		var check_events = action_entry.get("events", [])
+		if typeof(check_events) == TYPE_ARRAY and not action_entry.get("remove", false):
+			for check_event in check_events:
+				if typeof(check_event) != TYPE_DICTIONARY:
+					return _send_error(client_id, "Event definitions must be dictionaries", command_id)
+				if not _deserialize_input_event(check_event):
+					return _send_error(client_id, "Unsupported input event definition", command_id)
 
 	for action_entry in actions_param:
 		if typeof(action_entry) != TYPE_DICTIONARY:
@@ -999,6 +1042,10 @@ func _coerce_project_setting_value(previous_value, new_value, params: Dictionary
 		var parsed_value = _parse_property_value(new_value)
 		if typeof(parsed_value) == expected_type:
 			return parsed_value
+		if expected_type == TYPE_INT and new_value.is_valid_int():
+			return new_value.to_int()
+		if expected_type == TYPE_FLOAT and new_value.is_valid_float():
+			return new_value.to_float()
 		if expected_type == TYPE_BOOL:
 			var lowered = new_value.to_lower()
 			if lowered in ["true", "1", "yes", "on"]:

@@ -61,7 +61,7 @@ export var editorTools = [
                         if (result.output && Array.isArray(result.output) && result.output.length > 0) {
                             outputText += '\n\nOutput:\n' + result.output.join('\n');
                         }
-                        if (result.result) {
+                        if (result.result !== undefined && result.result !== null) {
                             outputText += '\n\nResult:\n' + JSON.stringify(result.result, null, 2);
                         }
                         return [2 /*return*/, outputText];
@@ -181,8 +181,29 @@ export var editorTools = [
         },
     },
     {
+        name: 'list_editor_plugins',
+        description: 'List Godot editor plugins in the current project and whether each is enabled (read-only).',
+        parameters: z.object({}),
+        execute: function () { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, result;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        return [4 /*yield*/, godot.sendCommand('manage_editor_plugins', { action: 'list' })];
+                    case 1:
+                        result = _a.sent();
+                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
         name: 'manage_editor_plugins',
-        description: 'List, enable, or disable Godot editor plugins within the current project.',
+        description: 'Enable or disable Godot editor plugins within the current project (admin). Use list_editor_plugins to only list.',
         parameters: z
             .object({
             action: z

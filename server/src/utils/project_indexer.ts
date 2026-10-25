@@ -116,7 +116,7 @@ export class ProjectIndexer {
     const includeDirectories = options.includeDirectories ?? true;
     const limit = Math.min(options.limit ?? 200, ENTRY_LIMIT);
 
-    const normalizedPatterns = patterns.map(pattern => this.normalizePath(pattern));
+    const normalizedPatterns = patterns.map(pattern => this.normalizePath(pattern.replace(/^res:\/\//, '')));
     const regexes = normalizedPatterns.map(pattern => this.globToRegExp(pattern));
 
     const results: ProjectIndexEntry[] = [];

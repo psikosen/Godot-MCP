@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ProjectIndexer } from '../src/utils/project_indexer.js';
 
@@ -13,5 +16,17 @@ describe('ProjectIndexer glob matching', () => {
     expect(toRegExp('addons/**').test('addons/godot_mcp/plugin.cfg')).toBe(true);
     expect(toRegExp('level?.tscn').test('level1.tscn')).toBe(true);
     expect(toRegExp('a+b.gd').test('a+b.gd')).toBe(true);
+  });
+});
+
+describe('ProjectIndexer query', () => {
+  it('treats a leading res:// in patterns as the project root', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'idx-'));
+    writeFileSync(path.join(dir, 'player.gd'), 'extends Node');
+    const indexer = new ProjectIndexer(dir);
+    const plain = await indexer.query(['*.gd']);
+    const res = await indexer.query(['res://*.gd']);
+    expect(plain.length).toBeGreaterThan(0);
+    expect(res.map(e => e.path)).toEqual(plain.map(e => e.path));
   });
 });

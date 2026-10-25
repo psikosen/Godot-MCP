@@ -213,8 +213,14 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Editor base control unavailable", command_id)
 
 	var theme: Theme = base_control.get_theme()
+	var theme_source := "editor"
 	if theme == null:
 		theme = ThemeDB.get_project_theme()
+		theme_source = "project"
+	if theme == null:
+		# Headless runs have no editor theme; fall back to the engine default so the call still answers.
+		theme = ThemeDB.get_default_theme()
+		theme_source = "default"
 
 	if theme == null:
 		_log("Unable to resolve an active UI Theme", function_name, {
@@ -257,6 +263,7 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 
 	var summary := {
 		"theme_name": theme.resource_name,
+		"theme_source": theme_source,
 		"resource_path": theme.resource_path,
 		"default_font": _serialize_resource(theme.get_default_font()),
 		"default_font_size": theme.get_default_font_size(),

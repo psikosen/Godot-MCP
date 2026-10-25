@@ -146,7 +146,7 @@ var ProjectIndexer = /** @class */ (function () {
                         snapshot = _e.sent();
                         includeDirectories = (_c = options.includeDirectories) !== null && _c !== void 0 ? _c : true;
                         limit = Math.min((_d = options.limit) !== null && _d !== void 0 ? _d : 200, ENTRY_LIMIT);
-                        normalizedPatterns = patterns.map(function (pattern) { return _this.normalizePath(pattern); });
+                        normalizedPatterns = patterns.map(function (pattern) { return _this.normalizePath(pattern.replace(/^res:\/\//, '')); });
                         regexes = normalizedPatterns.map(function (pattern) { return _this.globToRegExp(pattern); });
                         results = [];
                         _loop_1 = function (entryPath, entry) {

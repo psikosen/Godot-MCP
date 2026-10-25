@@ -275,21 +275,21 @@ var PatchManager = /** @class */ (function () {
     PatchManager.prototype.prepareFilePlan = function (patch) {
         return __awaiter(this, void 0, void 0, function () {
             var targetPath, relativePath, exists, originalContent, patched, mode;
-            var _a, _b;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
+            var _a, _b, _c;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
                     case 0:
                         targetPath = this.resolvePatchPath((_a = patch.newFileName) !== null && _a !== void 0 ? _a : patch.oldFileName);
                         relativePath = path.relative(this.projectRoot, targetPath);
                         if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-                            throw new Error("Patch targets path outside project root: ".concat((_b = patch.newFileName) !== null && _b !== void 0 ? _b : patch.oldFileName));
+                            throw new Error("Patch targets path outside project root: ".concat(((_c = (_b = patch.newFileName) !== null && _b !== void 0 ? _b : patch.oldFileName) !== null && _c !== void 0 ? _c : '').replace(/^[ab]\//, '')));
                         }
                         return [4 /*yield*/, this.fileExists(targetPath)];
                     case 1:
-                        exists = _c.sent();
+                        exists = _d.sent();
                         return [4 /*yield*/, this.readOriginalContent(patch, targetPath, exists)];
                     case 2:
-                        originalContent = _c.sent();
+                        originalContent = _d.sent();
                         if (patch.hunks.length === 0) {
                             throw new Error("Patch for ".concat(relativePath, " did not contain any hunks."));
                         }
@@ -300,7 +300,7 @@ var PatchManager = /** @class */ (function () {
                         mode = this.determineMode(patch, exists);
                         return [4 /*yield*/, permissionManager.assertWriteAllowed(relativePath, mode)];
                     case 3:
-                        _c.sent();
+                        _d.sent();
                         return [2 /*return*/, {
                                 absolutePath: targetPath,
                                 relativePath: relativePath,

@@ -27,7 +27,7 @@ export const editorTools: MCPTool[] = [
           outputText += '\n\nOutput:\n' + result.output.join('\n');
         }
         
-        if (result.result) {
+        if (result.result !== undefined && result.result !== null) {
           outputText += '\n\nResult:\n' + JSON.stringify(result.result, null, 2);
         }
         
@@ -145,8 +145,21 @@ export const editorTools: MCPTool[] = [
     },
   },
   {
+    name: 'list_editor_plugins',
+    description: 'List Godot editor plugins in the current project and whether each is enabled (read-only).',
+    parameters: z.object({}),
+    execute: async (): Promise<string> => {
+      const godot = getGodotConnection();
+      const result = await godot.sendCommand<CommandResult>('manage_editor_plugins', { action: 'list' });
+      return JSON.stringify(result, null, 2);
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+  {
     name: 'manage_editor_plugins',
-    description: 'List, enable, or disable Godot editor plugins within the current project.',
+    description: 'Enable or disable Godot editor plugins within the current project (admin). Use list_editor_plugins to only list.',
     parameters: z
       .object({
         action: z

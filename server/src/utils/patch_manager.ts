@@ -192,7 +192,7 @@ export class PatchManager {
     const relativePath = path.relative(this.projectRoot, targetPath);
 
     if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-      throw new Error(`Patch targets path outside project root: ${patch.newFileName ?? patch.oldFileName}`);
+      throw new Error(`Patch targets path outside project root: ${(patch.newFileName ?? patch.oldFileName ?? '').replace(/^[ab]\//, '')}`);
     }
 
     const exists = await this.fileExists(targetPath);
