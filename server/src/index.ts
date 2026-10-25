@@ -68,6 +68,9 @@ async function main() {
       'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve.',
   });
 
+  // Resources whose content follows the live editor scene (notified after edit/admin tools).
+  const SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
+
   // Register all tools
   const registerTool = <T>(tool: MCPTool<T>) => {
     server.addTool({
@@ -80,7 +83,14 @@ async function main() {
       parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
       async execute(args: T): Promise<string> {
         await commandGuard.assertAllowed(tool, args);
-        return tool.execute(args);
+        const output = await tool.execute(args);
+        // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
+        if ((tool.metadata?.requiredRole ?? 'read') !== 'read') {
+          for (const uri of SCENE_STATE_RESOURCE_URIS) {
+            server.sendResourceUpdated(uri).catch(() => undefined);
+          }
+        }
+        return output;
       },
     });
   };

@@ -125,11 +125,17 @@ func _bake_navigation_region(client_id: int, params: Dictionary, command_id: Str
 			"node_path": _path_to_string(node),
 			"on_thread": on_thread,
 		})
+		# A finished (non-threaded) bake that produced nothing usually means no source geometry.
+		var bake_note := ""
+		if not on_thread and node.navigation_polygon.get_polygon_count() == 0:
+			bake_note = "Bake produced 0 polygons: no source geometry was found (add collision shapes or meshes as children, or set the source geometry mode/group)."
 		_send_success(client_id, {
 			"node_path": _path_to_string(node),
 			"dimension": "2d",
-			"status": "bake_started",
+			"status": "bake_started" if on_thread else ("baked_empty" if bake_note != "" else "baked"),
 			"on_thread": on_thread,
+			"polygon_count": -1 if on_thread else node.navigation_polygon.get_polygon_count(),
+			"note": bake_note,
 		}, command_id)
 	elif node is NavigationRegion3D:
 		if node.navigation_mesh == null:
@@ -139,11 +145,17 @@ func _bake_navigation_region(client_id: int, params: Dictionary, command_id: Str
 			"node_path": _path_to_string(node),
 			"on_thread": on_thread,
 		})
+		# A finished (non-threaded) bake that produced nothing usually means no source geometry.
+		var bake_note := ""
+		if not on_thread and node.navigation_mesh.get_polygon_count() == 0:
+			bake_note = "Bake produced 0 polygons: no source geometry was found (add collision shapes or meshes as children, or set the source geometry mode/group)."
 		_send_success(client_id, {
 			"node_path": _path_to_string(node),
 			"dimension": "3d",
-			"status": "bake_started",
+			"status": "bake_started" if on_thread else ("baked_empty" if bake_note != "" else "baked"),
 			"on_thread": on_thread,
+			"polygon_count": -1 if on_thread else node.navigation_mesh.get_polygon_count(),
+			"note": bake_note,
 		}, command_id)
 	else:
 		_send_error(client_id, "Node at path is not a NavigationRegion2D or NavigationRegion3D", command_id)
@@ -331,6 +343,11 @@ func _update_navigation_resource(client_id: int, params: Dictionary, command_id:
 		if not transaction.commit():
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit navigation resource update", command_id)
+		# An external .tres is not written by save_scene (the scene only references it): save it here,
+		# or "committed" edits vanished on reload.
+		if resource.resource_path.begins_with("res://") and not "::" in resource.resource_path:
+			if not ResourceUtils.safe_save(resource, resource.resource_path):
+				return _send_error(client_id, "Updated, but failed to save %s" % resource.resource_path, command_id)
 
 		_send_success(client_id, {
 			"node_path": _path_to_string(node),

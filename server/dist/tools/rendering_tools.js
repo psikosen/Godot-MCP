@@ -165,7 +165,7 @@ var environmentCommonSchema = z.object({
         .describe('Fog overrides: color, energy, density, height, height_density, sun_color, sun_amount, sun_scatter.'),
     sun: dictionarySchema
         .optional()
-        .describe('Sun overrides: color -> fog_light_color, amount -> fog_light_energy, scatter -> fog_sun_scatter.'),
+        .describe('Sun overrides: color -> fog_light_color, amount -> fog_light_energy, scatter -> fog_sun_scatter. Godot has one fog light color: sun.color and fog.color set the same property.'),
     sky: dictionarySchema
         .optional()
         .describe('Sky overrides including { path, custom_fov, rotation, energy }.'),

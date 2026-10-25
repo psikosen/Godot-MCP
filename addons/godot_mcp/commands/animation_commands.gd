@@ -600,24 +600,19 @@ func _bake_skeleton_pose(client_id: int, params: Dictionary, command_id: String)
 			if str(track_path) == "":
 				continue
 
-			# In Godot 4, use TYPE_POSITION_3D for 3D skeletons, TYPE_VALUE for 2D
-			var track_type = Animation.TYPE_POSITION_3D if skeleton is Skeleton3D else Animation.TYPE_VALUE
-			var track_index := working_copy.find_track(track_path, Animation.TYPE_VALUE)
-			if track_index == -1:
-				track_index = working_copy.add_track(track_type)
-				working_copy.track_set_path(track_index, track_path)
-				created_tracks.append({"track_index": track_index, "track_path": str(track_path)})
+			# A 3D bone pose is a Transform3D, but bone animation uses separate position/rotation/scale
+			# tracks; inserting the Transform3D into a position track stored nothing.
+			if skeleton is Skeleton3D and pose_value is Transform3D:
+				var pose: Transform3D = pose_value
+				var position_track := _ensure_bake_track(working_copy, track_path, Animation.TYPE_POSITION_3D, overwrite, created_tracks)
+				working_copy.position_track_insert_key(position_track, pose_time, pose.origin)
+				var rotation_track := _ensure_bake_track(working_copy, track_path, Animation.TYPE_ROTATION_3D, overwrite, created_tracks)
+				working_copy.rotation_track_insert_key(rotation_track, pose_time, pose.basis.get_rotation_quaternion())
+				var scale_track := _ensure_bake_track(working_copy, track_path, Animation.TYPE_SCALE_3D, overwrite, created_tracks)
+				working_copy.scale_track_insert_key(scale_track, pose_time, pose.basis.get_scale())
 			else:
-				if working_copy.track_get_type(track_index) != track_type:
-					working_copy.remove_track(track_index)
-					track_index = working_copy.add_track(track_type)
-					working_copy.track_set_path(track_index, track_path)
-				if overwrite:
-					var key_total := working_copy.track_get_key_count(track_index)
-					for key_index in range(key_total - 1, -1, -1):
-						working_copy.track_remove_key(track_index, key_index)
-
-			working_copy.track_insert_key(track_index, pose_time, pose_value, 0.0)
+				var value_track := _ensure_bake_track(working_copy, track_path, Animation.TYPE_VALUE, overwrite, created_tracks)
+				working_copy.track_insert_key(value_track, pose_time, pose_value, 1.0)
 
 	var metadata := {
 		"command": "bake_skeleton_pose",
@@ -764,7 +759,8 @@ func _generate_tween_sequence(client_id: int, params: Dictionary, command_id: St
 		if target_path.is_empty():
 			target_node = player
 		else:
-			target_node = _get_editor_node(target_path)
+			# Absolute /root/... paths, or paths relative to the animation root (like track paths).
+			target_node = _get_editor_node(target_path) if target_path.begins_with("/") else _animation_root(player).get_node_or_null(NodePath(target_path))
 			if target_node == null:
 				return _send_error(client_id, "Tween target node not found: %s" % target_path, command_id)
 
@@ -1179,9 +1175,13 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 					return {"error": "set_key: key_index %d out of range (track has %d keys)" % [key_index, animation.track_get_key_count(set_index)]}
 				var key_result := {}
 				if entry.has("value"):
-					var parsed_value = _parse_property_value(entry.get("value"))
 					var previous_value = animation.track_get_key_value(set_index, key_index)
-					if previous_value != parsed_value:
+					# Match the key's type ({x,y,z} for a Vector3 key); comparing mismatched types errored.
+					var parsed_value = _coerce_value_to_match(previous_value, _parse_property_value(entry.get("value")))
+					if typeof(previous_value) != TYPE_NIL and typeof(parsed_value) != typeof(previous_value) \
+							and not (typeof(previous_value) in [TYPE_INT, TYPE_FLOAT] and typeof(parsed_value) in [TYPE_INT, TYPE_FLOAT]):
+						return {"error": "set_key: value type %s does not match the key (%s)" % [type_string(typeof(parsed_value)), type_string(typeof(previous_value))]}
+					if typeof(previous_value) != typeof(parsed_value) or previous_value != parsed_value:
 						animation.track_set_key_value(set_index, key_index, parsed_value)
 						key_result["value"] = _serialize_variant(parsed_value)
 						key_result["previous_value"] = _serialize_variant(previous_value)
@@ -1216,11 +1216,13 @@ func _apply_animation_operations(animation: Animation, operations: Array) -> Dic
 					return {"error": "insert_key: time must be >= 0, got %s" % str(insert_time)}
 				var insert_value = _parse_property_value(entry.get("value"))
 				if animation.track_get_key_count(insert_index) > 0:
+					# Same type as the existing keys: {x,y,z} / [x,y,z] for a Vector3 track.
+					insert_value = _coerce_value_to_match(animation.track_get_key_value(insert_index, 0), insert_value)
 					var existing_type := typeof(animation.track_get_key_value(insert_index, 0))
 					var both_numeric: bool = existing_type in [TYPE_INT, TYPE_FLOAT] and typeof(insert_value) in [TYPE_INT, TYPE_FLOAT]
 					if existing_type != typeof(insert_value) and not both_numeric:
 						return {"error": "insert_key: value type %s does not match the track's existing keys (%s)" % [type_string(typeof(insert_value)), type_string(existing_type)]}
-				var transition_value := 0.0
+				var transition_value := 1.0  # 1.0 = smooth; 0.0 held the value, then jumped
 				if entry.has("transition"):
 					transition_value = float(entry.get("transition"))
 				var inserted_position := animation.track_insert_key(insert_index, insert_time, insert_value, transition_value)
@@ -1445,10 +1447,30 @@ func _capture_bone_pose(skeleton, bone_name: String, space: String) -> Variant:
 			return skeleton.get_bone_pose(bone_index_2d)
 	return null
 
+# Track of `track_type` for `track_path` (created if missing; keys cleared when overwriting).
+func _ensure_bake_track(animation: Animation, track_path: NodePath, track_type: int, overwrite: bool, created_tracks: Array) -> int:
+	var track_index := animation.find_track(track_path, track_type)
+	if track_index == -1:
+		track_index = animation.add_track(track_type)
+		animation.track_set_path(track_index, track_path)
+		created_tracks.append({"track_index": track_index, "track_path": str(track_path), "type": track_type})
+	elif overwrite:
+		for key_index in range(animation.track_get_key_count(track_index) - 1, -1, -1):
+			animation.track_remove_key(track_index, key_index)
+	return track_index
+
+
+# Track paths resolve from the player's root_node (default ".." = its parent), not the player itself:
+# paths built from the player ("../Visual:position") failed at runtime ("couldn't resolve track").
+func _animation_root(player: AnimationPlayer) -> Node:
+	var root := player.get_node_or_null(player.root_node)
+	return root if root != null else player.get_parent()
+
+
 func _build_bone_track_path(player: AnimationPlayer, skeleton, bone_name: String) -> NodePath:
 	if player == null or skeleton == null:
 			return NodePath("")
-	var relative_path = player.get_path_to(skeleton)
+	var relative_path = _animation_root(player).get_path_to(skeleton)
 	var relative_string := str(relative_path)
 	if relative_string.is_empty():
 		relative_string = "."
@@ -1457,7 +1479,7 @@ func _build_bone_track_path(player: AnimationPlayer, skeleton, bone_name: String
 func _build_property_track_path(player: AnimationPlayer, target_node: Node, property_name: String) -> NodePath:
 	if player == null or target_node == null or property_name.is_empty():
 		return NodePath("")
-	var relative_path = player.get_path_to(target_node)
+	var relative_path = _animation_root(player).get_path_to(target_node)
 	var relative_string := str(relative_path)
 	if relative_string.is_empty():
 		relative_string = "."

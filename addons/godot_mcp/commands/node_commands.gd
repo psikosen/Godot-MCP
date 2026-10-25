@@ -546,6 +546,8 @@ func _reparent_node(client_id: int, params: Dictionary, command_id: String) -> v
 		"previous_index": old_index,
 		"transaction_id": transaction.transaction_id,
 	}
+	if not transaction_id.is_empty():
+		transaction.pending_paths[str(response["node_path"])] = node
 
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
@@ -855,6 +857,7 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 		var base_property_name: String = property_segments[0]
 		if not base_property_name in node:
 			return _send_error(client_id, "Property %s does not exist on node %s" % [base_property_name, node_path], command_id)
+		_ensure_saved_override(node)
 
 		var current_base_value = staged_base_values.get(base_property_name, node.get(base_property_name))
 		var conversion_result: Dictionary
@@ -863,6 +866,7 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 			var value_error := _property_value_error(node, base_property_name, parsed_value)
 			if not value_error.is_empty():
 				return _send_error(client_id, value_error, command_id)
+			_ensure_saved_override(node)
 			conversion_result = {
 				"ok": true,
 				"value": parsed_value,
@@ -7195,7 +7199,10 @@ func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, comm
 	var navigation_finished: bool = agent.is_navigation_finished()
 
 	var direction := Vector2.ZERO
-	if distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
+	# Without a computed path (no baked/synced navmesh), get_next_path_position() is meaningless and
+	# steered the body away from the target; only trust it when a path exists.
+	var has_path: bool = agent.get_current_navigation_path().size() > 0
+	if has_path and distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
 		direction = to_next / distance_to_next
 	elif allow_direct_fallback and distance_to_target > stop_distance:
 		direction = to_target / distance_to_target
@@ -7370,7 +7377,10 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 	var navigation_finished: bool = agent.is_navigation_finished()
 
 	var direction := Vector3.ZERO
-	if distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
+	# Without a computed path (no baked/synced navmesh), get_next_path_position() is meaningless and
+	# steered the body away from the target; only trust it when a path exists.
+	var has_path: bool = agent.get_current_navigation_path().size() > 0
+	if has_path and distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
 		direction = to_next / distance_to_next
 	elif allow_direct_fallback and distance_to_target > stop_distance:
 		direction = to_target / distance_to_target
@@ -8782,6 +8792,9 @@ func _build_light_occluder_2d(client_id: int, params: Dictionary, command_id: St
 	if params.has("sdf_collision"):
 		light_occluder.sdf_collision = bool(params.get("sdf_collision"))
 
+	# A self-intersecting polygon cannot be triangulated (engine errors, broken shadows).
+	if polygon_points.size() >= 3 and Geometry2D.triangulate_polygon(polygon_points).is_empty():
+		return _send_error(client_id, "Occluder polygon is not a simple shape (edges cross); reorder the points", command_id)
 	var occluder_polygon := OccluderPolygon2D.new()
 	occluder_polygon.polygon = polygon_points
 	occluder_polygon.closed = bool(params.get("closed", true))
@@ -8910,6 +8923,8 @@ func _edit_light_occluder_polygon_2d(client_id: int, params: Dictionary, command
 	if polygon_modified:
 		if next_polygon.size() < 3:
 			return _send_error(client_id, "Resulting polygon must contain at least 3 points", command_id)
+		if Geometry2D.triangulate_polygon(next_polygon).is_empty():
+			return _send_error(client_id, "Resulting polygon is not a simple shape (edges cross); reorder the points", command_id)
 		pending_property_changes.append_array(_capture_property_change(occluder_polygon, "polygon", next_polygon))
 		pending_meta_changes.append_array(_capture_meta_change(occluder_node, "mcp_light_occluder_point_count", next_polygon.size()))
 
@@ -15561,6 +15576,7 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 	var created_nodes: Array = [flow_root, root_control]
 	var attach_plans: Array = [{"parent": parent, "node": flow_root}]
 	var signal_changes: Array = []
+	var signal_warnings: Array = []
 
 	if create_background:
 		var background := ColorRect.new()
@@ -15740,14 +15756,17 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 			if method_name.is_empty():
 				continue
 			var button_node: Button = button_lookup[button_name]
-			signal_changes.append_array(
-				_capture_signal_connection_change(button_node, "pressed", controller_node, method_name, signal_flags)
-			)
+			# Connecting to a method the controller lacks errors on every press; skip it and say so.
+			if _signal_method_exists(controller_node, method_name, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(button_node, "pressed", controller_node, method_name, signal_flags)
+				)
 
 	if attach_plans.is_empty() and signal_changes.is_empty():
 		return _send_success(client_id, {
 			"flow_path": _join_mcp_path(_to_mcp_path(parent), flow_root.name),
 			"status": "no_change",
+			"warnings": signal_warnings,
 		}, command_id)
 
 	var transaction_metadata := {
@@ -15828,6 +15847,7 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 			"game_over_menu": (_join_mcp_path(predicted_flow_path, "Root/Menus/GameOverMenu") if include_game_over_menu else ""),
 		},
 		"signal_changes": serialized_signal_changes,
+		"warnings": signal_warnings,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -16016,6 +16036,34 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 
 	transaction.add_do_property(node, "name", new_name)
 	transaction.add_undo_property(node, "name", old_name)
+	# Keep animation tracks pointing at the node (the editor does this on a manual rename; tracks
+	# were left orphaned). Paths are relative to each player's animation root.
+	var tracks_updated := 0
+	var edited_root := EditorInterface.get_edited_scene_root()
+	if node.is_inside_tree() and edited_root != null:
+		for player in edited_root.find_children("*", "AnimationPlayer", true, false):
+			var anim_root: Node = player.get_node_or_null(player.root_node)
+			if anim_root == null:
+				anim_root = player.get_parent()
+			if anim_root == null or anim_root == node or not anim_root.is_ancestor_of(node):
+				continue
+			var old_rel := str(anim_root.get_path_to(node))
+			var new_rel: String = (old_rel.get_base_dir().path_join(new_name)) if old_rel.contains("/") else str(new_name)
+			for library_name in player.get_animation_library_list():
+				var library: AnimationLibrary = player.get_animation_library(library_name)
+				for animation_name in library.get_animation_list():
+					var animation: Animation = library.get_animation(animation_name)
+					for track in animation.get_track_count():
+						var track_path := str(animation.track_get_path(track))
+						var node_part := track_path.get_slice(":", 0)
+						if node_part == old_rel or node_part.begins_with(old_rel + "/"):
+							transaction.add_do_method(animation, "track_set_path", [track, NodePath(new_rel + track_path.substr(old_rel.length()))])
+							transaction.add_undo_method(animation, "track_set_path", [track, NodePath(track_path)])
+							tracks_updated += 1
+	if not str(transaction_id).is_empty():
+		# A node staged in this transaction has no parent yet: derive its new path from the requested one.
+		var parent_mcp: String = _to_mcp_path(node.get_parent()) if node.is_inside_tree() else str(node_path).get_base_dir()
+		transaction.pending_paths[_join_mcp_path(parent_mcp, new_name)] = node
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
 		_log("Renamed node", "_rename_node", {
@@ -16037,6 +16085,7 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			"new_name": new_name,
 			"node_path": path_string,
 			"transaction_id": transaction.transaction_id,
+			"animation_tracks_updated": tracks_updated,
 			"status": "committed"
 		}, command_id)
 	else:
@@ -16045,6 +16094,7 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			"new_name": new_name,
 			"node_path": node_path,
 			"transaction_id": transaction.transaction_id,
+			"animation_tracks_updated": tracks_updated,
 			"status": "pending"
 		}, command_id)
 
@@ -16457,7 +16507,8 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 		node.name = node_name
 	node_name = str(node.name)
 
-	var parent_mcp_path: String = _to_mcp_path(parent)
+	# A parent staged earlier in the same transaction is not in the tree yet: use the requested path.
+	var parent_mcp_path: String = _to_mcp_path(parent) if parent.is_inside_tree() else str(parent_path).trim_suffix("/")
 	var expected_child_path: String = parent_mcp_path + "/" + node_name
 
 	var transaction_metadata := {
@@ -16484,6 +16535,8 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	transaction.add_do_method(parent, "add_child", [node, true])
 	transaction.add_do_method(node, "set_owner", [edited_scene_root])
 	transaction.add_undo_method(parent, "remove_child", [node])
+	if not transaction_id.is_empty():
+		transaction.pending_paths[expected_child_path] = node
 	transaction.add_undo_method(node, "queue_free")
 	transaction.add_do_reference(node)
 	transaction.register_on_commit(func():
@@ -16645,6 +16698,7 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 		var base_property_name: String = property_segments[0]
 		if not base_property_name in node:
 				return _send_error(client_id, "Property %s does not exist on node %s" % [base_property_name, node_path], command_id)
+		_ensure_saved_override(node)
 
 		var old_base_value = node.get(base_property_name)
 		var conversion_result: Dictionary
@@ -16654,6 +16708,7 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 				var value_error := _property_value_error(node, base_property_name, parsed_value)
 				if not value_error.is_empty():
 						return _send_error(client_id, value_error, command_id)
+				_ensure_saved_override(node)
 				if base_property_name == "name" and node.get_parent() != null:
 						var sibling := node.get_parent().get_node_or_null(NodePath(str(parsed_value)))
 						if sibling != null and sibling != node:
@@ -17842,6 +17897,7 @@ func _capture_property_change(node: Object, property_name: String, desired_value
 		_refused_values.append(value_error)
 		return []
 
+	_ensure_saved_override(node)
 	var current_value = node.get(property_name)
 	if current_value == desired_value:
 		return []
@@ -17883,7 +17939,10 @@ func _build_signal_flags_from_params(params: Dictionary) -> int:
 func _signal_method_exists(target: Object, method_name: String, warnings: Array) -> bool:
 	if target.has_method(method_name):
 		return true
-	warnings.append("Skipped signal connection: %s has no method %s (add it or use wire_signal_handler)" % [target.name, method_name])
+	if target.get_script() == null:
+		warnings.append("Skipped signal connection: %s has no script, so no method %s (attach a script or use wire_signal_handler)" % [target.name, method_name])
+	else:
+		warnings.append("Skipped signal connection: %s has no method %s (add it or use wire_signal_handler)" % [target.name, method_name])
 	return false
 
 

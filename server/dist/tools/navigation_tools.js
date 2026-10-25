@@ -221,7 +221,10 @@ export var navigationTools = [
                     case 2:
                         result = _e.sent();
                         dimension = String((_c = result.dimension) !== null && _c !== void 0 ? _c : 'unknown');
-                        return [2 /*return*/, "Started ".concat(dimension.toUpperCase(), " navigation bake for ").concat(result.node_path, " (threaded: ").concat(result.on_thread, ").")];
+                        if (result.on_thread) {
+                            return [2 /*return*/, "Started ".concat(dimension.toUpperCase(), " navigation bake for ").concat(result.node_path, " (threaded; check list_navigation_maps for the result).")];
+                        }
+                        return [2 /*return*/, "Baked ".concat(dimension.toUpperCase(), " navigation for ").concat(result.node_path, ": ").concat(result.polygon_count, " polygon(s).").concat(result.note ? " ".concat(result.note) : '')];
                     case 3:
                         error_3 = _e.sent();
                         throw new Error("Failed to bake navigation region: ".concat(error_3.message));

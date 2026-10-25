@@ -66,6 +66,10 @@ static func safe_save(resource: Resource, path: String) -> bool:
 	if result != OK:
 		push_error("Failed to save resource: " + path)
 		return false
+	# The in-memory resource now lives at `path`, so nodes using it reference the file (ext_resource)
+	# instead of embedding a copy that later edits to the file never reach. (FLAG_CHANGE_PATH does
+	# not set the path in Godot 4.7; take_over_path does.)
+	resource.take_over_path(path)
 	
 	return true
 

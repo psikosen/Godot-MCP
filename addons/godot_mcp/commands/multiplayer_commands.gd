@@ -55,7 +55,7 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 		allow_join = not peer.get_refuse_new_connections()
 
 	var state := {
-		"unique_id": api.get_unique_id(),
+		"unique_id": (api.get_unique_id() if has_peer else 0),  # get_unique_id() logs an error with no peer
 		"has_peer": has_peer,
 		"connected_peers": connected,
 		"is_server": api.is_server(),

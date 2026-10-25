@@ -301,9 +301,20 @@ func _get_project_settings(client_id: int, params: Dictionary, command_id: Strin
 	}
 	
 	# Get input mappings
-	var input_map = ProjectSettings.get_setting("input")
-	if input_map:
-		settings["input_map"] = input_map
+	# Actions are stored as separate "input/<name>" settings; there is no single "input" setting.
+	var input_map := {}
+	for property in ProjectSettings.get_property_list():
+		var key := str(property.get("name", ""))
+		if key.begins_with("input/"):
+			var action := key.trim_prefix("input/")
+			var setting = ProjectSettings.get_setting(key)
+			var events: Array = []
+			if typeof(setting) == TYPE_DICTIONARY:
+				for event in setting.get("events", []):
+					if event is InputEvent:
+						events.append(_serialize_input_event(event))
+			input_map[action] = {"deadzone": (setting.get("deadzone", 0.5) if typeof(setting) == TYPE_DICTIONARY else 0.5), "events": events}
+	settings["input_map"] = input_map
 	
 	_send_success(client_id, settings, command_id)
 
@@ -928,7 +939,7 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 			continue
 
 		if not InputMap.has_action(action_name):
-			InputMap.add_action(action_name)
+			InputMap.add_action(action_name, 0.5)  # same default deadzone as add_input_action
 			created_actions.append(action_name)
 
 		var desired_events: Array = []

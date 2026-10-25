@@ -202,7 +202,10 @@ export const navigationTools: MCPTool[] = [
         });
 
         const dimension = String(result.dimension ?? 'unknown');
-        return `Started ${dimension.toUpperCase()} navigation bake for ${result.node_path} (threaded: ${result.on_thread}).`;
+        if (result.on_thread) {
+          return `Started ${dimension.toUpperCase()} navigation bake for ${result.node_path} (threaded; check list_navigation_maps for the result).`;
+        }
+        return `Baked ${dimension.toUpperCase()} navigation for ${result.node_path}: ${result.polygon_count} polygon(s).${result.note ? ` ${result.note}` : ''}`;
       } catch (error) {
         throw new Error(`Failed to bake navigation region: ${(error as Error).message}`);
       }

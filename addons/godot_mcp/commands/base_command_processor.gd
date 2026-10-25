@@ -79,8 +79,11 @@ func _get_editor_node(path: String) -> Node:
 	elif path.begins_with("/"):
 		path = path.substr(1)  # Remove leading "/"
 
-	# Try to find node as child of edited scene root
-	return edited_scene_root.get_node_or_null(path)
+	# Try to find node as child of edited scene root, then among nodes staged by an open transaction.
+	var found: Node = edited_scene_root.get_node_or_null(path)
+	if found == null:
+		found = MCPSceneTransactionManager.find_pending_node("/root/" + path.trim_suffix("/"))
+	return found
 
 
 # Path as MCP clients address it ("/root" = edited scene root), not the editor-internal tree path.
@@ -121,7 +124,10 @@ func _save_resource_contained(resource: Resource, path: String) -> int:
 	if contained.is_empty():
 		push_error("Refusing to save outside the project (res://): " + path)
 		return ERR_FILE_BAD_PATH
-	return ResourceSaver.save(resource, contained)
+	var result := ResourceSaver.save(resource, contained)
+	if result == OK and not (resource is PackedScene):
+		resource.take_over_path(contained)  # reference the file, not an embedded copy (see ResourceUtils.safe_save)
+	return result
 
 # Groups a user can see: Godot adds viewport-internal groups ("_vp_unhandled_input<id>") to nodes.
 func _user_groups(node: Node) -> Array:
@@ -131,6 +137,20 @@ func _user_groups(node: Node) -> Array:
 # owner and an auto-generated "@" name; they are not part of the user's scene.
 func _is_editor_internal_node(node: Node) -> bool:
 	return node.owner == null and str(node.name).begins_with("@")
+
+# Edits to a node inside an instanced scene are saved as overrides only when that instance has
+# "editable children"; without it save_scene dropped them (null mesh/material at runtime).
+func _ensure_saved_override(target: Object) -> void:
+	if not (target is Node):
+		return
+	var scene_root := EditorInterface.get_edited_scene_root()
+	if scene_root == null or target == scene_root:
+		return
+	var instance_root: Node = target.owner
+	while instance_root != null and instance_root != scene_root:
+		if instance_root.scene_file_path != "" and scene_root.is_ancestor_of(instance_root):
+			scene_root.set_editable_instance(instance_root, true)
+		instance_root = instance_root.owner
 
 # Helper function to mark a scene as modified
 func _mark_scene_modified() -> void:
@@ -270,7 +290,22 @@ func _coerce_value_to_type(value, value_type: int, property_class_name: String =
 			return _coerce_to_rect2i(value)
 		TYPE_NODE_PATH:
 			return value if value is NodePath else NodePath(str(value))
-		TYPE_ARRAY, TYPE_DICTIONARY:
+		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY:
+			var packed = _points_to_packed(value, value_type == TYPE_PACKED_VECTOR3_ARRAY)
+			return packed if packed != null else value
+		TYPE_ARRAY:
+			# Arrays of point lists (NavigationPolygon.outlines): [x, y] pairs cannot become Vector2 on
+			# their own, so Godot stored zeros. Convert each inner list when every element is a point list.
+			if value is Array and not value.is_empty() and value.all(func(item): return item is Array):
+				var converted: Array = []
+				for item in value:
+					var packed = _points_to_packed(item, false)
+					if packed == null:
+						return value
+					converted.append(packed)
+				return converted
+			return value
+		TYPE_DICTIONARY:
 			return value
 		TYPE_OBJECT:
 			if typeof(value) == TYPE_STRING and value.begins_with("res://"):
@@ -378,6 +413,19 @@ func _coerce_to_color(value):
 	return _parse_property_value(value)
 
 
+# [[x, y], {x, y}, ...] -> PackedVector2Array (or 3D), or null when any element is not a point.
+func _points_to_packed(value, three_d: bool):
+	if not (value is Array):
+		return null
+	var points: Array = []
+	for item in value:
+		var point = _coerce_to_vector3(item) if three_d else _coerce_to_vector2(item)
+		if not (point is Vector3 if three_d else point is Vector2):
+			return null
+		points.append(point)
+	return PackedVector3Array(points) if three_d else PackedVector2Array(points)
+
+
 # "(4, 5, 6)" or "4,5,6" -> [4.0, 5.0, 6.0] when it holds exactly `count` numbers, else [].
 func _numbers_from_text(value, count: int) -> Array:
 	if typeof(value) != TYPE_STRING:
@@ -410,9 +458,10 @@ func _property_value_error(target: Object, property_name: String, value) -> Stri
 		return "Property %s expects a %s (for a resource, a res:// path to an existing file), got %s" % [
 			property_name, str(info.get("class_name", "Object")), JSON.stringify(value)]
 	var numeric := [TYPE_INT, TYPE_FLOAT]
+	# Packed vector arrays are left out on purpose: an Array that _points_to_packed could not convert
+	# would otherwise be stored as zeros.
 	var listish := [TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY,
-		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY,
-		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY, TYPE_PACKED_COLOR_ARRAY]
+		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_COLOR_ARRAY]
 	var stringish := [TYPE_STRING, TYPE_STRING_NAME, TYPE_NODE_PATH]
 	var compatible: bool = (
 		actual == expected

@@ -388,7 +388,8 @@ export var nodeTools = [
                         resolvedPath = (_d = result.node_path) !== null && _d !== void 0 ? _d : node_path;
                         resolvedParent = (_e = result.new_parent_path) !== null && _e !== void 0 ? _e : new_parent_path;
                         resolvedIndex = (_g = (_f = result.new_index) !== null && _f !== void 0 ? _f : child_index) !== null && _g !== void 0 ? _g : 'auto';
-                        return [2 /*return*/, "Reparented ".concat(resolvedPath, " to ").concat(resolvedParent, " at index ").concat(resolvedIndex, " [").concat(status_5, "]")];
+                        // node_path is where the node ends up; say where it came from too (the old text read as the source).
+                        return [2 /*return*/, "Reparented ".concat(node_path, " to ").concat(resolvedParent, " at index ").concat(resolvedIndex, "; it is now ").concat(resolvedPath, " [").concat(status_5, "]")];
                     case 3:
                         error_7 = _h.sent();
                         throw new Error("Failed to reparent node: ".concat(error_7.message));
@@ -1022,7 +1023,7 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_17, currentState, error_20;
+            var godot, result, status_17, previous, error_20;
             var _a, _b;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -1035,11 +1036,11 @@ export var nodeTools = [
                     case 2:
                         result = _c.sent();
                         status_17 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
+                        previous = (_b = result.previous_state) !== null && _b !== void 0 ? _b : result.current_state;
                         if (status_17 === 'no_change') {
-                            return [2 /*return*/, "AnimationTree at ".concat(args.node_path, " is already in state ").concat(args.state_name, ".")];
+                            return [2 /*return*/, "AnimationTree at ".concat(args.node_path, " was already set to ").concat(args.state_name, ".")];
                         }
-                        currentState = String((_b = result.current_state) !== null && _b !== void 0 ? _b : args.state_name);
-                        return [2 /*return*/, "Set AnimationTree state on ".concat(args.node_path, " to ").concat(currentState, " [").concat(status_17, "]")];
+                        return [2 /*return*/, "Requested AnimationTree state ".concat(args.state_name, " on ").concat(args.node_path).concat(previous ? " (was ".concat(previous, ")") : '', " [").concat(status_17, "]")];
                     case 3:
                         error_20 = _c.sent();
                         throw new Error("Failed to set AnimationTree state: ".concat(error_20.message));
@@ -4657,7 +4658,7 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_82, flowPath, signalCount, error_85;
+            var godot, result, status_82, flowPath, signalCount, warnings, error_85;
             var _a, _b;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -4672,7 +4673,8 @@ export var nodeTools = [
                         status_82 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         flowPath = (_b = result.flow_path) !== null && _b !== void 0 ? _b : 'unknown';
                         signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-                        return [2 /*return*/, "Built menu UI flow at ".concat(flowPath, " with ").concat(signalCount, " signal wiring change(s) [").concat(status_82, "]")];
+                        warnings = Array.isArray(result.warnings) ? result.warnings : [];
+                        return [2 /*return*/, "Built menu UI flow at ".concat(flowPath, " with ").concat(signalCount, " signal wiring change(s) [").concat(status_82, "]").concat(warnings.length ? "\nWarnings:\n- ".concat(warnings.join('\n- ')) : '')];
                     case 3:
                         error_85 = _c.sent();
                         throw new Error("Failed to build menu UI flow 2D: ".concat(error_85.message));
@@ -4733,31 +4735,32 @@ export var nodeTools = [
                 .describe('Optional scene transaction identifier used to batch operations'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, status_84, previousName, error_87;
-            var _c, _d, _e;
+            var godot, result, status_84, previousName, tracks, error_87;
+            var _c, _d, _e, _f;
             var node_path = _b.node_path, new_name = _b.new_name, transaction_id = _b.transaction_id;
-            return __generator(this, function (_f) {
-                switch (_f.label) {
+            return __generator(this, function (_g) {
+                switch (_g.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _f.label = 1;
+                        _g.label = 1;
                     case 1:
-                        _f.trys.push([1, 3, , 4]);
+                        _g.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('rename_node', {
                                 node_path: node_path,
                                 new_name: new_name,
                                 transaction_id: transaction_id,
                             })];
                     case 2:
-                        result = _f.sent();
+                        result = _g.sent();
                         status_84 = (_c = result.status) !== null && _c !== void 0 ? _c : 'committed';
                         if (status_84 === 'no_change') {
                             return [2 /*return*/, "Node at ".concat(node_path, " already has the name \"").concat(new_name, "\".")];
                         }
                         previousName = (_e = (_d = result.previous_name) !== null && _d !== void 0 ? _d : node_path.split('/').pop()) !== null && _e !== void 0 ? _e : node_path;
-                        return [2 /*return*/, "Renamed node ".concat(previousName, " to ").concat(result.new_name, " [").concat(status_84, "]")];
+                        tracks = Number((_f = result.animation_tracks_updated) !== null && _f !== void 0 ? _f : 0);
+                        return [2 /*return*/, "Renamed node ".concat(previousName, " to ").concat(result.new_name).concat(tracks ? " (updated ".concat(tracks, " animation track path(s))") : '', " [").concat(status_84, "]")];
                     case 3:
-                        error_87 = _f.sent();
+                        error_87 = _g.sent();
                         throw new Error("Failed to rename node: ".concat(error_87.message));
                     case 4: return [2 /*return*/];
                 }

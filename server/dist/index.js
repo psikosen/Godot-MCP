@@ -91,7 +91,7 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, registerTool, cleanup, error_1;
+        var server, SCENE_STATE_RESOURCE_URIS, registerTool, cleanup, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -103,6 +103,7 @@ function main() {
                             'Read the godot/* resources or list/get tools before editing. ' +
                             'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve.',
                     });
+                    SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
                     registerTool = function (tool) {
                         var _a, _b;
                         server.addTool(__assign(__assign({}, tool), { 
@@ -113,12 +114,24 @@ function main() {
                             // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
                             parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters), execute: function (args) {
                                 return __awaiter(this, void 0, void 0, function () {
-                                    return __generator(this, function (_a) {
-                                        switch (_a.label) {
+                                    var output, _i, SCENE_STATE_RESOURCE_URIS_1, uri;
+                                    var _a, _b;
+                                    return __generator(this, function (_c) {
+                                        switch (_c.label) {
                                             case 0: return [4 /*yield*/, commandGuard.assertAllowed(tool, args)];
                                             case 1:
-                                                _a.sent();
-                                                return [2 /*return*/, tool.execute(args)];
+                                                _c.sent();
+                                                return [4 /*yield*/, tool.execute(args)];
+                                            case 2:
+                                                output = _c.sent();
+                                                // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
+                                                if (((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') !== 'read') {
+                                                    for (_i = 0, SCENE_STATE_RESOURCE_URIS_1 = SCENE_STATE_RESOURCE_URIS; _i < SCENE_STATE_RESOURCE_URIS_1.length; _i++) {
+                                                        uri = SCENE_STATE_RESOURCE_URIS_1[_i];
+                                                        server.sendResourceUpdated(uri).catch(function () { return undefined; });
+                                                    }
+                                                }
+                                                return [2 /*return*/, output];
                                         }
                                     });
                                 });

@@ -2969,7 +2969,7 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 						if format == AudioStreamWAV.FORMAT_16_BITS:
 							sample_value = clamp(buffer.get_16() / 32768.0, -1.0, 1.0)
 						else:
-							sample_value = (buffer.get_u8() - 128.0) / 128.0
+							sample_value = buffer.get_8() / 128.0  # AudioStreamWAV stores 8-bit PCM signed
 
 						var channel_stats: Dictionary = stats[channel_index]
 						channel_stats["samples"] += 1

@@ -194,6 +194,17 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 
 			if texture == null:
 				return _send_error(client_id, "texture_overrides.%s is not a loadable Texture2D: %s" % [slot, str(value)], command_id)
+			# ShaderMaterial texture slots are sampler uniforms, not properties.
+			if variant is ShaderMaterial and _get_property_info(variant, str(slot)).is_empty():
+				var uniform_names: Array = []
+				if variant.shader != null:
+					uniform_names = variant.shader.get_shader_uniform_list().map(func(u): return str(u.get("name", "")))
+				if not str(slot) in uniform_names:
+					return _send_error(client_id, "Shader has no uniform %s" % slot, command_id)
+				var previous_uniform = variant.get_shader_parameter(slot)
+				variant.set_shader_parameter(slot, texture)
+				changes.append({"type": "texture", "property": slot, "previous": previous_uniform, "value": texture.resource_path})
+				continue
 			if _get_property_info(variant, str(slot)).is_empty():
 				return _send_error(client_id, "%s has no texture slot %s" % [variant.get_class(), slot], command_id)
 			if variant.has_method("set"):
@@ -1881,6 +1892,11 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	if save_image_path != "":
 		if not _save_image_or_texture(image, panorama_texture, save_image_path):
 			return _send_error(client_id, "Failed to save starfield image to %s" % save_image_path, command_id)
+		# Reference the saved PNG instead of embedding the pixels in every saved .tres (7 MB each).
+		var reloaded: Dictionary = await _reload_saved_textures([save_image_path])
+		var saved_panorama = reloaded.get(_contained_res_path(save_image_path))
+		if saved_panorama != null:
+			sky_material.panorama = saved_panorama
 	if save_material_path != "":
 		if not ResourceUtils.safe_save(sky_material, save_material_path):
 			return _send_error(client_id, "Failed to save starfield material to %s" % save_material_path, command_id)
@@ -2331,11 +2347,12 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 	var save_changes := params.get("save", true)
 
 	var changes := _collect_environment_changes(environment, params)
+	var assign_to = resolve.get("assign_to")
 	if not _refused_values.is_empty():
 		# Atomic: refuse the whole call before anything is applied.
 		var refused := "; ".join(PackedStringArray(_refused_values))
 		return _send_error(client_id, "Refused: %s" % refused, command_id)
-	if changes.is_empty():
+	if changes.is_empty() and assign_to == null:
 		_send_success(client_id, {
 			"status": "no_change",
 			"environment_path": environment_path,
@@ -2365,7 +2382,17 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 	if transaction == null:
 		return _send_error(client_id, "Unable to acquire transaction for environment configuration", command_id)
 
+	if assign_to != null:
+		transaction.add_do_property(assign_to, "environment", environment)
+		transaction.add_undo_property(assign_to, "environment", assign_to.environment)
+		changes.append({
+			"property": "WorldEnvironment.environment",
+			"previous": assign_to.environment.resource_path if assign_to.environment != null else null,
+			"value": environment.resource_path if environment.resource_path != "" else ("new Environment" if resolve.get("created_environment", false) else "Environment"),
+		})
 	for change in changes:
+		if str(change.property) == "WorldEnvironment.environment":
+			continue
 		transaction.add_do_property(environment, change.property, change.value)
 		transaction.add_undo_property(environment, change.property, change.previous)
 
@@ -2532,6 +2559,15 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 		var loaded = ResourceUtils.safe_load(environment_path)
 		if loaded is Environment:
 			result["environment"] = loaded
+			# Both given: the file was edited but never assigned to the node ("no_change"). Assign it.
+			if node_path != "":
+				var target = _get_editor_node(node_path)
+				if not (target is WorldEnvironment):
+					result["environment"] = null
+					result["error_message"] = ("Node at %s is %s, not a WorldEnvironment" % [node_path, target.get_class()]) if target else ("WorldEnvironment node not found: %s" % node_path)
+					return result
+				if target.environment != loaded:
+					result["assign_to"] = target
 			return result
 		result["error_message"] = ("Resource at %s is not an Environment" % environment_path) if loaded != null else ("Environment resource not found or not loadable: %s" % environment_path)
 		return result
@@ -2545,7 +2581,10 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 				result["environment_path"] = world_env.environment.resource_path
 			result["node_path"] = node_path
 			if result.get("environment") == null:
-				result["error_message"] = "WorldEnvironment at %s has no Environment resource" % node_path
+				# A fresh WorldEnvironment has none and no tool could create one: make it here.
+				result["environment"] = Environment.new()
+				result["assign_to"] = world_env
+				result["created_environment"] = true
 			return result
 		result["error_message"] = ("Node at %s is %s, not a WorldEnvironment" % [node_path, node.get_class()]) if node else ("WorldEnvironment node not found: %s" % node_path)
 		return result

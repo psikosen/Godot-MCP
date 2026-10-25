@@ -1925,7 +1925,8 @@ export const nodeTools: MCPTool[] = [
         const resolvedPath = (result.node_path as string) ?? node_path;
         const resolvedParent = (result.new_parent_path as string) ?? new_parent_path;
         const resolvedIndex = result.new_index ?? child_index ?? 'auto';
-        return `Reparented ${resolvedPath} to ${resolvedParent} at index ${resolvedIndex} [${status}]`;
+        // node_path is where the node ends up; say where it came from too (the old text read as the source).
+        return `Reparented ${node_path} to ${resolvedParent} at index ${resolvedIndex}; it is now ${resolvedPath} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to reparent node: ${(error as Error).message}`);
       }
@@ -2451,11 +2452,13 @@ export const nodeTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('set_animation_tree_state', args);
         const status = (result.status as string) ?? 'committed';
+        // travel()/start() take effect on the tree's next process step, so the state read back now is
+        // still the previous one; report the request and the state it left.
+        const previous = result.previous_state ?? result.current_state;
         if (status === 'no_change') {
-          return `AnimationTree at ${args.node_path} is already in state ${args.state_name}.`;
+          return `AnimationTree at ${args.node_path} was already set to ${args.state_name}.`;
         }
-        const currentState = String(result.current_state ?? args.state_name);
-        return `Set AnimationTree state on ${args.node_path} to ${currentState} [${status}]`;
+        return `Requested AnimationTree state ${args.state_name} on ${args.node_path}${previous ? ` (was ${previous})` : ''} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to set AnimationTree state: ${(error as Error).message}`);
       }
@@ -5377,7 +5380,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const flowPath = (result.flow_path as string) ?? 'unknown';
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-        return `Built menu UI flow at ${flowPath} with ${signalCount} signal wiring change(s) [${status}]`;
+        const warnings = Array.isArray(result.warnings) ? (result.warnings as string[]) : [];
+        return `Built menu UI flow at ${flowPath} with ${signalCount} signal wiring change(s) [${status}]${warnings.length ? `\nWarnings:\n- ${warnings.join('\n- ')}` : ''}`;
       } catch (error) {
         throw new Error(`Failed to build menu UI flow 2D: ${(error as Error).message}`);
       }
@@ -5439,7 +5443,8 @@ export const nodeTools: MCPTool[] = [
         }
 
         const previousName = (result.previous_name as string) ?? node_path.split('/').pop() ?? node_path;
-        return `Renamed node ${previousName} to ${result.new_name} [${status}]`;
+        const tracks = Number(result.animation_tracks_updated ?? 0);
+        return `Renamed node ${previousName} to ${result.new_name}${tracks ? ` (updated ${tracks} animation track path(s))` : ''} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to rename node: ${(error as Error).message}`);
       }

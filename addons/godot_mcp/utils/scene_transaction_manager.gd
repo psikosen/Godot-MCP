@@ -24,6 +24,9 @@ class SceneTransaction extends RefCounted:
 	var _rollback_callbacks: Array = []
 	var _is_active: bool = false
 	var _is_committed: bool = false
+	# MCP paths ("/root/...") of nodes this transaction will create, rename or move, so later steps of
+	# the same transaction can address them before commit (they reported "Node not found").
+	var pending_paths: Dictionary = {}
 
 	func _init(action_name: String, metadata: Dictionary = {}):
 		transaction_id = MCPSceneTransactionManager._generate_transaction_id()
@@ -111,7 +114,13 @@ class SceneTransaction extends RefCounted:
 			_is_committed = false
 			return true
 
-		_undo_redo.create_action(action_name)
+		# Pin the action to the edited scene's history. Without a context Godot picks the history from
+		# the first object touched; resource edits (animations) then logged "UndoRedo history mismatch".
+		var scene_root = EditorInterface.get_edited_scene_root()
+		if scene_root != null:
+			_undo_redo.create_action(action_name, UndoRedo.MERGE_DISABLE, scene_root)
+		else:
+			_undo_redo.create_action(action_name)
 		if metadata.size() > 0:
 			# Godot EditorUndoRedoManager does not expose metadata APIs in every version.
 			# Preserve compatibility by applying metadata only when the method exists.
@@ -288,6 +297,14 @@ static func rollback_registered(transaction_id: String) -> bool:
 	var result := transaction.rollback()
 	_transactions.erase(transaction_id)
 	return result
+
+# Node staged under `path` by any open registered transaction, or null.
+static func find_pending_node(path: String) -> Node:
+	for transaction in _transactions.values():
+		var node = transaction.pending_paths.get(path)
+		if node != null and is_instance_valid(node):
+			return node
+	return null
 
 static func is_committed(transaction_id: String) -> bool:
 	return _committed_ids.has(transaction_id)
