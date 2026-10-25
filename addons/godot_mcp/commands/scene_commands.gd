@@ -483,9 +483,11 @@ func _commit_scene_transaction(client_id: int, params: Dictionary, command_id: S
 	if transaction_id.is_empty():
 		return _send_error(client_id, "Transaction ID is required to commit", command_id)
 
+	var transaction = SceneTransactionManager.get_transaction(transaction_id)
 	var result = SceneTransactionManager.commit_registered(transaction_id)
 	if not result:
-		return _send_error(client_id, "Unknown transaction or commit failed: %s" % transaction_id, command_id)
+		var reason: String = transaction.commit_error if transaction else ""
+		return _send_error(client_id, reason if not reason.is_empty() else "Unknown transaction or commit failed: %s" % transaction_id, command_id)
 
 	_send_success(client_id, {
 		"transaction_id": transaction_id,

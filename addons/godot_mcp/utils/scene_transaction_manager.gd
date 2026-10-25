@@ -27,6 +27,8 @@ class SceneTransaction extends RefCounted:
 	# MCP paths ("/root/...") of nodes this transaction will create, rename or move, so later steps of
 	# the same transaction can address them before commit (they reported "Node not found").
 	var pending_paths: Dictionary = {}
+	# Why the last commit() returned false, for the commit tool's error message.
+	var commit_error: String = ""
 
 	func _init(action_name: String, metadata: Dictionary = {}):
 		transaction_id = MCPSceneTransactionManager._generate_transaction_id()
@@ -113,6 +115,19 @@ class SceneTransaction extends RefCounted:
 			_is_active = false
 			_is_committed = false
 			return true
+
+		# A named transaction stays open between calls. If its nodes were freed meanwhile (the scene
+		# was closed or reloaded), committing would replay steps on dead objects and run on-commit
+		# callbacks that read them, so the whole transaction is dropped instead.
+		var freed := 0
+		for entry in _do_methods + _undo_methods + _do_properties + _undo_properties:
+			if not is_instance_valid(entry.target):
+				freed += 1
+		if freed > 0:
+			commit_error = "Transaction '%s' cannot commit: %d of its steps target nodes that no longer exist (deleted, or the scene was closed or reloaded). Nothing was applied; redo the edits in a new transaction." % [transaction_id, freed]
+			MCPSceneTransactionManager._log(commit_error, "SceneTransaction.commit", {"transaction_id": transaction_id}, true)
+			_is_active = false
+			return false
 
 		# Pin the action to the edited scene's history. Without a context Godot picks the history from
 		# the first object touched; resource edits (animations) then logged "UndoRedo history mismatch".
