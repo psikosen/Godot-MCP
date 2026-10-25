@@ -48,6 +48,26 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+// Key-order-independent JSON, so a hand-edited record still matches the same args.
+var canonicalJson = function (value) {
+    var _a;
+    return (_a = JSON.stringify(value, function (_key, v) {
+        return v && typeof v === 'object' && !Array.isArray(v)
+            ? Object.fromEntries(Object.entries(v).sort(function (_a, _b) {
+                var a = _a[0];
+                var b = _b[0];
+                return a.localeCompare(b);
+            }))
+            : v;
+    })) !== null && _a !== void 0 ? _a : '';
+};
+/**
+ * Default store: <repo>/project-manager/permission_escalations.json, resolved from this
+ * module (src/utils or dist/utils) so the server and the approve CLI share one file no
+ * matter which directory the MCP client launches the server from.
+ */
+var defaultStoragePath = fileURLToPath(new URL('../../../project-manager/permission_escalations.json', import.meta.url));
 /**
  * Persists permission escalation requests so that humans can review and
  * resolve them outside of the automated patch workflow.
@@ -55,9 +75,15 @@ import { randomUUID } from 'node:crypto';
 var EscalationManager = /** @class */ (function () {
     function EscalationManager(storagePath) {
         this.queue = Promise.resolve();
-        this.storagePath =
-            storagePath !== null && storagePath !== void 0 ? storagePath : path.resolve(process.cwd(), '..', 'project-manager', 'permission_escalations.json');
+        this.storagePath = storagePath !== null && storagePath !== void 0 ? storagePath : defaultStoragePath;
     }
+    Object.defineProperty(EscalationManager.prototype, "filePath", {
+        get: function () {
+            return this.storagePath;
+        },
+        enumerable: false,
+        configurable: true
+    });
     EscalationManager.prototype.recordEscalation = function (_a) {
         return __awaiter(this, arguments, void 0, function (_b) {
             var _this = this;
@@ -76,7 +102,8 @@ var EscalationManager = /** @class */ (function () {
                                             record.path === normalizedPath &&
                                             record.mode === mode &&
                                             record.reason === reason &&
-                                            record.requestedBy === requestedBy;
+                                            record.requestedBy === requestedBy &&
+                                            canonicalJson(record.metadata) === canonicalJson(metadata);
                                     });
                                     if (existing) {
                                         this.log('Escalation already pending', {
@@ -131,6 +158,49 @@ var EscalationManager = /** @class */ (function () {
                         });
                         return [2 /*return*/, records.sort(function (a, b) { return a.requestedAt.localeCompare(b.requestedAt); })];
                 }
+            });
+        });
+    };
+    /**
+     * Finds an approved, unused escalation for this path/mode whose recorded args match
+     * `args`, marks it consumed, and returns it. Returns undefined when none matches.
+     */
+    EscalationManager.prototype.consumeApproval = function (relativePath, mode, args) {
+        return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            return __generator(this, function (_a) {
+                return [2 /*return*/, this.withLock(function () { return __awaiter(_this, void 0, void 0, function () {
+                        var state, normalizedPath, wanted, record;
+                        return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0: return [4 /*yield*/, this.loadState()];
+                                case 1:
+                                    state = _a.sent();
+                                    normalizedPath = this.normalizePath(relativePath);
+                                    wanted = canonicalJson(args);
+                                    record = state.records.find(function (item) {
+                                        var _a;
+                                        return item.status === 'approved' &&
+                                            !item.consumedAt &&
+                                            item.path === normalizedPath &&
+                                            item.mode === mode &&
+                                            canonicalJson((_a = item.metadata) === null || _a === void 0 ? void 0 : _a.args) === wanted;
+                                    });
+                                    if (!record) {
+                                        return [2 /*return*/, undefined];
+                                    }
+                                    record.consumedAt = new Date().toISOString();
+                                    return [4 /*yield*/, this.saveState(state)];
+                                case 2:
+                                    _a.sent();
+                                    this.log('Consumed approved escalation', {
+                                        systemSection: 'consume',
+                                        details: { id: record.id, path: record.path, mode: record.mode },
+                                    });
+                                    return [2 /*return*/, record];
+                            }
+                        });
+                    }); })];
             });
         });
     };

@@ -1,4 +1,4 @@
-import { escalationManager } from './escalation_manager.js';
+import { EscalationManager, escalationManager } from './escalation_manager.js';
 import { CommandRole, MCPTool } from './types.js';
 
 interface CommandPolicyConfig {
@@ -25,9 +25,11 @@ interface CommandLogContext {
 
 export class CommandGuard {
   private readonly policy: CommandPolicyConfig;
+  private readonly escalations: EscalationManager;
 
-  constructor(policy: CommandPolicyConfig = defaultPolicy) {
+  constructor(policy: CommandPolicyConfig = defaultPolicy, escalations: EscalationManager = escalationManager) {
     this.policy = policy;
+    this.escalations = escalations;
   }
 
   async assertAllowed<T>(tool: MCPTool<T>, args: T): Promise<void> {
@@ -44,7 +46,23 @@ export class CommandGuard {
       return;
     }
 
-    const escalation = await escalationManager.recordEscalation({
+    // A human approves by setting the record's status to "approved" (npm run approve -- <id>).
+    // Each approval allows exactly one call with exactly the args that were recorded.
+    const approval = await this.escalations.consumeApproval(`tool:${tool.name}`, requiredRole, args);
+    if (approval) {
+      this.log('command_allowed_by_escalation', {
+        systemSection: 'assert',
+        details: {
+          tool: tool.name,
+          requiredRole,
+          escalationId: approval.id,
+          resolver: approval.resolver,
+        },
+      });
+      return;
+    }
+
+    const escalation = await this.escalations.recordEscalation({
       path: `tool:${tool.name}`,
       mode: requiredRole,
       reason: 'role_escalation_required',
@@ -72,7 +90,8 @@ export class CommandGuard {
       ? ` Suggested prompt: ${tool.metadata.escalationPrompt}`
       : '';
     throw new Error(
-      `Command "${tool.name}" requires role "${requiredRole}". Escalation required (id: ${escalation.id}).${promptSuffix}`,
+      `Command "${tool.name}" requires role "${requiredRole}". Escalation required (id: ${escalation.id}). ` +
+        `A human must approve it (cd server && npm run approve -- ${escalation.id}), then retry the same call with the same arguments.${promptSuffix}`,
     );
   }
 

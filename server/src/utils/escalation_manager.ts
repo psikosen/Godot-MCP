@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 export type EscalationStatus = 'pending' | 'approved' | 'denied';
 
@@ -17,6 +18,8 @@ export interface EscalationRecord {
   notes?: string;
   prompt?: string;
   metadata?: Record<string, unknown>;
+  /** Set when an approved escalation has been used. Approvals are single-use. */
+  consumedAt?: string;
 }
 
 interface EscalationState {
@@ -43,6 +46,23 @@ interface ListOptions {
   status?: EscalationStatus;
 }
 
+// Key-order-independent JSON, so a hand-edited record still matches the same args.
+const canonicalJson = (value: unknown): string =>
+  JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  ) ?? '';
+
+/**
+ * Default store: <repo>/project-manager/permission_escalations.json, resolved from this
+ * module (src/utils or dist/utils) so the server and the approve CLI share one file no
+ * matter which directory the MCP client launches the server from.
+ */
+const defaultStoragePath = fileURLToPath(
+  new URL('../../../project-manager/permission_escalations.json', import.meta.url),
+);
+
 /**
  * Persists permission escalation requests so that humans can review and
  * resolve them outside of the automated patch workflow.
@@ -52,8 +72,11 @@ export class EscalationManager {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(storagePath?: string) {
-    this.storagePath =
-      storagePath ?? path.resolve(process.cwd(), '..', 'project-manager', 'permission_escalations.json');
+    this.storagePath = storagePath ?? defaultStoragePath;
+  }
+
+  get filePath(): string {
+    return this.storagePath;
   }
 
   async recordEscalation({
@@ -74,7 +97,8 @@ export class EscalationManager {
           record.path === normalizedPath &&
           record.mode === mode &&
           record.reason === reason &&
-          record.requestedBy === requestedBy,
+          record.requestedBy === requestedBy &&
+          canonicalJson(record.metadata) === canonicalJson(metadata),
       );
 
       if (existing) {
@@ -120,6 +144,41 @@ export class EscalationManager {
       details: { total: records.length, status: statusFilter ?? 'all' },
     });
     return records.sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
+  }
+
+  /**
+   * Finds an approved, unused escalation for this path/mode whose recorded args match
+   * `args`, marks it consumed, and returns it. Returns undefined when none matches.
+   */
+  async consumeApproval(relativePath: string, mode: string, args: unknown): Promise<EscalationRecord | undefined> {
+    return this.withLock(async () => {
+      const state = await this.loadState();
+      const normalizedPath = this.normalizePath(relativePath);
+      const wanted = canonicalJson(args);
+
+      const record = state.records.find(
+        item =>
+          item.status === 'approved' &&
+          !item.consumedAt &&
+          item.path === normalizedPath &&
+          item.mode === mode &&
+          canonicalJson(item.metadata?.args) === wanted,
+      );
+
+      if (!record) {
+        return undefined;
+      }
+
+      record.consumedAt = new Date().toISOString();
+      await this.saveState(state);
+
+      this.log('Consumed approved escalation', {
+        systemSection: 'consume',
+        details: { id: record.id, path: record.path, mode: record.mode },
+      });
+
+      return record;
+    });
   }
 
   async resolveEscalation({ id, status, resolver, notes }: ResolveEscalationInput): Promise<EscalationRecord> {

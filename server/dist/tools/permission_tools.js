@@ -37,7 +37,6 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 import { z } from 'zod';
 import { escalationManager } from '../utils/escalation_manager.js';
 var statusEnum = z.enum(['pending', 'approved', 'denied']);
-var resolutionEnum = z.enum(['approved', 'denied']);
 export var permissionTools = [
     {
         name: 'list_permission_escalations',
@@ -69,21 +68,23 @@ export var permissionTools = [
     },
     {
         name: 'resolve_permission_escalation',
-        description: 'Resolve a permission escalation request by approving or denying it.',
+        description: 'Deny (withdraw) a pending permission escalation request. This tool cannot approve: ' +
+            'approval is human-only (cd server && npm run approve -- <id>, or edit project-manager/permission_escalations.json).',
         parameters: z.object({
             escalation_id: z.string().describe('Identifier returned when the escalation was recorded.'),
-            status: resolutionEnum.describe('Resolution outcome for the escalation request.'),
+            status: z.literal('denied').default('denied')
+                .describe('Only "denied" is accepted. A human approves outside MCP.'),
             resolver: z.string().optional().describe('Who resolved the escalation (for audit trail).'),
             notes: z.string().optional().describe('Optional notes explaining the decision.'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var record;
-            var escalation_id = _b.escalation_id, status = _b.status, resolver = _b.resolver, notes = _b.notes;
+            var escalation_id = _b.escalation_id, resolver = _b.resolver, notes = _b.notes;
             return __generator(this, function (_c) {
                 switch (_c.label) {
                     case 0: return [4 /*yield*/, escalationManager.resolveEscalation({
                             id: escalation_id,
-                            status: status,
+                            status: 'denied',
                             resolver: resolver,
                             notes: notes,
                         })];
@@ -102,8 +103,8 @@ export var permissionTools = [
             });
         }); },
         metadata: {
-            requiredRole: 'admin',
-            escalationPrompt: 'Request approval to resolve a pending permission escalation.',
+            // Denying only removes access, so it needs no escalation (an 'admin' role here escalated itself forever).
+            requiredRole: 'edit',
         },
     },
 ];

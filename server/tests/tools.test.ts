@@ -2260,26 +2260,27 @@ describe('Godot MCP tool command wiring', () => {
     expect(JSON.parse(output).count).toBeGreaterThanOrEqual(0);
   });
 
-  it('resolves permission escalations', async () => {
-    mockResolveEscalation.mockResolvedValueOnce({
-      id: 'esc-123',
-      status: 'approved',
-      resolvedAt: '2024-01-02T00:00:00.000Z',
-      resolver: 'admin',
-      notes: 'Approved',
-      prompt: 'Please allow edit',
-      metadata: {},
-    });
-
+  it('denies permission escalations (approval is human-only)', async () => {
     const tool = getTool(permissionTools, 'resolve_permission_escalation');
-    const output = await tool.execute({ escalation_id: 'esc-123', status: 'approved', resolver: 'admin', notes: 'Approved' });
+    const output = await tool.execute({ escalation_id: 'esc-123', status: 'denied', resolver: 'agent', notes: 'Not needed' });
 
     expect(mockResolveEscalation).toHaveBeenCalledWith({
       id: 'esc-123',
-      status: 'approved',
-      resolver: 'admin',
-      notes: 'Approved',
+      status: 'denied',
+      resolver: 'agent',
+      notes: 'Not needed',
     });
-    expect(output).toContain('approved');
+    expect(output).toContain('denied');
+  });
+
+  it('sends overwrite=false for create_script unless asked to overwrite', async () => {
+    const tool = getTool(scriptTools, 'create_script');
+    const base = { script_path: 'res://scripts/example.gd', content: 'extends Node' };
+
+    await tool.execute(tool.parameters.parse(base));
+    expect(mockSendCommand).toHaveBeenLastCalledWith('create_script', expect.objectContaining({ overwrite: false }));
+
+    await tool.execute(tool.parameters.parse({ ...base, overwrite: true }));
+    expect(mockSendCommand).toHaveBeenLastCalledWith('create_script', expect.objectContaining({ overwrite: true }));
   });
 });

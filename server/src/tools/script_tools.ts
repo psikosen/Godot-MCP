@@ -9,6 +9,7 @@ interface CreateScriptParams {
   script_path: string;
   content: string;
   node_path?: string;
+  overwrite?: boolean;
 }
 
 interface EditScriptParams {
@@ -36,16 +37,18 @@ interface CreateScriptTemplateParams {
 export const scriptTools: MCPTool[] = [
   {
     name: 'create_script',
-    description: 'Create a new GDScript file in the project',
+    description: 'Create a new GDScript file in the project. Fails if the file already exists unless overwrite is true.',
     parameters: z.object({
       script_path: z.string()
-        .describe('Path where the script will be saved (e.g. "res://scripts/player.gd")'),
+        .describe('Path where the script will be saved, inside res:// (e.g. "res://scripts/player.gd")'),
       content: z.string()
         .describe('Content of the script'),
       node_path: z.string().optional()
         .describe('Path to a node to attach the script to (optional)'),
+      overwrite: z.boolean().optional().default(false)
+        .describe('Replace the file if it already exists (default false)'),
     }),
-    execute: async ({ script_path, content, node_path }: CreateScriptParams): Promise<string> => {
+    execute: async ({ script_path, content, node_path, overwrite = false }: CreateScriptParams): Promise<string> => {
       const godot = getGodotConnection();
       
       try {
@@ -53,6 +56,7 @@ export const scriptTools: MCPTool[] = [
           script_path,
           content,
           node_path,
+          overwrite,
         });
         
         const attachMessage = node_path 
