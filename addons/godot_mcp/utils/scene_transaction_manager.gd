@@ -7,6 +7,8 @@ const DEFAULT_SYSTEM_SECTION := "scene_transaction"
 
 static var _transactions: Dictionary = {}
 static var _id_counter: int = 0
+# Ids of committed transactions; their undo actions live in the editor history, so rollback is refused.
+static var _committed_ids: Dictionary = {}
 
 class SceneTransaction extends RefCounted:
 	var transaction_id: String
@@ -268,6 +270,8 @@ static func commit_registered(transaction_id: String) -> bool:
 
 	var result := transaction.commit()
 	_transactions.erase(transaction_id)
+	if result:
+		_committed_ids[transaction_id] = true
 	return result
 
 static func rollback_registered(transaction_id: String) -> bool:
@@ -284,6 +288,12 @@ static func rollback_registered(transaction_id: String) -> bool:
 	var result := transaction.rollback()
 	_transactions.erase(transaction_id)
 	return result
+
+static func is_committed(transaction_id: String) -> bool:
+	return _committed_ids.has(transaction_id)
+
+static func has_active(transaction_id: String) -> bool:
+	return _transactions.has(transaction_id)
 
 static func list_transactions() -> Array:
 	return _transactions.keys()

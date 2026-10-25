@@ -457,7 +457,7 @@ export const sceneTools: MCPTool[] = [
       
       try {
         const result = await godot.sendCommand<CommandResult>('create_scene', { path, root_node_type });
-        return `Created new scene at ${result.scene_path} with root node type ${result.root_node_type}`;
+        return `Created new scene at ${result.scene_path} with root node type ${result.root_node_type}. It is now the open scene; use open_scene to go back.`;
       } catch (error) {
         throw new Error(`Failed to create scene: ${(error as Error).message}`);
       }
@@ -656,7 +656,7 @@ export const sceneTools: MCPTool[] = [
 
   {
     name: 'rollback_scene_transaction',
-    description: 'Rollback a pending or committed scene transaction',
+    description: 'Rollback a pending scene transaction (committed transactions cannot be rolled back; use the editor\'s Undo)',
     parameters: z.object({
       transaction_id: z.string()
         .describe('Identifier of the transaction to rollback'),
