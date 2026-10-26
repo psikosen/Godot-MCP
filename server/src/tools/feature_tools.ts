@@ -267,6 +267,33 @@ export const featureTools: MCPTool[] = [
     metadata: { requiredRole: 'edit' },
   },
   {
+    name: 'snap_to_ground',
+    description: 'Drop 3D nodes onto the ground below them, like the editor\'s Snap Object to Floor: a physics ray finds the first collision body underneath (terrain, floors, blockouts). Use after placing coins, props or spawn points on uneven ground. Undo-aware.',
+    parameters: z.object({
+      node_paths: z.array(z.string()).max(2000).optional(),
+      parent_path: z.string().optional().describe('Snap every 3D child of this node'),
+      offset: z.number().optional().describe('Height above the ground, in meters (default 0)'),
+      align_to_normal: z.boolean().optional().describe('Tilt each node to the slope'),
+      max_rise: z.number().min(0).optional().describe('Look for ground up to this far above the node too (default 50)'),
+      remove_below: z.number().optional().describe('Delete nodes whose ground is lower than this y (trees that land in the sea)'),
+      remove_above: z.number().optional().describe('Delete nodes whose ground is higher than this y'),
+      collision_mask: z.number().int().optional(),
+      transaction_id: z.string().optional(),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('snap_to_ground', args);
+        const missed = r.missed as string[];
+        return `Snapped ${r.moved} node(s) ${status(r)}${(r.changes as string[]).length ? `: ${(r.changes as string[]).join(', ')}` : ''}`
+          + (r.removed ? `\nRemoved ${r.removed} outside the height range` : '')
+          + (missed.length ? `\nNo ground under: ${missed.join(', ')}` : '') + editableNote(r);
+      } catch (error) {
+        return fail('snap to ground', error);
+      }
+    },
+    metadata: { requiredRole: 'edit' },
+  },
+  {
     name: 'build_mesh_library',
     description: 'Make a GridMap MeshLibrary from a scene (or open-scene node) whose children are MeshInstance3D tiles, like Scene > Export As > MeshLibrary. StaticBody3D children give collision; NavigationRegion3D children give navmesh. Optionally assigns it to a GridMap.',
     parameters: z.object({

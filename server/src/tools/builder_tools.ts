@@ -149,7 +149,7 @@ export const builderTools: MCPTool[] = [
     execute: async (args: Record<string, unknown>): Promise<string> => {
       try {
         const r = await send('generate_sfx', args);
-        return `Saved ${r.preset} sound (${r.seconds}s) to ${r.path}. Play it with an AudioStreamPlayer (author_audio_stream_player).`;
+        return `Saved ${r.preset} sound (${r.seconds}s) to ${r.path}.${r.imported === false ? ' Godot is still importing it; wait a moment before using it.' : ''} Play it with an AudioStreamPlayer (author_audio_stream_player).`;
       } catch (error) {
         return fail('generate sound effect', error);
       }
@@ -318,7 +318,7 @@ export const builderTools: MCPTool[] = [
         mkdirSync(path.dirname(to), { recursive: true });
         copyFileSync(from, to);
       }
-      await send('rescan_filesystem', {}).catch(() => undefined);
+      await send('rescan_filesystem', { paths: plan.map(p => p.resPath) }).catch(() => undefined);
       return `Imported ${plan.length} file(s):\n${plan.map(p => p.resPath).join('\n')}`;
     },
     metadata: {

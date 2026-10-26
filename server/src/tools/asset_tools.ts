@@ -197,6 +197,7 @@ export const assetTools: MCPTool[] = [
       corner_radius: z.number().int().min(0).max(64).optional(),
       border_width: z.number().int().min(0).max(8).optional(),
       font_size: z.number().int().min(8).max(96).optional(),
+      label_outline: z.number().int().min(0).max(16).optional().describe('Outline around Label text in pixels, for HUDs over a 3D world (default 0)'),
       font_path: z.string().optional().describe('res:// .ttf/.otf/.woff2'),
       save_path: z.string().optional().describe('Default res://ui/theme.tres'),
       apply_to_project: z.boolean().optional().describe('Default true: Project Settings > GUI > Theme > Custom'),

@@ -390,6 +390,42 @@ export var featureTools = [
         metadata: { requiredRole: 'edit' },
     },
     {
+        name: 'snap_to_ground',
+        description: 'Drop 3D nodes onto the ground below them, like the editor\'s Snap Object to Floor: a physics ray finds the first collision body underneath (terrain, floors, blockouts). Use after placing coins, props or spawn points on uneven ground. Undo-aware.',
+        parameters: z.object({
+            node_paths: z.array(z.string()).max(2000).optional(),
+            parent_path: z.string().optional().describe('Snap every 3D child of this node'),
+            offset: z.number().optional().describe('Height above the ground, in meters (default 0)'),
+            align_to_normal: z.boolean().optional().describe('Tilt each node to the slope'),
+            max_rise: z.number().min(0).optional().describe('Look for ground up to this far above the node too (default 50)'),
+            remove_below: z.number().optional().describe('Delete nodes whose ground is lower than this y (trees that land in the sea)'),
+            remove_above: z.number().optional().describe('Delete nodes whose ground is higher than this y'),
+            collision_mask: z.number().int().optional(),
+            transaction_id: z.string().optional(),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, missed, error_11;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('snap_to_ground', args)];
+                    case 1:
+                        r = _a.sent();
+                        missed = r.missed;
+                        return [2 /*return*/, "Snapped ".concat(r.moved, " node(s) ").concat(status(r)).concat(r.changes.length ? ": ".concat(r.changes.join(', ')) : '')
+                                + (r.removed ? "\nRemoved ".concat(r.removed, " outside the height range") : '')
+                                + (missed.length ? "\nNo ground under: ".concat(missed.join(', ')) : '') + editableNote(r)];
+                    case 2:
+                        error_11 = _a.sent();
+                        return [2 /*return*/, fail('snap to ground', error_11)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'edit' },
+    },
+    {
         name: 'build_mesh_library',
         description: 'Make a GridMap MeshLibrary from a scene (or open-scene node) whose children are MeshInstance3D tiles, like Scene > Export As > MeshLibrary. StaticBody3D children give collision; NavigationRegion3D children give navmesh. Optionally assigns it to a GridMap.',
         parameters: z.object({
@@ -398,7 +434,7 @@ export var featureTools = [
             gridmap_path: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, error_11;
+            var r, error_12;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -409,8 +445,8 @@ export var featureTools = [
                         return [2 /*return*/, "Saved ".concat(r.save_path, " with ").concat(r.items.length, " item(s): ").concat(r.items.join(', '))
                                 + (r.gridmap_path ? "\nAssigned to ".concat(r.gridmap_path, " ").concat(status(r)) : '')];
                     case 2:
-                        error_11 = _a.sent();
-                        return [2 /*return*/, fail('build mesh library', error_11)];
+                        error_12 = _a.sent();
+                        return [2 /*return*/, fail('build mesh library', error_12)];
                     case 3: return [2 /*return*/];
                 }
             });

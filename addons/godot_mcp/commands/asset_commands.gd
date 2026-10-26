@@ -659,6 +659,8 @@ func _generate_terrain_3d(client_id: int, params: Dictionary, command_id: String
 	var mesh := surface.commit()
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
+	# The band colors are sRGB; read as linear they came out pale and washed.
+	material.vertex_color_is_srgb = true
 	material.roughness = 0.95
 	mesh.surface_set_material(0, material)
 	# HeightMapShape3D cells are 1 unit apart; a uniform scale of `cell` spaces them like the mesh.
@@ -691,7 +693,8 @@ func _generate_terrain_3d(client_id: int, params: Dictionary, command_id: String
 		var water := MeshInstance3D.new()
 		water.name = "Water"
 		var plane := PlaneMesh.new()
-		plane.size = Vector2(size, size) * 1.5
+		# Out to the horizon, so the sky's gray ground never shows past the sea.
+		plane.size = Vector2.ONE * maxf(size * 1.5, 2000.0)
 		var water_material := StandardMaterial3D.new()
 		water_material.albedo_color = Color(0.15, 0.4, 0.6, 0.75)
 		water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -787,6 +790,11 @@ func _generate_ui_theme(client_id: int, params: Dictionary, command_id: String) 
 		for item in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
 			theme.set_color(item, type, text)
 	theme.set_color("font_color", "Label", text)
+	var label_outline := clampi(int(params.get("label_outline", 0)), 0, 16)
+	if label_outline > 0:
+		# Keeps HUD text readable over a bright, busy 3D world.
+		theme.set_constant("outline_size", "Label", label_outline)
+		theme.set_color("font_outline_color", "Label", Color(0, 0, 0, 0.85) if dark else Color(1, 1, 1, 0.85))
 	var panel := _style(surface, outline, 1 if border == 0 else border, radius, padding)
 	for type in ["Panel", "PanelContainer", "PopupPanel", "TooltipPanel", "ItemList", "Tree"]:
 		theme.set_stylebox("panel", type, panel)

@@ -80,7 +80,7 @@ export var polishTools = [
             parent_path: z.string().optional(),
             uniforms: z.record(z.any()).optional().describe('e.g. {"strength": 0.8} or {"pixel_size": 6}'),
             enabled: z.boolean().optional().describe('false adds it hidden, to show later'),
-            layer: z.number().int().min(-128).max(128).optional(),
+            layer: z.number().int().min(-128).max(128).optional().describe('Default 100 draws over HUDs too; pass one below your HUD\'s layer (HUDs are usually 1) to keep the UI crisp'),
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
@@ -109,6 +109,7 @@ export var polishTools = [
         parameters: z.object({
             parent_path: z.string().optional().describe('A 3D node that holds (or will hold) the sun and environment; default /root'),
             day_length: z.number().min(1).max(86400).optional().describe('Seconds for a full day (default 120)'),
+            start_time: z.number().min(0).max(1).optional().describe('Where the day starts: 0 sunrise, 0.12 morning, 0.25 noon, 0.5 sunset, 0.75 midnight'),
             sun_path: z.string().optional(),
             transaction_id: z.string().optional(),
         }),
@@ -122,7 +123,7 @@ export var polishTools = [
                     case 1:
                         r = _a.sent();
                         created = r.created;
-                        return [2 /*return*/, "".concat(r.node_path, " ").concat(status(r), ": ").concat(r.day_length, "s day, animates ").concat(r.tracks.join(', '))
+                        return [2 /*return*/, "".concat(r.node_path, " ").concat(status(r), ": ").concat(r.day_length, "s day from ").concat(r.start_time, ", animates ").concat(r.tracks.join(', '))
                                 + "".concat(created.length ? "; created ".concat(created.join(', ')) : '').concat(r.sky ? '' : '; sky not animated (the environment has no ProceduralSkyMaterial)')];
                     case 2:
                         error_3 = _a.sent();
@@ -255,7 +256,7 @@ export var polishTools = [
                         return [4 /*yield*/, send('generate_placeholder_art', args)];
                     case 1:
                         r = _a.sent();
-                        return [2 /*return*/, "Made ".concat(r.files.length, " sprite(s):\n").concat(r.files.join('\n'))];
+                        return [2 /*return*/, "Made ".concat(r.files.length, " sprite(s):\n").concat(r.files.join('\n')).concat(r.imported === false ? '\nGodot is still importing them; wait a moment before using them.' : '')];
                     case 2:
                         error_7 = _a.sent();
                         return [2 /*return*/, fail('generate placeholder art', error_7)];

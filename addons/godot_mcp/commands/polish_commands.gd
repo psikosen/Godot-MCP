@@ -299,6 +299,7 @@ func _setup_day_night_cycle(client_id: int, params: Dictionary, command_id: Stri
 	if not parent is Node3D:
 		return _send_error(client_id, "parent_path must be a 3D node", command_id)
 	var day_length := clampf(float(params.get("day_length", 120.0)), 1.0, 86400.0)
+	var start := fposmod(float(params.get("start_time", 0.0)), 1.0)
 	var scene_root := EditorInterface.get_edited_scene_root()
 	for existing in parent.find_children("*", "AnimationPlayer", true, true):
 		if existing.has_animation("day_night"):
@@ -356,16 +357,16 @@ func _setup_day_night_cycle(client_id: int, params: Dictionary, command_id: Stri
 	# circle, so the end matches the start and the loop is seamless.
 	_add_track(animation, sun_path + ":rotation", day_length, [
 		[0.0, Vector3(deg_to_rad(-5.0), yaw, 0)], [0.25, Vector3(deg_to_rad(-90.0), yaw, 0)],
-		[0.5, Vector3(deg_to_rad(-175.0), yaw, 0)], [1.0, Vector3(deg_to_rad(-365.0), yaw, 0)]])
+		[0.5, Vector3(deg_to_rad(-175.0), yaw, 0)], [1.0, Vector3(deg_to_rad(-365.0), yaw, 0)]], start, Vector3(-TAU, 0, 0))
 	_add_track(animation, sun_path + ":light_energy", day_length, [
-		[0.0, 0.2], [0.08, 1.0], [0.42, 1.0], [0.5, 0.2], [0.54, 0.0], [0.96, 0.0], [1.0, 0.2]])
+		[0.0, 0.2], [0.08, 1.0], [0.42, 1.0], [0.5, 0.2], [0.54, 0.0], [0.96, 0.0], [1.0, 0.2]], start)
 	var warm := Color(1.0, 0.62, 0.38)
 	var white := Color(1.0, 0.97, 0.92)
-	_add_track(animation, sun_path + ":light_color", day_length, [[0.0, warm], [0.1, white], [0.4, white], [0.5, warm], [1.0, warm]])
+	_add_track(animation, sun_path + ":light_color", day_length, [[0.0, warm], [0.1, white], [0.4, white], [0.5, warm], [1.0, warm]], start)
 	var tracks := ["sun rotation", "sun energy", "sun color", "ambient light"]
 	# Night is moonlit, not black: dark blue sky with half the ambient light.
 	_add_track(animation, world_path + ":environment:ambient_light_energy", day_length, [
-		[0.0, 0.8], [0.12, 1.0], [0.42, 1.0], [0.5, 0.8], [0.58, 0.5], [0.92, 0.5], [1.0, 0.8]])
+		[0.0, 0.8], [0.12, 1.0], [0.42, 1.0], [0.5, 0.8], [0.58, 0.5], [0.92, 0.5], [1.0, 0.8]], start)
 	if sky_material:
 		var colors := {
 			"sky_top_color": [Color(0.32, 0.42, 0.68), Color(0.22, 0.47, 0.88), Color(0.28, 0.27, 0.52), Color(0.04, 0.06, 0.14)],
@@ -376,7 +377,7 @@ func _setup_day_night_cycle(client_id: int, params: Dictionary, command_id: Stri
 		for property in colors:
 			var c: Array = colors[property]
 			_add_track(animation, "%s:environment:sky:sky_material:%s" % [world_path, property], day_length,
-				[[0.0, c[0]], [0.25, c[1]], [0.5, c[2]], [0.58, c[3]], [0.92, c[3]], [1.0, c[0]]])
+				[[0.0, c[0]], [0.25, c[1]], [0.5, c[2]], [0.58, c[3]], [0.92, c[3]], [1.0, c[0]]], start)
 		tracks.append("sky colors")
 	var library := AnimationLibrary.new()
 	library.add_animation("day_night", animation)
@@ -396,17 +397,35 @@ func _setup_day_night_cycle(client_id: int, params: Dictionary, command_id: Stri
 	transaction.register_on_commit(func(): _mark_scene_modified())
 	_finish_transaction(client_id, command_id, transaction, transaction_id, {
 		"node_path": _join_path(_to_mcp_path(parent), player.name), "day_length": day_length, "created": created,
-		"tracks": tracks, "sun": sun_path, "sky": sky_material != null})
+		"tracks": tracks, "sun": sun_path, "sky": sky_material != null, "start_time": start})
 
 
-# Value track keyed at fractions of length.
-func _add_track(animation: Animation, path: String, length: float, keys: Array) -> void:
+# Value track keyed at fractions (0..1) of a day of length seconds, starting the day at start.
+# keys must cover 0 and 1; each later day differs by per_day (the sun turns one more full circle).
+func _add_track(animation: Animation, path: String, length: float, keys: Array, start := 0.0, per_day = null) -> void:
 	var track := animation.add_track(Animation.TYPE_VALUE)
 	animation.track_set_path(track, NodePath(path))
 	animation.track_set_interpolation_type(track, Animation.INTERPOLATION_LINEAR)
 	animation.value_track_set_update_mode(track, Animation.UPDATE_CONTINUOUS)
+	var times := {0.0: true, 1.0: true}
 	for key in keys:
-		animation.track_insert_key(track, key[0] * length, key[1])
+		times[fposmod(key[0] - start, 1.0)] = true
+	var sorted: Array = times.keys()
+	sorted.sort()
+	for time in sorted:
+		animation.track_insert_key(track, time * length, _sample_day(keys, start + time, per_day))
+
+
+func _sample_day(keys: Array, fraction: float, per_day):
+	if fraction > 1.0:
+		var later = _sample_day(keys, fraction - 1.0, per_day)
+		return later + per_day if per_day != null else later
+	for index in range(1, keys.size()):
+		if fraction <= keys[index][0]:
+			var a: Array = keys[index - 1]
+			var b: Array = keys[index]
+			return lerp(a[1], b[1], (fraction - a[0]) / maxf(b[0] - a[0], 0.0001))
+	return keys[-1][1]
 
 
 # --- MultiMesh ------------------------------------------------------------------------------
@@ -725,8 +744,5 @@ func _generate_placeholder_art(client_id: int, params: Dictionary, command_id: S
 			return _send_error(client_id, "Failed to write %s" % path, command_id)
 		paths.append(path)
 		made.append("%s (%s %dx%d)" % [path, shape, size.x, size.y])
-	# update_file imports a new file; scenes can use it as a texture right away.
-	var filesystem := EditorInterface.get_resource_filesystem()
-	for path in paths:
-		filesystem.update_file(path)
-	_send_success(client_id, {"files": made}, command_id)
+	var imported := await _await_imports(Array(paths))
+	_send_success(client_id, {"files": made, "imported": imported}, command_id)

@@ -98,11 +98,20 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"setup_2d_lighting":
 			_setup_2d_lighting(client_id, params, command_id)
 		"rescan_filesystem":
-			EditorInterface.get_resource_filesystem().scan()
-			_send_success(client_id, {"scanned": true}, command_id)
+			_rescan_filesystem(client_id, params, command_id)
 		_:
 			return false
 	return true
+
+
+# With paths, replies once those files are imported; without, starts a scan and replies at once.
+func _rescan_filesystem(client_id: int, params: Dictionary, command_id: String) -> void:
+	var paths: Array = params.get("paths", [])
+	if paths.is_empty():
+		EditorInterface.get_resource_filesystem().scan()
+		return _send_success(client_id, {"scanned": true}, command_id)
+	var imported := await _await_imports(paths.map(func(path): return str(path)))
+	_send_success(client_id, {"scanned": true, "imported": imported}, command_id)
 
 
 # --- set_collision_layers -------------------------------------------------------------------
@@ -379,9 +388,8 @@ func _generate_sfx(client_id: int, params: Dictionary, command_id: String) -> vo
 	var err := wav.save_to_wav(path)
 	if err != OK:
 		return _send_error(client_id, "Failed to write %s: %s" % [path, error_string(err)], command_id)
-	EditorInterface.get_resource_filesystem().update_file(path)
-	EditorInterface.get_resource_filesystem().scan()
-	_send_success(client_id, {"path": path, "preset": preset, "seconds": snappedf(samples.size() / float(SFX_RATE), 0.01)}, command_id)
+	var imported := await _await_imports([path])
+	_send_success(client_id, {"path": path, "preset": preset, "seconds": snappedf(samples.size() / float(SFX_RATE), 0.01), "imported": imported}, command_id)
 
 
 func _synthesize(preset: String, pitch: float, rng: RandomNumberGenerator) -> PackedFloat32Array:

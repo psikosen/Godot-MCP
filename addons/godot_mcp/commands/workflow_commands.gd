@@ -29,6 +29,7 @@ const LAYOUT_PROPERTIES := ["anchor_left", "anchor_top", "anchor_right", "anchor
 const GAME_SETTINGS := {
 	"game_name": ["application/config/name", TYPE_STRING],
 	"main_scene": ["application/run/main_scene", TYPE_STRING],
+	"icon": ["application/config/icon", TYPE_STRING],
 	"window_width": ["display/window/size/viewport_width", TYPE_INT],
 	"window_height": ["display/window/size/viewport_height", TYPE_INT],
 	"stretch_mode": ["display/window/stretch/mode", ["disabled", "canvas_items", "viewport"]],
@@ -424,6 +425,11 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]):
 				return _send_error(client_id, "%s must be a number" % key, command_id)
 			value = float(value)
+		elif key == "icon":
+			var icon := _contained_res_path(str(value))
+			if icon.is_empty() or not icon.get_extension().to_lower() in ["png", "svg", "webp", "jpg", "jpeg"] or not FileAccess.file_exists(icon):
+				return _send_error(client_id, "icon must be an existing .png/.svg/.webp/.jpg in the project: %s" % value, command_id)
+			value = icon
 		elif key == "main_scene":
 			var scene := _contained_res_path(str(value))
 			if scene.is_empty() or not (scene.ends_with(".tscn") or scene.ends_with(".scn")) or not FileAccess.file_exists(scene):

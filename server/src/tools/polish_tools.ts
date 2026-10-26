@@ -38,7 +38,7 @@ export const polishTools: MCPTool[] = [
       parent_path: z.string().optional(),
       uniforms: z.record(z.any()).optional().describe('e.g. {"strength": 0.8} or {"pixel_size": 6}'),
       enabled: z.boolean().optional().describe('false adds it hidden, to show later'),
-      layer: z.number().int().min(-128).max(128).optional(),
+      layer: z.number().int().min(-128).max(128).optional().describe('Default 100 draws over HUDs too; pass one below your HUD\'s layer (HUDs are usually 1) to keep the UI crisp'),
       transaction_id: z.string().optional(),
     }),
     execute: async (args: Record<string, unknown>): Promise<string> => {
@@ -58,6 +58,7 @@ export const polishTools: MCPTool[] = [
     parameters: z.object({
       parent_path: z.string().optional().describe('A 3D node that holds (or will hold) the sun and environment; default /root'),
       day_length: z.number().min(1).max(86400).optional().describe('Seconds for a full day (default 120)'),
+      start_time: z.number().min(0).max(1).optional().describe('Where the day starts: 0 sunrise, 0.12 morning, 0.25 noon, 0.5 sunset, 0.75 midnight'),
       sun_path: z.string().optional(),
       transaction_id: z.string().optional(),
     }),
@@ -65,7 +66,7 @@ export const polishTools: MCPTool[] = [
       try {
         const r = await send('setup_day_night_cycle', args);
         const created = r.created as string[];
-        return `${r.node_path} ${status(r)}: ${r.day_length}s day, animates ${(r.tracks as string[]).join(', ')}`
+        return `${r.node_path} ${status(r)}: ${r.day_length}s day from ${r.start_time}, animates ${(r.tracks as string[]).join(', ')}`
           + `${created.length ? `; created ${created.join(', ')}` : ''}${r.sky ? '' : '; sky not animated (the environment has no ProceduralSkyMaterial)'}`;
       } catch (error) {
         return fail('set up day/night cycle', error);
@@ -159,7 +160,7 @@ export const polishTools: MCPTool[] = [
     execute: async (args: Record<string, unknown>): Promise<string> => {
       try {
         const r = await send('generate_placeholder_art', args);
-        return `Made ${(r.files as string[]).length} sprite(s):\n${(r.files as string[]).join('\n')}`;
+        return `Made ${(r.files as string[]).length} sprite(s):\n${(r.files as string[]).join('\n')}${r.imported === false ? '\nGodot is still importing them; wait a moment before using them.' : ''}`;
       } catch (error) {
         return fail('generate placeholder art', error);
       }

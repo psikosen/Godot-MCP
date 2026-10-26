@@ -277,10 +277,11 @@ export var workflowTools = [
     },
     {
         name: 'configure_game_settings',
-        description: 'Set common project settings: game name, main scene, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names. With no arguments, shows the current values.',
+        description: 'Set common project settings: game name, main scene, icon, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names. With no arguments, shows the current values.',
         parameters: z.object({
             game_name: z.string().optional(),
             main_scene: z.string().optional().describe('res:// scene the game starts with'),
+            icon: z.string().optional().describe('res:// image for the window and app icon'),
             window_width: z.number().int().optional(),
             window_height: z.number().int().optional(),
             stretch_mode: z.enum(['disabled', 'canvas_items', 'viewport']).optional(),

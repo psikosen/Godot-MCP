@@ -21,7 +21,7 @@ var RULES = [
     ['ui', /hud_|menu_ui|theme|accessibility|layout_ui|minimap|control_layout|touch_controls/],
     ['assets', /texture|lightmap|mesh_lods|material|shader|stencil|model|screen_effect|placeholder|environment|sun_settings|import_asset/],
     ['2d', /_2d$|2d_|tilemap|parallax|sprite|camera2d/],
-    ['3d', /_3d$|3d_|gridmap|mesh_library|multimesh|day_night|csg|camera3d|springarm|light_node|particles/],
+    ['3d', /_3d$|3d_|gridmap|mesh_library|multimesh|day_night|snap_to_ground|csg|camera3d|springarm|light_node|particles/],
 ];
 export var TOOLSETS = __spreadArray(['core'], RULES.map(function (_a) {
     var name = _a[0];

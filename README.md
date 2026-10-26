@@ -161,7 +161,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `replace_in_script` - Replace an exact piece of a `.gd`/`.gdshader` file (cheaper than rewriting it); reports compile errors
 - `list_signal_connections` / `disconnect_signal` - Show a node's connections in and out; remove one (undo-aware)
 - `manage_autoloads` - List, add or remove autoload singletons
-- `configure_game_settings` - Game name, main scene, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names
+- `configure_game_settings` - Game name, main scene, icon, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names
 - `set_control_layout` - UI anchor presets (full_rect, center, top_right, ...), margin, size, size flags (undo-aware)
 - `create_inherited_scene` - New scene inheriting another (Godot's "New Inherited Scene")
 - `save_branch_as_scene` - Godot's "Save Branch as Scene": the branch becomes its own scene and an instance takes its place, keeping its connections
@@ -199,6 +199,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `set_accessibility_info` - Screen-reader names and descriptions on UI controls, or auto-fill the missing ones (4.5+)
 - `create_path` - Path2D/Path3D through points, smooth or closed
 - `place_along_path` - Copies of a scene along a path by count or spacing, turned to follow it
+- `snap_to_ground` - Drop nodes onto the ground below them (like Snap Object to Floor); can remove ones that land in the sea or on peaks
 - `build_mesh_library` - GridMap MeshLibrary from a scene of mesh tiles (with collision and navmesh), like Export As MeshLibrary
 
 #### Asset Pipeline
@@ -341,6 +342,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 - Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 69k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
+- Resource properties take a new built-in resource inline, so no file is needed: `"mesh": "BoxMesh"` or `"shape": {"type": "CapsuleShape3D", "radius": 0.4}`, nested too (`"material": {"type": "StandardMaterial3D", "albedo_color": "#ff0000"}`).
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.
 - `get_godot_errors` reads Godot's recent errors and warnings (Godot 4.5+). `create_script` and `edit_script` report compile errors with line numbers.

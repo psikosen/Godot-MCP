@@ -165,6 +165,8 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 			_place_along_path(client_id, params, command_id)
 		"build_mesh_library":
 			_build_mesh_library(client_id, params, command_id)
+		"snap_to_ground":
+			_snap_to_ground(client_id, params, command_id)
 		_:
 			return false
 	return true
@@ -898,6 +900,86 @@ func _place_along_path(client_id: int, params: Dictionary, command_id: String) -
 	transaction.register_on_commit(func(): _mark_scene_modified())
 	_finish_transaction(client_id, command_id, transaction, transaction_id, {
 		"node_path": _join_path(_to_mcp_path(path), container.name), "count": offsets.size(), "path_length": snappedf(length, 0.01)})
+
+
+# Like the editor's Snap Object to Floor: a physics ray from above each node finds the ground
+# (any collision body: terrain, floors, blockouts) and the node moves onto it.
+func _snap_to_ground(client_id: int, params: Dictionary, command_id: String) -> void:
+	var nodes: Array = []
+	for path in params.get("node_paths", []):
+		var node = _get_editor_node(str(path))
+		if not node is Node3D:
+			return _send_error(client_id, "Not a 3D node: %s" % path, command_id)
+		nodes.append(node)
+	if params.has("parent_path"):
+		var parent = _get_editor_node(str(params["parent_path"]))
+		if not parent:
+			return _send_error(client_id, "parent_path not found: %s" % params["parent_path"], command_id)
+		nodes.append_array(parent.get_children().filter(func(child): return child is Node3D))
+	if nodes.is_empty() or nodes.size() > 2000:
+		return _send_error(client_id, "Pass node_paths and/or parent_path naming 1 to 2000 3D nodes", command_id)
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var world := scene_root.get_viewport().find_world_3d() if scene_root else null
+	if world == null:
+		return _send_error(client_id, "The open scene has no 3D world to cast rays in", command_id)
+	var space := world.direct_space_state
+	var offset := float(params.get("offset", 0.0))
+	var rise := clampf(float(params.get("max_rise", 50.0)), 0.0, 10000.0)
+	var align := bool(params.get("align_to_normal", false))
+	var mask := int(params.get("collision_mask", 0xFFFFFFFF))
+	var remove_below := float(params.get("remove_below", -INF))
+	var remove_above := float(params.get("remove_above", INF))
+	var moves: Array = []
+	var missed: Array = []
+	var removals: Array = []
+	for node in nodes:
+		# The node's own bodies would be the first thing the ray hits.
+		var exclude: Array[RID] = []
+		var bodies: Array = [node]
+		bodies.append_array(node.find_children("*", "CollisionObject3D", true, false))
+		for body in bodies:
+			if body is CollisionObject3D:
+				exclude.append(body.get_rid())
+		var origin: Vector3 = node.global_position
+		var query := PhysicsRayQueryParameters3D.create(origin + Vector3.UP * rise, origin + Vector3.DOWN * 10000.0, mask, exclude)
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			missed.append(_to_mcp_path(node))
+			continue
+		# Scattered props that land in the sea or on a peak go away (undo brings them back).
+		if hit["position"].y < remove_below or hit["position"].y > remove_above:
+			removals.append(node)
+			continue
+		var target: Transform3D = node.global_transform
+		var up: Vector3 = hit["normal"] if align else Vector3.UP
+		target.origin = hit["position"] + up * offset
+		if align:
+			var forward := target.basis.z.slide(up).normalized()
+			if forward.is_zero_approx():
+				forward = Vector3.BACK.slide(up).normalized()
+			var node_scale := target.basis.get_scale()
+			target.basis = Basis(up.cross(forward), up, forward).orthonormalized() * Basis.from_scale(node_scale)
+		var parent_inverse: Transform3D = node.get_parent().global_transform.affine_inverse() if node.get_parent() is Node3D else Transform3D()
+		moves.append([node, parent_inverse * target, snappedf(target.origin.y - origin.y, 0.01)])
+	if moves.is_empty() and removals.is_empty():
+		return _send_error(client_id, "No ground under any node (rays found no collision body). Missed: %s" % ", ".join(PackedStringArray(missed.slice(0, 10))), command_id)
+	var transaction_id := str(params.get("transaction_id", ""))
+	var transaction = _transaction("Snap To Ground", transaction_id, {"command": "snap_to_ground"})
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction", command_id)
+	var summary: Array = []
+	for move in moves:
+		transaction.add_do_property(move[0], "transform", move[1])
+		transaction.add_undo_property(move[0], "transform", move[0].transform)
+		if summary.size() < 20:
+			summary.append("%s %+.2f m" % [move[0].name, move[2]])
+	for node in removals:
+		_remove_with_undo(transaction, node)
+	var opened := _open_instances(transaction, moves.map(func(move): return move[0]))
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	_finish_transaction(client_id, command_id, transaction, transaction_id, {
+		"moved": moves.size(), "changes": summary, "missed": missed.slice(0, 20), "removed": removals.size(),
+		"editable_children": opened})
 
 
 # --- GridMap mesh library -------------------------------------------------------------------
