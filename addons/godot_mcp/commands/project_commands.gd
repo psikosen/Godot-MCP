@@ -25,6 +25,9 @@ const PROJECT_SETTING_DENYLIST := [
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
+		"delete_project_file":
+			_delete_project_file(client_id, params, command_id)
+			return true
 		"get_project_info":
 			_get_project_info(client_id, params, command_id)
 			return true
@@ -1164,3 +1167,56 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
+
+
+# Paths the MCP itself depends on; deleting them would break the editor connection or approvals.
+const PROTECTED_PATHS := ["res://project.godot", "res://addons/godot_mcp/", "res://project-manager/", "res://.godot/"]
+
+# Moves one project file (plus its .import/.uid sidecars) to the system Trash, so it can be
+# restored. Reports the files that still refer to it, since Godot does not fix those up.
+func _delete_project_file(client_id: int, params: Dictionary, command_id: String) -> void:
+	var requested := str(params.get("path", ""))
+	var path := _contained_res_path(requested)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://): %s" % requested, command_id)
+	# macOS and Windows file systems ignore case, so "res://ADDONS/..." is the same folder.
+	for protected in PROTECTED_PATHS:
+		if path.to_lower() == protected or path.to_lower().begins_with(protected):
+			return _send_error(client_id, "%s is protected and cannot be deleted" % path, command_id)
+	if DirAccess.dir_exists_absolute(path):
+		return _send_error(client_id, "%s is a folder; delete the files in it one at a time" % path, command_id)
+	if not FileAccess.file_exists(path):
+		return _send_error(client_id, "File not found: %s" % path, command_id)
+	var edited := EditorInterface.get_edited_scene_root()
+	if edited and edited.scene_file_path == path:
+		return _send_error(client_id, "%s is the open scene; open another scene first" % path, command_id)
+
+	var needles: Array = [path]
+	var uid: int = ResourceLoader.get_resource_uid(path)
+	if uid != ResourceUID.INVALID_ID:
+		needles.append(ResourceUID.id_to_text(uid))
+	var candidates: Array = []
+	_scan_directory(DirAccess.open("res://"), "", [".tscn", ".tres", ".gd", ".gdshader", ".cfg", "project.godot"], candidates)
+	var referenced_by: Array = []
+	for candidate in candidates:
+		if candidate == path or referenced_by.size() >= 20:
+			continue
+		var text := FileAccess.get_file_as_string(candidate)
+		for needle in needles:
+			if text.contains(needle):
+				referenced_by.append(candidate)
+				break
+
+	var trashed: Array = []
+	for file_path in [path, path + ".import", path + ".uid"]:
+		if FileAccess.file_exists(file_path):
+			var err := OS.move_to_trash(ProjectSettings.globalize_path(file_path))
+			if err != OK:
+				return _send_error(client_id, "Could not move %s to the Trash: %s (moved so far: %s)" % [file_path, error_string(err), trashed], command_id)
+			trashed.append(file_path)
+	EditorInterface.get_resource_filesystem().scan()
+	_send_success(client_id, {
+		"path": path,
+		"trashed": trashed,
+		"still_referenced_by": referenced_by,
+	}, command_id)

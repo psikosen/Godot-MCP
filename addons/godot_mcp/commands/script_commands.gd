@@ -83,6 +83,11 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	# Refresh the filesystem
 	editor_interface.get_resource_filesystem().scan()
 	
+	var compile_error := _gdscript_compile_error(script_path) if script_path.ends_with(".gd") else ""
+	if not compile_error.is_empty():
+		return _send_error(client_id, "Script saved to %s but it does not compile%s: %s. Fix it with edit_script." % [
+			script_path, " (not attached to %s)" % node_path if node else "", compile_error], command_id)
+	
 	# Attach the script to a node if specified
 	if node:
 		# Wait for script to be recognized in the filesystem
@@ -151,6 +156,10 @@ func _edit_script(client_id: int, params: Dictionary, command_id: String) -> voi
 	
 	file.store_string(content)
 	file = null  # Close the file
+	
+	var compile_error := _gdscript_compile_error(script_path)
+	if not compile_error.is_empty():
+		return _send_error(client_id, "Script saved to %s but it does not compile: %s" % [script_path, compile_error], command_id)
 	
 	_send_success(client_id, {
 		"script_path": script_path

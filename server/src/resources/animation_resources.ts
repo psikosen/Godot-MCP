@@ -15,7 +15,7 @@ export const animationStateMachinesResource: Resource<FastMCPSessionAuth> = {
         include_transitions: true,
       });
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching animation state machines:', error);
@@ -36,7 +36,7 @@ export const animationTracksResource: Resource<FastMCPSessionAuth> = {
         include_keys: true,
       });
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching animation tracks:', error);

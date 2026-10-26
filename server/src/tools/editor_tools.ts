@@ -8,6 +8,35 @@ interface ExecuteEditorScriptParams {
 
 export const editorTools: MCPTool[] = [
   {
+    name: 'get_godot_errors',
+    description: 'Read recent errors and warnings from Godot\'s output (script, shader and engine errors). Pass next_id from the last call as since_id to see only new ones. Needs Godot 4.5+.',
+    parameters: z.object({
+      since_id: z.number().int().min(0).optional()
+        .describe('Only entries with this id or higher (use next_id from the previous call)'),
+      limit: z.number().int().min(1).max(200).optional()
+        .describe('Most recent entries to return (default 50)'),
+      types: z.array(z.enum(['error', 'warning', 'script', 'shader'])).optional()
+        .describe('Only these kinds'),
+    }),
+    execute: async ({ since_id, limit, types }: { since_id?: number; limit?: number; types?: string[] }): Promise<string> => {
+      const godot = getGodotConnection();
+      try {
+        const result = await godot.sendCommand<CommandResult>('get_godot_errors', { since_id, limit, types });
+        const errors = (result.errors as Array<Record<string, unknown>>) ?? [];
+        const header = `next_id: ${result.next_id}`;
+        if (errors.length === 0) return `No errors or warnings. ${header}`;
+        const lines = errors.map(e => `#${e.id} ${e.type} ${e.file ? `${e.file}:${e.line} ` : ''}${e.message}`);
+        const omitted = Number(result.omitted ?? 0);
+        return `${lines.join('\n')}\n${omitted > 0 ? `(${omitted} older not shown) ` : ''}${header}`;
+      } catch (error) {
+        throw new Error(`Failed to read Godot errors: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+  {
     name: 'execute_editor_script',
     description: 'Executes arbitrary GDScript code in the Godot editor',
     parameters: z.object({
@@ -28,7 +57,7 @@ export const editorTools: MCPTool[] = [
         }
         
         if (result.result !== undefined && result.result !== null) {
-          outputText += '\n\nResult:\n' + JSON.stringify(result.result, null, 2);
+          outputText += '\n\nResult:\n' + JSON.stringify(result.result);
         }
         
         return outputText;
@@ -100,7 +129,7 @@ export const editorTools: MCPTool[] = [
       if (max_frames !== undefined) payload.max_frames = max_frames;
 
       const result = await godot.sendCommand<CommandResult>('run_godot_headless', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'admin',
@@ -148,7 +177,7 @@ export const editorTools: MCPTool[] = [
       if (include_gpu !== undefined) payload.include_gpu = include_gpu;
 
       const result = await godot.sendCommand<CommandResult>('capture_editor_profile', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',
@@ -161,7 +190,7 @@ export const editorTools: MCPTool[] = [
     execute: async (): Promise<string> => {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('manage_editor_plugins', { action: 'list' });
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',
@@ -215,7 +244,7 @@ export const editorTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('manage_editor_plugins', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'admin',
@@ -278,7 +307,7 @@ export const editorTools: MCPTool[] = [
       if (max_depth !== undefined) payload.max_depth = max_depth;
 
       const result = await godot.sendCommand<CommandResult>('snapshot_scene_state', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',

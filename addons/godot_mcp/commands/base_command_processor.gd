@@ -130,8 +130,38 @@ func _save_resource_contained(resource: Resource, path: String) -> int:
 	return result
 
 # Groups a user can see: Godot adds viewport-internal groups ("_vp_unhandled_input<id>") to nodes.
+# Godot adds internal groups ("_vp_*", "_root_canvas*", "__cameras_*"); user groups never start with "_".
 func _user_groups(node: Node) -> Array:
-	return node.get_groups().filter(func(group): return not str(group).begins_with("_vp_"))
+	return node.get_groups().filter(func(group): return not str(group).begins_with("_"))
+
+# The recent-errors buffer (utils/error_log.gd), or null before Godot 4.5.
+func _error_log():
+	return Engine.get_meta("GodotMCPErrorLog") if Engine.has_meta("GodotMCPErrorLog") else null
+
+
+# Reloads a saved .gd file the way the editor does and returns why it does not compile, or "".
+# Writing a file never parsed it, so broken scripts were reported as created successfully.
+func _gdscript_compile_error(script_path: String) -> String:
+	var error_log = _error_log()
+	var mark: int = error_log.mark() if error_log else 0
+	var err: int = ERR_PARSE_ERROR
+	var script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_REUSE)
+	if script is GDScript:
+		script.source_code = FileAccess.get_file_as_string(script_path)
+		err = script.reload(true)
+	elif script is Script:
+		return ""
+	if err == OK:
+		return ""
+	var reasons: Array = []
+	if error_log:
+		for entry in error_log.entries_since(mark):
+			var reason := "line %d: %s" % [entry["line"], str(entry["message"]).trim_suffix(".")]
+			# Loading and reloading both report the same parse error.
+			if (entry["type"] == "script" or entry["file"] == script_path) and not reasons.has(reason):
+				reasons.append(reason)
+	return "; ".join(PackedStringArray(reasons)) if not reasons.is_empty() else error_string(err)
+
 
 # Editor helper nodes (e.g. the "@AnimationPlayer@20382" an AnimationTree preview adds) have no
 # owner and an auto-generated "@" name; they are not part of the user's scene.

@@ -9,7 +9,7 @@ export const compressionSettingsResource: Resource<FastMCPSessionAuth> = {
     const godot = getGodotConnection();
     const result = await godot.sendCommand('list_texture_compression_settings', {});
     return {
-      text: JSON.stringify(result, null, 2),
+      text: JSON.stringify(result),
     };
   },
 };

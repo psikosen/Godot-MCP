@@ -16,7 +16,7 @@ export const uiThemeResource: Resource<FastMCPSessionAuth> = {
       });
 
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching UI theme summary:', error);

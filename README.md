@@ -262,6 +262,14 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 - **Rendering & Assets** *(delivered)*: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`, `preview_environment_sun_settings`.
 - **Project & Editor Automation** *(delivered)*: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
 
+### Saving Tokens
+
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 55k tokens per session in clients that load all tool schemas; `core` alone is about 12k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- `get_scene_tree` outlines a whole scene at about ten tokens per node.
+- `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
+- `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.
+- `get_godot_errors` reads Godot's recent errors and warnings (Godot 4.5+). `create_script` and `edit_script` report compile errors with line numbers.
+
 ### Command Roles & Escalations
 
 Every tool is tagged with a required role that indicates the level of trust needed to run it:

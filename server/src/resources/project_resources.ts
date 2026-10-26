@@ -84,7 +84,7 @@ export const projectIndexResource: Resource<FastMCPSessionAuth> = {
   async load() {
     const snapshot = await projectIndexer.getIndex();
     return {
-      text: JSON.stringify(snapshot, null, 2),
+      text: JSON.stringify(snapshot),
     };
   }
 };

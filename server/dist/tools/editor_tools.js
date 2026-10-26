@@ -38,6 +38,49 @@ import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
 export var editorTools = [
     {
+        name: 'get_godot_errors',
+        description: 'Read recent errors and warnings from Godot\'s output (script, shader and engine errors). Pass next_id from the last call as since_id to see only new ones. Needs Godot 4.5+.',
+        parameters: z.object({
+            since_id: z.number().int().min(0).optional()
+                .describe('Only entries with this id or higher (use next_id from the previous call)'),
+            limit: z.number().int().min(1).max(200).optional()
+                .describe('Most recent entries to return (default 50)'),
+            types: z.array(z.enum(['error', 'warning', 'script', 'shader'])).optional()
+                .describe('Only these kinds'),
+        }),
+        execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
+            var godot, result, errors, header, lines, omitted, error_1;
+            var _c, _d;
+            var since_id = _b.since_id, limit = _b.limit, types = _b.types;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
+                    case 0:
+                        godot = getGodotConnection();
+                        _e.label = 1;
+                    case 1:
+                        _e.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('get_godot_errors', { since_id: since_id, limit: limit, types: types })];
+                    case 2:
+                        result = _e.sent();
+                        errors = (_c = result.errors) !== null && _c !== void 0 ? _c : [];
+                        header = "next_id: ".concat(result.next_id);
+                        if (errors.length === 0)
+                            return [2 /*return*/, "No errors or warnings. ".concat(header)];
+                        lines = errors.map(function (e) { return "#".concat(e.id, " ").concat(e.type, " ").concat(e.file ? "".concat(e.file, ":").concat(e.line, " ") : '').concat(e.message); });
+                        omitted = Number((_d = result.omitted) !== null && _d !== void 0 ? _d : 0);
+                        return [2 /*return*/, "".concat(lines.join('\n'), "\n").concat(omitted > 0 ? "(".concat(omitted, " older not shown) ") : '').concat(header)];
+                    case 3:
+                        error_1 = _e.sent();
+                        throw new Error("Failed to read Godot errors: ".concat(error_1.message));
+                    case 4: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'read',
+        },
+    },
+    {
         name: 'execute_editor_script',
         description: 'Executes arbitrary GDScript code in the Godot editor',
         parameters: z.object({
@@ -45,7 +88,7 @@ export var editorTools = [
                 .describe('GDScript code to execute in the editor context'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, outputText, error_1;
+            var godot, result, outputText, error_2;
             var code = _b.code;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -62,12 +105,12 @@ export var editorTools = [
                             outputText += '\n\nOutput:\n' + result.output.join('\n');
                         }
                         if (result.result !== undefined && result.result !== null) {
-                            outputText += '\n\nResult:\n' + JSON.stringify(result.result, null, 2);
+                            outputText += '\n\nResult:\n' + JSON.stringify(result.result);
                         }
                         return [2 /*return*/, outputText];
                     case 3:
-                        error_1 = _c.sent();
-                        throw new Error("Script execution failed: ".concat(error_1.message));
+                        error_2 = _c.sent();
+                        throw new Error("Script execution failed: ".concat(error_2.message));
                     case 4: return [2 /*return*/];
                 }
             });
@@ -132,7 +175,7 @@ export var editorTools = [
                         return [4 /*yield*/, godot.sendCommand('run_godot_headless', payload)];
                     case 1:
                         result = _c.sent();
-                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                        return [2 /*return*/, JSON.stringify(result)];
                 }
             });
         }); },
@@ -181,7 +224,7 @@ export var editorTools = [
                         return [4 /*yield*/, godot.sendCommand('capture_editor_profile', payload)];
                     case 1:
                         result = _c.sent();
-                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                        return [2 /*return*/, JSON.stringify(result)];
                 }
             });
         }); },
@@ -202,7 +245,7 @@ export var editorTools = [
                         return [4 /*yield*/, godot.sendCommand('manage_editor_plugins', { action: 'list' })];
                     case 1:
                         result = _a.sent();
-                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                        return [2 /*return*/, JSON.stringify(result)];
                 }
             });
         }); },
@@ -252,7 +295,7 @@ export var editorTools = [
                         return [4 /*yield*/, godot.sendCommand('manage_editor_plugins', payload)];
                     case 1:
                         result = _c.sent();
-                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                        return [2 /*return*/, JSON.stringify(result)];
                 }
             });
         }); },
@@ -315,7 +358,7 @@ export var editorTools = [
                         return [4 /*yield*/, godot.sendCommand('snapshot_scene_state', payload)];
                     case 1:
                         result = _c.sent();
-                        return [2 /*return*/, JSON.stringify(result, null, 2)];
+                        return [2 /*return*/, JSON.stringify(result)];
                 }
             });
         }); },

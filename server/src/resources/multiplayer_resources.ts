@@ -9,7 +9,7 @@ export const multiplayerStateResource: Resource<FastMCPSessionAuth> = {
     const godot = getGodotConnection();
     const result = await godot.sendCommand('get_multiplayer_state', {});
     return {
-      text: JSON.stringify(result, null, 2),
+      text: JSON.stringify(result),
     };
   },
 };

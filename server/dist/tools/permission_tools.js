@@ -98,7 +98,7 @@ export var permissionTools = [
                                 notes: record.notes,
                                 prompt: record.prompt,
                                 metadata: record.metadata,
-                            }, null, 2)];
+                            })];
                 }
             });
         }); },

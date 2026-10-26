@@ -168,7 +168,7 @@ export const scriptMetadataResourceTemplate: ResourceTemplate<FastMCPSessionAuth
       });
 
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching script metadata:', error);

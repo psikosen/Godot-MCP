@@ -39,6 +39,12 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"query_nodes":
 			_query_nodes(client_id, params, command_id)
 			return true
+		"batch_update_nodes":
+			_batch_update_nodes(client_id, params, command_id)
+			return true
+		"get_scene_tree":
+			_get_scene_tree(client_id, params, command_id)
+			return true
 		"bulk_update_node_properties":
 			_bulk_update_node_properties(client_id, params, command_id)
 			return true
@@ -704,6 +710,20 @@ func _instantiate_scene(client_id: int, params: Dictionary, command_id: String) 
 	var final_name := _resolve_unique_child_name(parent, base_name)
 	instance_node.name = final_name
 
+	# Optional starting values (position, exported vars) so placing an instance takes one call.
+	# The node is new, so they are set directly; undoing the instancing removes them with it.
+	var properties_param = params.get("properties", {})
+	if typeof(properties_param) != TYPE_DICTIONARY:
+		instance_node.free()
+		return _send_error(client_id, "properties must be an object", command_id)
+	if not (properties_param as Dictionary).is_empty():
+		var plan := _stage_property_updates(instance_node, final_name, (properties_param as Dictionary).duplicate(true))
+		if plan.has("error"):
+			instance_node.free()
+			return _send_error(client_id, plan["error"], command_id)
+		for base_property in plan["staged"]:
+			instance_node.set(base_property, plan["staged"][base_property])
+
 	var parent_mcp_path: String = _to_mcp_path(parent)
 	var expected_path := _join_mcp_path(parent_mcp_path, final_name)
 	var transaction_metadata := {
@@ -827,81 +847,17 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 		return _send_error(client_id, "Node path cannot be empty", command_id)
 	if typeof(properties_param) != TYPE_DICTIONARY:
 		return _send_error(client_id, "Properties must be provided as a dictionary", command_id)
-
-	var properties: Dictionary = (properties_param as Dictionary).duplicate(true)
-	if properties.is_empty():
+	if (properties_param as Dictionary).is_empty():
 		return _send_error(client_id, "Properties dictionary cannot be empty", command_id)
 
 	var node = _get_editor_node(node_path)
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 
-	var staged_base_values: Dictionary = {}
-	var original_base_values: Dictionary = {}
-	var leaf_changes: Array = []
-	var property_paths: Array = properties.keys()
-	property_paths.sort()
-
-	for key in property_paths:
-		var property_path: String = str(key)
-		if property_path.strip_edges().is_empty():
-			return _send_error(client_id, "Property names cannot be empty", command_id)
-
-		var raw_value = properties[key]
-		if raw_value == null:
-			return _send_error(client_id, "Property value for %s cannot be null" % property_path, command_id)
-
-		var property_segments: PackedStringArray = property_path.split(".")
-		for segment in property_segments:
-			if str(segment).is_empty():
-				return _send_error(client_id, "Invalid property path: %s" % property_path, command_id)
-
-		var base_property_name: String = property_segments[0]
-		if not base_property_name in node:
-			return _send_error(client_id, "Property %s does not exist on node %s" % [base_property_name, node_path], command_id)
-		_ensure_saved_override(node)
-
-		var current_base_value = staged_base_values.get(base_property_name, node.get(base_property_name))
-		var conversion_result: Dictionary
-		if property_segments.size() == 1:
-			var parsed_value = _convert_property_value(node, base_property_name, raw_value)
-			var value_error := _property_value_error(node, base_property_name, parsed_value)
-			if not value_error.is_empty():
-				return _send_error(client_id, value_error, command_id)
-			_ensure_saved_override(node)
-			conversion_result = {
-				"ok": true,
-				"value": parsed_value,
-				"leaf_previous": current_base_value,
-				"leaf_value": parsed_value,
-			}
-		else:
-			var nested_path: Array = []
-			for i in range(1, property_segments.size()):
-				nested_path.append(property_segments[i])
-			conversion_result = _apply_nested_property_value(current_base_value, nested_path, raw_value)
-			if not conversion_result.get("ok", false):
-				return _send_error(
-					client_id,
-					"Failed to update %s: %s" % [property_path, conversion_result.get("error", "Invalid nested property update")],
-					command_id
-				)
-
-		var updated_base_value = conversion_result.get("value")
-		if current_base_value == updated_base_value:
-			continue
-
-		if not original_base_values.has(base_property_name):
-			original_base_values[base_property_name] = node.get(base_property_name)
-
-		staged_base_values[base_property_name] = updated_base_value
-		leaf_changes.append({
-			"property_path": property_path,
-			"base_property": base_property_name,
-			"previous_value": var_to_str(conversion_result.get("leaf_previous")),
-			"new_value": var_to_str(conversion_result.get("leaf_value")),
-		})
-
+	var plan := _stage_property_updates(node, node_path, (properties_param as Dictionary).duplicate(true))
+	if plan.has("error"):
+		return _send_error(client_id, plan["error"], command_id)
+	var leaf_changes: Array = plan["changes"]
 	if leaf_changes.is_empty():
 		return _send_success(client_id, {
 			"node_path": node_path,
@@ -928,12 +884,7 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for bulk property updates", command_id)
 
-	var base_properties: Array = staged_base_values.keys()
-	base_properties.sort()
-	for base_property in base_properties:
-		var base_property_name: String = str(base_property)
-		transaction.add_do_property(node, base_property_name, staged_base_values[base_property_name])
-		transaction.add_undo_property(node, base_property_name, original_base_values[base_property_name])
+	_add_staged_properties(transaction, node, plan)
 
 	var commit_changes := leaf_changes.duplicate(true)
 	transaction.register_on_commit(func():
@@ -962,6 +913,163 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 		response["status"] = "pending"
 
 	_send_success(client_id, response, command_id)
+
+
+# Sets properties on many nodes in one undo step. Every update is converted and checked before
+# anything changes, so one bad value leaves the scene untouched.
+func _batch_update_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
+	var updates = params.get("updates", [])
+	var transaction_id: String = params.get("transaction_id", "")
+	if typeof(updates) != TYPE_ARRAY or (updates as Array).is_empty():
+		return _send_error(client_id, "updates must be a non-empty list of {node_path, properties}", command_id)
+
+	var plans: Array = []
+	var change_count := 0
+	for i in range((updates as Array).size()):
+		var entry = updates[i]
+		if typeof(entry) != TYPE_DICTIONARY:
+			return _send_error(client_id, "updates[%d] must be an object with node_path and properties" % i, command_id)
+		var node_path := str(entry.get("node_path", ""))
+		var properties = entry.get("properties", {})
+		if node_path.is_empty() or typeof(properties) != TYPE_DICTIONARY or (properties as Dictionary).is_empty():
+			return _send_error(client_id, "updates[%d] needs a node_path and a non-empty properties object" % i, command_id)
+		var node = _get_editor_node(node_path)
+		if not node:
+			return _send_error(client_id, "updates[%d]: Node not found: %s" % [i, node_path], command_id)
+		var plan := _stage_property_updates(node, node_path, (properties as Dictionary).duplicate(true))
+		if plan.has("error"):
+			return _send_error(client_id, "updates[%d] (%s): %s" % [i, node_path, plan["error"]], command_id)
+		if not (plan["changes"] as Array).is_empty():
+			plan["node"] = node
+			plan["node_path"] = node_path
+			plans.append(plan)
+			change_count += (plan["changes"] as Array).size()
+
+	if plans.is_empty():
+		return _send_success(client_id, {"updated_nodes": 0, "change_count": 0, "status": "no_change"}, command_id)
+
+	var transaction_metadata := {
+		"command": "batch_update_nodes",
+		"node_count": plans.size(),
+		"change_count": change_count,
+		"client_id": client_id,
+		"command_id": command_id,
+	}
+	var transaction
+	if transaction_id.is_empty():
+		transaction = SceneTransactionManager.begin_inline("Batch Update Nodes", transaction_metadata)
+	else:
+		transaction = SceneTransactionManager.get_transaction(transaction_id)
+		if not transaction:
+			transaction = SceneTransactionManager.begin_registered(transaction_id, "Batch Update Nodes", transaction_metadata)
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction for batch node updates", command_id)
+
+	var updated_paths: Array = []
+	for plan in plans:
+		_add_staged_properties(transaction, plan["node"], plan)
+		updated_paths.append(plan["node_path"])
+	transaction.register_on_commit(func():
+		_mark_scene_modified()
+		_log("Applied batch node updates", "_batch_update_nodes", {
+			"node_count": updated_paths.size(),
+			"change_count": change_count,
+			"transaction_id": transaction.transaction_id,
+			"system_section": DEFAULT_SYSTEM_SECTION,
+			"line_num": 0,
+		})
+	)
+
+	var response := {
+		"updated_nodes": updated_paths.size(),
+		"change_count": change_count,
+		"node_paths": updated_paths,
+		"transaction_id": transaction.transaction_id,
+	}
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit batch node updates", command_id)
+		response["status"] = "committed"
+	else:
+		response["status"] = "pending"
+	_send_success(client_id, response, command_id)
+
+
+# Converts and checks a property map ("position", "position.x", ...) for one node without
+# changing it. Returns {"error": String}, or {"staged": {base: new}, "original": {base: old},
+# "changes": [...]} where unchanged values are left out.
+func _stage_property_updates(node: Object, node_path: String, properties: Dictionary) -> Dictionary:
+	var staged_base_values: Dictionary = {}
+	var original_base_values: Dictionary = {}
+	var leaf_changes: Array = []
+	var property_paths: Array = properties.keys()
+	property_paths.sort()
+
+	for key in property_paths:
+		var property_path: String = str(key)
+		if property_path.strip_edges().is_empty():
+			return {"error": "Property names cannot be empty"}
+
+		var raw_value = properties[key]
+		if raw_value == null:
+			return {"error": "Property value for %s cannot be null" % property_path}
+
+		var property_segments: PackedStringArray = property_path.split(".")
+		for segment in property_segments:
+			if str(segment).is_empty():
+				return {"error": "Invalid property path: %s" % property_path}
+
+		var base_property_name: String = property_segments[0]
+		if not base_property_name in node:
+			return {"error": "Property %s does not exist on node %s" % [base_property_name, node_path]}
+		_ensure_saved_override(node)
+
+		var current_base_value = staged_base_values.get(base_property_name, node.get(base_property_name))
+		var conversion_result: Dictionary
+		if property_segments.size() == 1:
+			var parsed_value = _convert_property_value(node, base_property_name, raw_value)
+			var value_error := _property_value_error(node, base_property_name, parsed_value)
+			if not value_error.is_empty():
+				return {"error": value_error}
+			conversion_result = {
+				"ok": true,
+				"value": parsed_value,
+				"leaf_previous": current_base_value,
+				"leaf_value": parsed_value,
+			}
+		else:
+			var nested_path: Array = []
+			for i in range(1, property_segments.size()):
+				nested_path.append(property_segments[i])
+			conversion_result = _apply_nested_property_value(current_base_value, nested_path, raw_value)
+			if not conversion_result.get("ok", false):
+				return {"error": "Failed to update %s: %s" % [property_path, conversion_result.get("error", "Invalid nested property update")]}
+
+		var updated_base_value = conversion_result.get("value")
+		if current_base_value == updated_base_value:
+			continue
+
+		if not original_base_values.has(base_property_name):
+			original_base_values[base_property_name] = node.get(base_property_name)
+
+		staged_base_values[base_property_name] = updated_base_value
+		leaf_changes.append({
+			"property_path": property_path,
+			"base_property": base_property_name,
+			"previous_value": var_to_str(conversion_result.get("leaf_previous")),
+			"new_value": var_to_str(conversion_result.get("leaf_value")),
+		})
+
+	return {"staged": staged_base_values, "original": original_base_values, "changes": leaf_changes}
+
+
+func _add_staged_properties(transaction, node: Object, plan: Dictionary) -> void:
+	var base_properties: Array = (plan["staged"] as Dictionary).keys()
+	base_properties.sort()
+	for base_property in base_properties:
+		transaction.add_do_property(node, str(base_property), plan["staged"][base_property])
+		transaction.add_undo_property(node, str(base_property), plan["original"][base_property])
 
 
 func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -16795,6 +16903,8 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 
 func _get_node_properties(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
+	var wanted: Array = params.get("properties", [])
+	var changed_only: bool = params.get("changed_only", false)
 	
 	# Validation
 	if node_path.is_empty():
@@ -16805,9 +16915,26 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 	
+	# Named properties only: a full dump is 60-150 entries, most of them defaults.
+	if not wanted.is_empty():
+		var picked := {}
+		var missing: Array = []
+		for name in wanted:
+			var key := str(name)
+			if key.split(".")[0] in node:
+				picked[key] = _readable_value(node.get_indexed(NodePath(key.replace(".", ":"))))
+			else:
+				missing.append(key)
+		return _send_success(client_id, {"node_path": node_path, "properties": picked, "missing": missing}, command_id)
+	
 	# Get all properties
 	var properties = {}
 	var property_list = node.get_property_list()
+	var script = node.get_script()
+	var script_vars := {}
+	if changed_only and script:
+		for info in script.get_script_property_list():
+			script_vars[info["name"]] = true
 	
 	# Inspector category/group headers are list entries, not properties (they read as null).
 	var header_usage := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
@@ -16818,13 +16945,76 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 		# GPUParticles3D lists draw_pass_1..4 but reading one beyond draw_passes raises an engine error.
 		if name.begins_with("draw_pass_") and name.substr(10).is_valid_int() and "draw_passes" in node and name.substr(10).to_int() > int(node.get("draw_passes")):
 			continue
-		if not name.begins_with("_"):  # Skip internal properties
-			properties[name] = node.get(name)
+		if name.begins_with("_"):  # Skip internal properties
+			continue
+		if changed_only and not (prop.get("usage", 0) & PROPERTY_USAGE_STORAGE):
+			continue  # derived values (global_position, transform) are never saved, so never "changed"
+		var value = node.get(name)
+		if changed_only:
+			var default_value = script.get_property_default_value(name) if script_vars.has(name) else ClassDB.class_get_property_default_value(node.get_class(), name)
+			if typeof(value) == typeof(default_value) and value == default_value:
+				continue
+		properties[name] = _readable_value(value)
 	
 	_send_success(client_id, {
 		"node_path": node_path,
 		"properties": properties
 	}, command_id)
+
+
+# A saved resource (script, shape, texture) reads best as its file path, not "(path):<Class#id>".
+func _readable_value(value):
+	if value is Resource and not value.resource_path.is_empty() and not value.resource_path.contains("::"):
+		return value.resource_path
+	return value
+
+
+# Compact outline of a subtree, one line per node: "Name (Type) @scene script=x.gd [groups]".
+# Roughly ten tokens per node, against about a hundred and fifty for snapshot_scene_state.
+func _get_scene_tree(client_id: int, params: Dictionary, command_id: String) -> void:
+	var root_path: String = params.get("root_path", "/root")
+	var max_depth: int = clampi(int(params.get("max_depth", 10)), 0, 64)
+	var max_nodes: int = clampi(int(params.get("max_nodes", 400)), 1, 5000)
+	var root = _get_editor_node(root_path)
+	if not root:
+		return _send_error(client_id, "Node not found: %s" % root_path, command_id)
+	var lines := PackedStringArray()
+	var state := {"shown": 0, "omitted": 0}
+	_outline_node(root, 0, max_depth, max_nodes, lines, state)
+	_send_success(client_id, {
+		"root_path": _to_mcp_path(root),
+		"outline": "\n".join(lines),
+		"shown": state["shown"],
+		"omitted": state["omitted"],
+	}, command_id)
+
+
+func _outline_node(node: Node, depth: int, max_depth: int, max_nodes: int, lines: PackedStringArray, state: Dictionary) -> void:
+	if state["shown"] >= max_nodes:
+		state["omitted"] += 1
+		return
+	state["shown"] += 1
+	var text := "%s%s (%s)" % ["  ".repeat(depth), node.name, node.get_class()]
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var is_instance: bool = node != scene_root and not node.scene_file_path.is_empty()
+	if is_instance:
+		text += " @" + node.scene_file_path
+	elif node.get_script():
+		text += " script=" + str(node.get_script().resource_path).get_file()
+	var groups := _user_groups(node)
+	if not groups.is_empty():
+		text += " [%s]" % ",".join(PackedStringArray(groups.map(func(group): return str(group))))
+	var children: Array = node.get_children().filter(func(child): return not _is_editor_internal_node(child))
+	# An instance's children live in its own scene; list them only when they are editable here.
+	if is_instance and scene_root and not scene_root.is_editable_instance(node):
+		children = []
+	elif depth >= max_depth and not children.is_empty():
+		text += " +%d children" % children.size()
+		state["omitted"] += children.size()
+		children = []
+	lines.append(text)
+	for child in children:
+		_outline_node(child, depth + 1, max_depth, max_nodes, lines, state)
 
 func _list_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path = params.get("parent_path", "/root")

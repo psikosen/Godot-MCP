@@ -66,7 +66,7 @@ export var xrTools = [
                             return [4 /*yield*/, godot.sendCommand('list_xr_interfaces', {})];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -112,7 +112,7 @@ export var xrTools = [
                             return [4 /*yield*/, godot.sendCommand('initialize_xr_interface', payload)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -143,7 +143,7 @@ export var xrTools = [
                                 })];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -177,7 +177,7 @@ export var xrTools = [
                             return [4 /*yield*/, godot.sendCommand('save_xr_project_settings', payload)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });

@@ -57,7 +57,7 @@ export var uiThemeResource = {
                     case 2:
                         result = _a.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(result, null, 2),
+                                text: JSON.stringify(result),
                             }];
                     case 3:
                         error_1 = _a.sent();

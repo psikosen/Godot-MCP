@@ -43,6 +43,14 @@ var _jsonrpc_requests := {}
 func _enter_tree():
 	# Store plugin instance for EditorInterface access
 	Engine.set_meta("GodotMCPPlugin", self)
+
+	# Godot 4.5+ lets scripts receive engine errors; keep the recent ones for get_godot_errors and
+	# for compile checks in create_script/edit_script.
+	if ClassDB.class_exists("Logger") and not Engine.has_meta("GodotMCPErrorLog"):
+		var error_log = load("res://addons/godot_mcp/utils/error_log.gd").new()
+		# call() keeps this file loading on Godot 4.4, where OS has no add_logger.
+		OS.call("add_logger", error_log)
+		Engine.set_meta("GodotMCPErrorLog", error_log)
 	
 	print("\n=== MCP SERVER STARTING ===")
 	
@@ -80,7 +88,10 @@ func _exit_tree():
 	# Remove plugin instance from Engine metadata
 	if Engine.has_meta("GodotMCPPlugin"):
 		Engine.remove_meta("GodotMCPPlugin")
-	
+	if Engine.has_meta("GodotMCPErrorLog"):
+		OS.call("remove_logger", Engine.get_meta("GodotMCPErrorLog"))
+		Engine.remove_meta("GodotMCPErrorLog")
+
 	if tcp_server and tcp_server.is_listening():
 		tcp_server.stop()
 	

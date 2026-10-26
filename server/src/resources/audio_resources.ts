@@ -11,7 +11,7 @@ export const audioBusResource: Resource<FastMCPSessionAuth> = {
     try {
       const result = await godot.sendCommand('list_audio_buses', {});
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching audio buses:', error);

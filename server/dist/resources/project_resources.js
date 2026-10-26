@@ -151,7 +151,7 @@ export var projectIndexResource = {
                     case 1:
                         snapshot = _a.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(snapshot, null, 2),
+                                text: JSON.stringify(snapshot),
                             }];
                 }
             });

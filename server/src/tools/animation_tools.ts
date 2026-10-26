@@ -223,7 +223,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = listAnimationPlayersSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('list_animation_players', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -237,7 +237,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = describeAnimationTracksSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('describe_animation_tracks', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -251,7 +251,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = describeAnimationStateMachinesSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('describe_animation_state_machines', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -265,7 +265,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = editAnimationSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('edit_animation', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -279,7 +279,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = configureAnimationTreeSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('configure_animation_tree', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -293,7 +293,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = bakeSkeletonPoseSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('bake_skeleton_pose', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -307,7 +307,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = generateTweenSequenceSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('generate_tween_sequence', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
   {
@@ -321,7 +321,7 @@ export const animationTools: MCPTool<any>[] = [
       const payload = syncParticlesWithAnimationSchema.parse(args ?? {});
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('sync_particles_with_animation', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
   },
 ];

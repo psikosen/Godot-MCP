@@ -11,7 +11,7 @@ export const physicsWorldResource: Resource<FastMCPSessionAuth> = {
     try {
       const result = await godot.sendCommand('get_physics_world_snapshot', {});
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching physics world snapshot:', error);

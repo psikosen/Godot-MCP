@@ -27,7 +27,7 @@ export const xrTools: MCPTool[] = [
     async execute(): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('list_xr_interfaces', {});
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',
@@ -65,7 +65,7 @@ export const xrTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('initialize_xr_interface', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -85,7 +85,7 @@ export const xrTools: MCPTool[] = [
       const result = await godot.sendCommand<CommandResult>('shutdown_xr_interface', {
         interface_name,
       });
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -110,7 +110,7 @@ export const xrTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('save_xr_project_settings', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',

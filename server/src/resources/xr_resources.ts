@@ -9,7 +9,7 @@ export const xrInterfacesResource: Resource<FastMCPSessionAuth> = {
     const godot = getGodotConnection();
     const result = await godot.sendCommand('list_xr_interfaces', {});
     return {
-      text: JSON.stringify(result, null, 2),
+      text: JSON.stringify(result),
     };
   },
 };

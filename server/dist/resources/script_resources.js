@@ -238,7 +238,7 @@ export var scriptMetadataResourceTemplate = {
                     case 2:
                         result = _c.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(result, null, 2),
+                                text: JSON.stringify(result),
                             }];
                     case 3:
                         error_3 = _c.sent();

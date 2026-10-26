@@ -55,7 +55,7 @@ export var patchTools = [
                                 patch_id: preview.patchId,
                                 diff: diff,
                                 files: preview.files,
-                            }, null, 2)];
+                            })];
                 }
             });
         }); },
@@ -80,7 +80,7 @@ export var patchTools = [
                         return [2 /*return*/, JSON.stringify({
                                 patch_id: result.patchId,
                                 applied_files: result.appliedFiles,
-                            }, null, 2)];
+                            })];
                 }
             });
         }); },
@@ -102,7 +102,7 @@ export var patchTools = [
                 return [2 /*return*/, JSON.stringify({
                         patch_id: patch_id,
                         cancelled: true,
-                    }, null, 2)];
+                    })];
             });
         }); },
         metadata: {

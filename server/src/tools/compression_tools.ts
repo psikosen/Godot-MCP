@@ -36,7 +36,7 @@ export const compressionTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('configure_texture_compression', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -54,7 +54,7 @@ export const compressionTools: MCPTool[] = [
     async execute({ paths }): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('batch_reimport_textures', { paths });
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -97,7 +97,7 @@ export const compressionTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('create_texture_import_preset', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -110,7 +110,7 @@ export const compressionTools: MCPTool[] = [
     async execute(): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('list_texture_compression_settings', {});
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',

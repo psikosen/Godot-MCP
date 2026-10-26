@@ -57,7 +57,7 @@ export var animationStateMachinesResource = {
                     case 2:
                         result = _a.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(result, null, 2),
+                                text: JSON.stringify(result),
                             }];
                     case 3:
                         error_1 = _a.sent();
@@ -89,7 +89,7 @@ export var animationTracksResource = {
                     case 2:
                         result = _a.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(result, null, 2),
+                                text: JSON.stringify(result),
                             }];
                     case 3:
                         error_2 = _a.sent();

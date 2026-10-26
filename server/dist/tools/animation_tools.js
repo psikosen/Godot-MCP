@@ -252,7 +252,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('list_animation_players', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -276,7 +276,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('describe_animation_tracks', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -300,7 +300,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('describe_animation_state_machines', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -324,7 +324,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('edit_animation', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -348,7 +348,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('configure_animation_tree', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -372,7 +372,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('bake_skeleton_pose', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -396,7 +396,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('generate_tween_sequence', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -420,7 +420,7 @@ export var animationTools = [
                             return [4 /*yield*/, godot.sendCommand('sync_particles_with_animation', payload)];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });

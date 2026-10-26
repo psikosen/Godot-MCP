@@ -11,6 +11,9 @@ const SNAPSHOT_USAGE_MASK := PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_SCRIPT_VARI
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
+		"get_godot_errors":
+			_get_godot_errors(client_id, params, command_id)
+			return true
 		"get_editor_state":
 			_get_editor_state(client_id, params, command_id)
 			return true
@@ -884,3 +887,21 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
+
+
+func _get_godot_errors(client_id: int, params: Dictionary, command_id: String) -> void:
+	var error_log = _error_log()
+	if error_log == null:
+		return _send_error(client_id, "Reading Godot errors needs Godot 4.5 or newer (the Logger class)", command_id)
+	var since_id: int = maxi(int(params.get("since_id", 0)), 0)
+	var limit: int = clampi(int(params.get("limit", 50)), 1, 200)
+	var types: Array = params.get("types", [])
+	var entries: Array = error_log.entries_since(since_id)
+	if not types.is_empty():
+		entries = entries.filter(func(entry): return entry["type"] in types)
+	var omitted: int = maxi(entries.size() - limit, 0)
+	_send_success(client_id, {
+		"errors": entries.slice(omitted),
+		"omitted": omitted,
+		"next_id": error_log.mark(),
+	}, command_id)

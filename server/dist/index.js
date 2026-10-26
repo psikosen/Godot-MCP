@@ -74,6 +74,7 @@ import { renderingTools } from './tools/rendering_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
+import { enabledToolsets, toolsetOf, TOOLSETS } from './utils/toolsets.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResourceTemplate, scriptListResource, scriptMetadataResourceTemplate } from './resources/script_resources.js';
@@ -91,17 +92,21 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, SCENE_STATE_RESOURCE_URIS, registerTool, cleanup, error_1;
+        var toolsets, hiddenToolsets, server, SCENE_STATE_RESOURCE_URIS, registerTool, cleanup, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     console.error('Starting Godot MCP server...');
+                    toolsets = enabledToolsets(process.env.GODOT_MCP_TOOLSETS);
+                    hiddenToolsets = toolsets ? TOOLSETS.filter(function (name) { return !toolsets.has(name); }) : [];
                     server = new FastMCP({
                         name: 'GodotMCP',
                         version: '1.0.0',
                         instructions: 'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
                             'Read the godot/* resources or list/get tools before editing. ' +
-                            'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve.',
+                            'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
+                            'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
+                            (hiddenToolsets.length > 0 ? " Hidden tool groups (GODOT_MCP_TOOLSETS): ".concat(hiddenToolsets.join(', '), ".") : ''),
                     });
                     SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
                     registerTool = function (tool) {
@@ -137,7 +142,8 @@ function main() {
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true).filter(function (tool) { return toolsets === null || toolsets.has(toolsetOf(tool.name)); })
+                        .forEach(function (tool) {
                         registerTool(tool);
                     });
                     // Register all resources

@@ -26,6 +26,19 @@ interface UpdateNodePropertyParams {
 
 interface GetNodePropertiesParams {
   node_path: string;
+  properties?: string[];
+  changed_only?: boolean;
+}
+
+interface GetSceneTreeParams {
+  root_path?: string;
+  max_depth?: number;
+  max_nodes?: number;
+}
+
+interface BatchUpdateNodesParams {
+  updates: Array<{ node_path: string; properties: Record<string, unknown> }>;
+  transaction_id?: string;
 }
 
 interface ListNodesParams {
@@ -62,6 +75,7 @@ interface InstantiateSceneParams {
   scene_path: string;
   parent_path?: string;
   node_name?: string;
+  properties?: Record<string, unknown>;
   transaction_id?: string;
 }
 
@@ -1766,25 +1780,54 @@ export const nodeTools: MCPTool[] = [
 
   {
     name: 'get_node_properties',
-    description: 'Get all properties of a node in the Godot scene tree',
+    description: 'Get properties of a node. Pass properties (names) or changed_only to keep the reply short; a full dump is 60-150 entries.',
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to inspect (e.g. "/root/MainScene/Player")'),
+      properties: z.array(z.string()).max(200).optional()
+        .describe('Only these properties, e.g. ["position", "modulate", "position.x"]'),
+      changed_only: z.boolean().optional()
+        .describe('Only properties that differ from the class or script default'),
     }),
-    execute: async ({ node_path }: GetNodePropertiesParams): Promise<string> => {
+    execute: async ({ node_path, properties, changed_only }: GetNodePropertiesParams): Promise<string> => {
       const godot = getGodotConnection();
       
       try {
-        const result = await godot.sendCommand<CommandResult>('get_node_properties', { node_path });
+        const result = await godot.sendCommand<CommandResult>('get_node_properties', { node_path, properties, changed_only });
         
-        // Format properties for display
-        const formattedProperties = Object.entries(result.properties)
-          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-          .join('\n');
-        
-        return `Properties of node at ${node_path}:\n\n${formattedProperties}`;
+        const lines = Object.entries(result.properties)
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`);
+        const missing = (result.missing as string[] | undefined) ?? [];
+        if (missing.length > 0) lines.push(`missing: ${missing.join(', ')}`);
+        return `Properties of node at ${node_path}:\n${lines.join('\n') || '(none differ from defaults)'}`;
       } catch (error) {
         throw new Error(`Failed to get node properties: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+
+  {
+    name: 'get_scene_tree',
+    description: 'Outline the scene tree, one short line per node: "Name (Type) @instanced_scene script=file.gd [groups]". The cheapest way to see a whole scene.',
+    parameters: z.object({
+      root_path: z.string().optional()
+        .describe('Subtree to outline (default "/root", the scene root)'),
+      max_depth: z.number().int().min(0).max(64).optional()
+        .describe('Levels below the root to show (default 10)'),
+      max_nodes: z.number().int().min(1).max(5000).optional()
+        .describe('Stop after this many nodes (default 400)'),
+    }),
+    execute: async ({ root_path, max_depth, max_nodes }: GetSceneTreeParams): Promise<string> => {
+      const godot = getGodotConnection();
+      try {
+        const result = await godot.sendCommand<CommandResult>('get_scene_tree', { root_path, max_depth, max_nodes });
+        const omitted = Number(result.omitted ?? 0);
+        return `${result.outline}${omitted > 0 ? `\n(${omitted} more node(s) not shown; raise max_depth/max_nodes or outline a subtree)` : ''}`;
+      } catch (error) {
+        throw new Error(`Failed to get scene tree: ${(error as Error).message}`);
       }
     },
     metadata: {
@@ -1982,10 +2025,12 @@ export const nodeTools: MCPTool[] = [
         .describe('Optional parent node path (defaults to "/root")'),
       node_name: z.string().optional()
         .describe('Optional name for the instantiated root node'),
+      properties: z.record(z.any()).optional()
+        .describe('Values to set on the new instance, e.g. {"position": {"x": 300, "y": 120}, "speed": 90}'),
       transaction_id: z.string().optional()
         .describe('Optional scene transaction identifier used to batch operations'),
     }),
-    execute: async ({ scene_path, parent_path, node_name, transaction_id }: InstantiateSceneParams): Promise<string> => {
+    execute: async ({ scene_path, parent_path, node_name, properties, transaction_id }: InstantiateSceneParams): Promise<string> => {
       const godot = getGodotConnection();
 
       try {
@@ -1993,6 +2038,7 @@ export const nodeTools: MCPTool[] = [
           scene_path,
           parent_path,
           node_name,
+          properties,
           transaction_id,
         });
 
@@ -2101,6 +2147,35 @@ export const nodeTools: MCPTool[] = [
         return `Bulk updated ${node_path} with ${changes.length} property change(s) [${status}]`;
       } catch (error) {
         throw new Error(`Failed to bulk update node properties: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
+    name: 'batch_update_nodes',
+    description: 'Set properties on many nodes in one call and one undo step. All values are checked first; one bad value changes nothing.',
+    parameters: z.object({
+      updates: z.array(z.object({
+        node_path: z.string().describe('Node to update'),
+        properties: z.record(z.any()).describe('Property map, keys may be paths like "position.x"'),
+      })).min(1).max(500)
+        .describe('One entry per node'),
+      transaction_id: z.string().optional()
+        .describe('Optional scene transaction identifier used to batch operations'),
+    }),
+    execute: async ({ updates, transaction_id }: BatchUpdateNodesParams): Promise<string> => {
+      const godot = getGodotConnection();
+      try {
+        const result = await godot.sendCommand<CommandResult>('batch_update_nodes', { updates, transaction_id });
+        const status = (result.status as string) ?? 'committed';
+        if (status === 'no_change') {
+          return 'Batch update had no effective changes (all values already set).';
+        }
+        return `Updated ${result.updated_nodes} node(s) with ${result.change_count} property change(s) [${status}]`;
+      } catch (error) {
+        throw new Error(`Failed to batch update nodes: ${(error as Error).message}`);
       }
     },
     metadata: {

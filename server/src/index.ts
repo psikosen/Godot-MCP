@@ -19,6 +19,7 @@ import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
+import { enabledToolsets, toolsetOf, TOOLSETS } from './utils/toolsets.js';
 
 // Import resources
 import { 
@@ -57,6 +58,8 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 async function main() {
   console.error('Starting Godot MCP server...');
+  const toolsets = enabledToolsets(process.env.GODOT_MCP_TOOLSETS);
+  const hiddenToolsets = toolsets ? TOOLSETS.filter(name => !toolsets.has(name)) : [];
 
   // Create FastMCP instance
   const server = new FastMCP({
@@ -65,7 +68,9 @@ async function main() {
     instructions:
       'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
       'Read the godot/* resources or list/get tools before editing. ' +
-      'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve.',
+      'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
+      'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
+      (hiddenToolsets.length > 0 ? ` Hidden tool groups (GODOT_MCP_TOOLSETS): ${hiddenToolsets.join(', ')}.` : ''),
   });
 
   // Resources whose content follows the live editor scene (notified after edit/admin tools).
@@ -110,9 +115,11 @@ async function main() {
     ...multiplayerTools,
     ...compressionTools,
     ...renderingTools,
-  ].forEach(tool => {
-    registerTool(tool);
-  });
+  ]
+    .filter(tool => toolsets === null || toolsets.has(toolsetOf(tool.name)))
+    .forEach(tool => {
+      registerTool(tool);
+    });
 
   // Register all resources
   // Static resources

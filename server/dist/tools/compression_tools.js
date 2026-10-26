@@ -75,7 +75,7 @@ export var compressionTools = [
                             return [4 /*yield*/, godot.sendCommand('configure_texture_compression', payload)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -104,7 +104,7 @@ export var compressionTools = [
                             return [4 /*yield*/, godot.sendCommand('batch_reimport_textures', { paths: paths })];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -156,7 +156,7 @@ export var compressionTools = [
                             return [4 /*yield*/, godot.sendCommand('create_texture_import_preset', payload)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -179,7 +179,7 @@ export var compressionTools = [
                             return [4 /*yield*/, godot.sendCommand('list_texture_compression_settings', {})];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
