@@ -17,6 +17,7 @@ import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
 import { workflowTools } from './tools/workflow_tools.js';
 import { builderTools } from './tools/builder_tools.js';
+import { authoringTools } from './tools/authoring_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
@@ -119,6 +120,7 @@ async function main() {
     ...renderingTools,
     ...workflowTools,
     ...builderTools,
+    ...authoringTools,
   ]
     .filter(tool => toolsets === null || toolsets.has(toolsetOf(tool.name)))
     .forEach(tool => {

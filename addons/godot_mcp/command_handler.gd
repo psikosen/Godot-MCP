@@ -64,6 +64,10 @@ const COMMAND_PROCESSOR_DEFINITIONS := [
 		"name": "MCPBuilderCommands",
 		"path": "res://addons/godot_mcp/commands/builder_commands.gd",
 	},
+	{
+		"name": "MCPAuthoringCommands",
+		"path": "res://addons/godot_mcp/commands/authoring_commands.gd",
+	},
 ]
 
 var MCPNodeCommands
@@ -80,6 +84,7 @@ var MCPCompressionCommands
 var MCPRenderingCommands
 var MCPWorkflowCommands
 var MCPBuilderCommands
+var MCPAuthoringCommands
 
 var _websocket_server
 var _command_processors: Array = []
@@ -164,6 +169,7 @@ func _initialize_processors() -> void:
 		MCPRenderingCommands,
 		MCPWorkflowCommands,
 		MCPBuilderCommands,
+		MCPAuthoringCommands,
 	]
 	print("[MCP] Processor classes array has ", processor_classes.size(), " entries")
 

@@ -178,13 +178,20 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `profile_game` - Run a scene and report frame time, draw calls, nodes and memory (admin)
 - `import_asset_files` - Copy images, sounds, fonts or models from this computer into the project (admin)
 
+#### Authoring Commands
+- `create_tileset_2d` - TileSet from a sprite sheet: one tile per grid cell (empty cells skipped), optional full-tile collision, optionally given to a TileMapLayer (undo-aware)
+- `create_sprite_frames` - SpriteFrames for AnimatedSprite2D/3D from a grid sprite sheet: named animations by row or frame list, fps, loop, autoplay (undo-aware)
+- `undo_redo` - Undo or redo the last editor actions, the same as the editor's Undo/Redo, and say which actions changed
+- `get_resource_properties` - Read the saved properties of a `.tres`/`.res` file
+- `update_resource_properties` - Set properties on a `.tres`/`.res` file and save it; one bad value changes nothing (not on the undo history)
+
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
 - `edit_script` - Replace the contents of an existing `.gd` script file
-
-Script paths must stay inside the project: anything that resolves outside `res://` (for example `res://../escape.gd`) is rejected. Check it headlessly with `godot --headless --path . --script res://test_script_path_guard.gd`.
 - `get_script` - Fetch a script by file path or by attached node
 - `create_script_template` - Generate a GDScript skeleton with common callbacks
+
+Script paths must stay inside the project: anything that resolves outside `res://` (for example `res://../escape.gd`) is rejected. Check it headlessly with `godot --headless --path . --script res://test_script_path_guard.gd`.
 
 #### Scene Commands
 - `create_scene` - Create a new scene with an optional root node type
