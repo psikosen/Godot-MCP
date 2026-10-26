@@ -34,8 +34,20 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
 import { spawn } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
 var vector2 = z.union([
@@ -48,20 +60,31 @@ var send = function (command, params) {
 var fail = function (what, error) {
     throw new Error("Failed to ".concat(what, ": ").concat(error.message));
 };
-// Runs Godot's command-line export in its own process: an export inside the editor would block
-// every other MCP call until it finished.
-function runExport(executable, args, timeoutMs) {
+// Runs Godot in its own process (export, tests, game frames): doing it inside the editor would
+// block every other MCP call until it finished.
+// code is a string when the run did not exit by itself ("timed out after 30s"); Godot keeps
+// running after a script error, so a crashed test only ends at the timeout.
+function runGodot(executable, args, timeoutMs) {
     return new Promise(function (resolve) {
         var child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
         var output = '';
+        var timedOut = false;
         var collect = function (chunk) { output = (output + chunk.toString()).slice(-20000); };
         child.stdout.on('data', collect);
         child.stderr.on('data', collect);
-        var timer = setTimeout(function () { child.kill(); output += "\nStopped after ".concat(timeoutMs / 1000, "s."); }, timeoutMs);
+        var timer = setTimeout(function () { timedOut = true; child.kill(); }, timeoutMs);
         child.on('error', function (error) { clearTimeout(timer); resolve({ code: -1, output: error.message }); });
-        child.on('close', function (code) { clearTimeout(timer); resolve({ code: code, output: output }); });
+        child.on('close', function (code) { clearTimeout(timer); resolve({ code: timedOut ? "timed out after ".concat(timeoutMs / 1000, "s") : code, output: output }); });
     });
 }
+var godotProblems = function (output, limit) {
+    if (limit === void 0) { limit = 12; }
+    return output.split('\n')
+        .filter(function (line) { return !line.startsWith('{') && /SCRIPT ERROR|^ERROR:|Parse Error|^FAIL|not ok/.test(line); })
+        .slice(0, limit);
+};
+// Repository root (dist/tools -> ../..), where the addon to install into new projects lives.
+var REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export var workflowTools = [
     {
         name: 'describe_class',
@@ -444,7 +467,7 @@ export var workflowTools = [
                     case 2:
                         error_12 = _d.sent();
                         return [2 /*return*/, fail('prepare export', error_12)];
-                    case 3: return [4 /*yield*/, runExport(plan.executable, [
+                    case 3: return [4 /*yield*/, runGodot(plan.executable, [
                             '--headless', '--path', plan.project_dir,
                             args.debug ? '--export-debug' : '--export-release', plan.preset, plan.output_path,
                         ], ((_b = args.timeout_seconds) !== null && _b !== void 0 ? _b : 300) * 1000)];
@@ -469,6 +492,361 @@ export var workflowTools = [
         metadata: {
             requiredRole: 'admin',
             escalationPrompt: 'Request approval to export the project, which runs Godot in a separate process and writes the build files.',
+        },
+    },
+    {
+        name: 'get_script_outline',
+        description: 'Outline a .gd script with line numbers: extends, signals, exports, vars, consts, enums, funcs, inner classes. Read this before get_script on long files.',
+        parameters: z.object({
+            script_path: z.string().describe('res:// path of a .gd file'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, error_13;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('get_script_outline', args)];
+                    case 1:
+                        r = _a.sent();
+                        return [2 /*return*/, "".concat(r.script_path, " (").concat(r.line_count, " lines)\n").concat(r.outline.join('\n'))];
+                    case 2:
+                        error_13 = _a.sent();
+                        return [2 /*return*/, fail('outline script', error_13)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'read' },
+    },
+    {
+        name: 'move_project_file',
+        description: 'Move or rename one project file (with its .import/.uid) and rewrite references to it in scenes, resources, scripts and project.godot.',
+        parameters: z.object({
+            from_path: z.string().describe('res:// path now'),
+            to_path: z.string().describe('res:// path after the move (same extension)'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, refs, error_14;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('move_project_file', args)];
+                    case 1:
+                        r = _a.sent();
+                        refs = r.updated_references;
+                        return [2 /*return*/, "Moved ".concat(r.from_path, " to ").concat(r.to_path, ". ").concat(refs.length ? "Updated references in: ".concat(refs.join(', ')) : 'No files referred to it by path.')];
+                    case 2:
+                        error_14 = _a.sent();
+                        return [2 /*return*/, fail('move project file', error_14)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'edit' },
+    },
+    {
+        name: 'configure_particles_2d',
+        description: 'Create a CPUParticles2D (pass parent_path) or configure an existing CPU/GPUParticles2D (node_path) from a preset (dust, sparkle, rain, snow, confetti, burst) plus overrides. One undo step.',
+        parameters: z.object({
+            node_path: z.string().optional().describe('Existing particles node to configure'),
+            parent_path: z.string().optional().describe('Create a new CPUParticles2D under this node'),
+            node_name: z.string().optional(),
+            preset: z.enum(['dust', 'sparkle', 'rain', 'snow', 'confetti', 'burst']).optional(),
+            position: vector2.optional(),
+            amount: z.number().int().min(1).max(10000).optional(),
+            lifetime: z.number().min(0.01).max(600).optional(),
+            one_shot: z.boolean().optional(),
+            explosiveness: z.number().min(0).max(1).optional(),
+            emitting: z.boolean().optional(),
+            local_coords: z.boolean().optional(),
+            direction: vector2.optional(),
+            spread: z.number().min(0).max(180).optional(),
+            gravity: vector2.optional(),
+            velocity_min: z.number().optional(),
+            velocity_max: z.number().optional(),
+            scale_min: z.number().min(0).optional(),
+            scale_max: z.number().min(0).optional(),
+            color: z.any().optional().describe('Start color, e.g. "#ffd27f"'),
+            color_end: z.any().optional().describe('Color at the end of each particle\'s life (fade with alpha 0)'),
+            hue_variation: z.number().min(0).max(1).optional(),
+            emission_shape: z.enum(['point', 'sphere', 'rectangle']).optional(),
+            emission_radius: z.number().min(0).optional(),
+            emission_rect_extents: vector2.optional(),
+            texture: z.string().optional().describe('res:// image for each particle (default: a square)'),
+            transaction_id: z.string().optional(),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, error_15;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('configure_particles_2d', args)];
+                    case 1:
+                        r = _a.sent();
+                        return [2 /*return*/, "".concat(r.created ? 'Created' : 'Configured', " ").concat(r.type, " ").concat(r.node_path).concat(r.preset ? " (".concat(r.preset, ")") : '', " [").concat(r.status, "]: ").concat(r.changed.join(', '))];
+                    case 2:
+                        error_15 = _a.sent();
+                        return [2 /*return*/, fail('configure particles', error_15)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'edit' },
+    },
+    {
+        name: 'manage_translations',
+        description: 'Game text in several languages: set_entries writes keys to a translation CSV (keys x locales) and registers the imported files; set_fallback sets the fallback locale; list shows locales and keys. Use tr("KEY") in scripts or the key as Label text.',
+        parameters: z.object({
+            action: z.enum(['list', 'set_entries', 'set_fallback']),
+            csv_path: z.string().optional().describe('Default res://translations/strings.csv'),
+            entries: z.record(z.record(z.string())).optional().describe('{"MENU_START": {"en": "Start", "es": "Empezar"}}'),
+            locale: z.string().optional().describe('For set_fallback, e.g. "en"'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, keys, error_16;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('manage_translations', args)];
+                    case 1:
+                        r = _a.sent();
+                        keys = r.keys;
+                        return [2 /*return*/, "".concat(r.csv_path, ": locales ").concat(r.locales.join(', ') || 'none', "; ").concat(r.key_count, " key(s)").concat(keys.length ? " (".concat(keys.join(', ')).concat(Number(r.key_count) > keys.length ? ', ...' : '', ")") : '', "; registered ").concat(r.registered.length, " translation file(s); fallback ").concat(r.fallback)];
+                    case 2:
+                        error_16 = _a.sent();
+                        return [2 /*return*/, fail('manage translations', error_16)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'edit' },
+    },
+    {
+        name: 'select_in_editor',
+        description: 'Select a node in the Godot editor and show it in the Inspector, so the person at the editor sees what you mean. With no node_path, returns the current selection.',
+        parameters: z.object({
+            node_path: z.string().optional(),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, selected, error_17;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('select_in_editor', args)];
+                    case 1:
+                        r = _a.sent();
+                        selected = r.selected;
+                        return [2 /*return*/, selected.length ? "Selected: ".concat(selected.join(', ')) : 'Nothing is selected.'];
+                    case 2:
+                        error_17 = _a.sent();
+                        return [2 /*return*/, fail('select in editor', error_17)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'read' },
+    },
+    {
+        name: 'run_game_tests',
+        description: 'Run GDScript test scripts (scripts that extend SceneTree, e.g. res://tests/*.gd) headless, one Godot process each, and report pass/fail. PASS/FAIL or ok/not ok lines are counted; SCRIPT ERRORs and a non-zero exit fail the script.',
+        parameters: z.object({
+            tests: z.array(z.string()).optional().describe('res:// test scripts; default: every SceneTree script in tests_dir'),
+            tests_dir: z.string().optional().describe('Default res://tests'),
+            timeout_seconds: z.number().int().min(5).max(1800).optional().describe('Per script, default 120'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var paths, error_18, tests, lines, failed, _i, tests_1, test_1, started, _a, code, output, passes, problems, ok;
+            var _b, _c, _d, _e;
+            return __generator(this, function (_f) {
+                switch (_f.label) {
+                    case 0:
+                        _f.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('get_runtime_paths', args.tests ? {} : { tests_dir: (_b = args.tests_dir) !== null && _b !== void 0 ? _b : 'res://tests' })];
+                    case 1:
+                        paths = _f.sent();
+                        return [3 /*break*/, 3];
+                    case 2:
+                        error_18 = _f.sent();
+                        return [2 /*return*/, fail('find tests', error_18)];
+                    case 3:
+                        tests = (_c = args.tests) !== null && _c !== void 0 ? _c : paths.tests;
+                        if (tests.length === 0)
+                            return [2 /*return*/, "No test scripts (extends SceneTree) found in ".concat((_d = args.tests_dir) !== null && _d !== void 0 ? _d : 'res://tests', ".")];
+                        lines = [];
+                        failed = 0;
+                        _i = 0, tests_1 = tests;
+                        _f.label = 4;
+                    case 4:
+                        if (!(_i < tests_1.length)) return [3 /*break*/, 7];
+                        test_1 = tests_1[_i];
+                        started = Date.now();
+                        return [4 /*yield*/, runGodot(paths.executable, ['--headless', '--path', paths.project_dir, '--fixed-fps', '60', '--script', test_1], ((_e = args.timeout_seconds) !== null && _e !== void 0 ? _e : 120) * 1000)];
+                    case 5:
+                        _a = _f.sent(), code = _a.code, output = _a.output;
+                        passes = output.split('\n').filter(function (line) { return /^(PASS|ok)\b/.test(line); }).length;
+                        problems = godotProblems(output);
+                        ok = code === 0 && !problems.some(function (line) { return /SCRIPT ERROR|^FAIL|not ok|Parse Error/.test(line); });
+                        if (!ok)
+                            failed += 1;
+                        lines.push("".concat(ok ? 'PASS' : 'FAIL', " ").concat(test_1, ": ").concat(passes, " passed, ").concat(problems.length, " problem(s), ").concat(typeof code === 'string' ? code : "exit ".concat(code), ", ").concat(((Date.now() - started) / 1000).toFixed(1), "s"));
+                        lines.push.apply(lines, problems.map(function (line) { return "  ".concat(line.trim().slice(0, 200)); }));
+                        _f.label = 6;
+                    case 6:
+                        _i++;
+                        return [3 /*break*/, 4];
+                    case 7: return [2 /*return*/, "".concat(tests.length - failed, "/").concat(tests.length, " test script(s) passed\n").concat(lines.join('\n'))];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'admin',
+            escalationPrompt: 'Request approval to run the project\'s test scripts in a separate headless Godot process.',
+        },
+    },
+    {
+        name: 'capture_game_frame',
+        description: 'Run a scene for some frames in a real game window (scripts run, so HUDs and movement are live), optionally holding input actions, and return the last frame as a picture. Briefly opens a window.',
+        parameters: z.object({
+            scene: z.string().optional().describe('res:// scene; default the main scene'),
+            frames: z.number().int().min(1).max(3600).optional().describe('Frames to run at 60 fps before the picture (default 60)'),
+            hold: z.array(z.object({
+                action: z.string().describe('Input action, e.g. "move_right"'),
+                from_frame: z.number().int().min(0),
+                to_frame: z.number().int().min(0),
+            })).max(20).optional().describe('Input to hold while it runs'),
+            width: z.number().int().min(64).max(3840).optional(),
+            height: z.number().int().min(64).max(2160).optional(),
+            timeout_seconds: z.number().int().min(5).max(600).optional().describe('Default 60'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var paths, error_19, scene, _a, defaultWidth, defaultHeight, png, holds, _b, code, output, data, problems;
+            var _c, _d, _e, _f, _g, _h, _j;
+            return __generator(this, function (_k) {
+                switch (_k.label) {
+                    case 0:
+                        _k.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('get_runtime_paths', {})];
+                    case 1:
+                        paths = _k.sent();
+                        return [3 /*break*/, 3];
+                    case 2:
+                        error_19 = _k.sent();
+                        return [2 /*return*/, fail('find the game', error_19)];
+                    case 3:
+                        scene = (_c = args.scene) !== null && _c !== void 0 ? _c : paths.main_scene;
+                        if (!scene)
+                            throw new Error('No scene given and the project has no main scene');
+                        _a = paths.window, defaultWidth = _a[0], defaultHeight = _a[1];
+                        png = path.join(tmpdir(), "godot-mcp-frame-".concat(process.pid, "-").concat(Date.now(), ".png"));
+                        holds = ((_d = args.hold) !== null && _d !== void 0 ? _d : []).map(function (h) { return "".concat(h.action, ":").concat(h.from_frame, ":").concat(h.to_frame); });
+                        return [4 /*yield*/, runGodot(paths.executable, __spreadArray([
+                                '--path', paths.project_dir, '--fixed-fps', '60', '--resolution',
+                                "".concat((_e = args.width) !== null && _e !== void 0 ? _e : defaultWidth, "x").concat((_f = args.height) !== null && _f !== void 0 ? _f : defaultHeight),
+                                '--script', 'res://addons/godot_mcp/runtime/capture_frame.gd', '--', scene, String((_g = args.frames) !== null && _g !== void 0 ? _g : 60), png
+                            ], holds, true), ((_h = args.timeout_seconds) !== null && _h !== void 0 ? _h : 60) * 1000)];
+                    case 4:
+                        _b = _k.sent(), code = _b.code, output = _b.output;
+                        if (!existsSync(png)) {
+                            throw new Error("The game did not produce a frame (exit ".concat(code, ").\n").concat(godotProblems(output).join('\n') || output.slice(-1200)));
+                        }
+                        data = readFileSync(png).toString('base64');
+                        rmSync(png, { force: true });
+                        problems = godotProblems(output);
+                        return [2 /*return*/, {
+                                content: [
+                                    { type: 'image', data: data, mimeType: 'image/png' },
+                                    { type: 'text', text: "".concat(scene, " after ").concat((_j = args.frames) !== null && _j !== void 0 ? _j : 60, " frame(s)").concat(problems.length ? "\nErrors while running:\n".concat(problems.join('\n')) : '') },
+                                ],
+                            }];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'admin',
+            escalationPrompt: 'Request approval to run the game in a window to take a picture of it.',
+        },
+    },
+    {
+        name: 'create_project',
+        description: 'Create a new Godot project folder with a main scene and the Godot MCP addon installed and enabled, ready to open in the editor.',
+        parameters: z.object({
+            path: z.string().describe('Absolute folder for the new project (must not exist or be empty)'),
+            name: z.string().min(1).describe('Game name'),
+            dimension: z.enum(['2d', '3d']).optional().describe('Main scene root: Node2D or Node3D (default 2d)'),
+            renderer: z.enum(['gl_compatibility', 'mobile', 'forward_plus']).optional().describe('Default gl_compatibility (runs everywhere)'),
+            window_width: z.number().int().min(64).max(7680).optional(),
+            window_height: z.number().int().min(64).max(4320).optional(),
+            install_mcp: z.boolean().optional().describe('Copy and enable the Godot MCP addon (default true)'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var target, version, _a, renderer, feature, install, is3d, quoted, projectFile;
+            var _b, _c, _d, _e;
+            return __generator(this, function (_f) {
+                switch (_f.label) {
+                    case 0:
+                        target = path.resolve(args.path);
+                        if (!path.isAbsolute(args.path))
+                            throw new Error('path must be absolute');
+                        if (existsSync(target) && readdirSync(target).length > 0)
+                            throw new Error("".concat(target, " already exists and is not empty"));
+                        version = '4.4';
+                        _f.label = 1;
+                    case 1:
+                        _f.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, send('get_runtime_paths', {})];
+                    case 2:
+                        version = (_f.sent()).godot_version;
+                        return [3 /*break*/, 4];
+                    case 3:
+                        _a = _f.sent();
+                        return [3 /*break*/, 4];
+                    case 4:
+                        renderer = (_b = args.renderer) !== null && _b !== void 0 ? _b : 'gl_compatibility';
+                        feature = { gl_compatibility: 'GL Compatibility', mobile: 'Mobile', forward_plus: 'Forward Plus' }[renderer];
+                        install = (_c = args.install_mcp) !== null && _c !== void 0 ? _c : true;
+                        is3d = args.dimension === '3d';
+                        quoted = JSON.stringify(args.name);
+                        projectFile = __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([
+                            '; Engine configuration file.', '', 'config_version=5', '', '[application]', '',
+                            "config/name=".concat(quoted),
+                            'run/main_scene="res://main.tscn"',
+                            "config/features=PackedStringArray(\"".concat(version, "\", \"").concat(feature, "\")"),
+                            ''
+                        ], (install ? ['[autoload]', '', 'MCPAutoload="*res://autoload_mcp_server.gd"', ''] : []), true), [
+                            '[display]', '',
+                            "window/size/viewport_width=".concat((_d = args.window_width) !== null && _d !== void 0 ? _d : 1280),
+                            "window/size/viewport_height=".concat((_e = args.window_height) !== null && _e !== void 0 ? _e : 720)
+                        ], false), (is3d ? [] : ['window/stretch/mode="canvas_items"']), true), [
+                            ''
+                        ], false), (install ? ['[editor_plugins]', '', 'enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg")', ''] : []), true), [
+                            '[rendering]', '',
+                            "renderer/rendering_method=\"".concat(renderer, "\"")
+                        ], false), (renderer === 'gl_compatibility' ? ['renderer/rendering_method.mobile="gl_compatibility"'] : []), true), [
+                            '',
+                        ], false).join('\n');
+                        mkdirSync(target, { recursive: true });
+                        writeFileSync(path.join(target, 'project.godot'), projectFile);
+                        writeFileSync(path.join(target, 'main.tscn'), "[gd_scene format=3]\n\n[node name=\"Main\" type=\"".concat(is3d ? 'Node3D' : 'Node2D', "\"]\n"));
+                        writeFileSync(path.join(target, '.gitignore'), '.godot/\n');
+                        if (install) {
+                            cpSync(path.join(REPO_ROOT, 'addons', 'godot_mcp'), path.join(target, 'addons', 'godot_mcp'), {
+                                recursive: true,
+                                filter: function (source) { return !/_test\.gd|command_handler_minimal/.test(source); },
+                            });
+                            cpSync(path.join(REPO_ROOT, 'autoload_mcp_server.gd'), path.join(target, 'autoload_mcp_server.gd'));
+                        }
+                        return [2 /*return*/, "Created ".concat(args.name, " at ").concat(target, " (").concat(is3d ? '3D' : '2D', ", ").concat(feature).concat(install ? ', Godot MCP addon enabled' : '', "). Open it in Godot: godot --path \"").concat(target, "\" --editor")];
+                }
+            });
+        }); },
+        metadata: {
+            requiredRole: 'admin',
+            escalationPrompt: 'Request approval to create a new Godot project folder outside the current project.',
         },
     },
 ];

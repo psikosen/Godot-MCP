@@ -16962,10 +16962,12 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 	}, command_id)
 
 
-# A saved resource (script, shape, texture) reads best as its file path, not "(path):<Class#id>".
+# A saved resource (script, shape, texture) reads best as its file path and a built-in one as
+# "<Class>", not "(path):<Class#id>".
 func _readable_value(value):
-	if value is Resource and not value.resource_path.is_empty() and not value.resource_path.contains("::"):
-		return value.resource_path
+	if value is Resource:
+		var file_path: String = value.resource_path
+		return file_path if not file_path.is_empty() and not file_path.contains("::") else "<%s>" % value.get_class()
 	return value
 
 

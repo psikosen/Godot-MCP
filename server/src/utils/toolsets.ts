@@ -1,4 +1,4 @@
-// Tool groups for GODOT_MCP_TOOLSETS. Listing every tool costs about 58k tokens per session in
+// Tool groups for GODOT_MCP_TOOLSETS. Listing every tool costs about 59k tokens per session in
 // clients that load all tool schemas up front; a project can expose only the groups it uses.
 // The first matching rule wins; anything unmatched is core, and core is always on.
 const RULES: Array<[string, RegExp]> = [

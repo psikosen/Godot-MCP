@@ -69,6 +69,16 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 			_capture_scene_image(client_id, params, command_id)
 		"prepare_export":
 			_prepare_export(client_id, params, command_id)
+		"get_runtime_paths":
+			_get_runtime_paths(client_id, params, command_id)
+		"get_script_outline":
+			_get_script_outline(client_id, params, command_id)
+		"configure_particles_2d":
+			_configure_particles_2d(client_id, params, command_id)
+		"manage_translations":
+			_manage_translations(client_id, params, command_id)
+		"select_in_editor":
+			_select_in_editor(client_id, params, command_id)
 		_:
 			return false
 	return true
@@ -753,6 +763,364 @@ func _prepare_export(client_id: int, params: Dictionary, command_id: String) -> 
 		"output_path": global_output,
 		"notes": notes,
 	}, command_id)
+
+
+# --- runtime paths (run_game_tests, capture_game_frame) ------------------------------------
+
+# What the server needs to start its own Godot process for this project. With tests_dir, also the
+# SceneTree/MainLoop scripts in that folder (the scripts `godot --script` can run).
+func _get_runtime_paths(client_id: int, params: Dictionary, command_id: String) -> void:
+	var result := {
+		"executable": OS.get_executable_path(),
+		"project_dir": ProjectSettings.globalize_path("res://"),
+		"godot_version": "%d.%d" % [Engine.get_version_info()["major"], Engine.get_version_info()["minor"]],
+		"main_scene": str(ProjectSettings.get_setting("application/run/main_scene", "")),
+		"window": [int(ProjectSettings.get_setting("display/window/size/viewport_width", 1152)),
+			int(ProjectSettings.get_setting("display/window/size/viewport_height", 648))],
+	}
+	var tests_dir := str(params.get("tests_dir", ""))
+	if not tests_dir.is_empty():
+		var folder := _contained_res_path(tests_dir)
+		if folder.is_empty() or not DirAccess.dir_exists_absolute(folder):
+			return _send_error(client_id, "Test folder not found: %s" % tests_dir, command_id)
+		var files: Array = []
+		var relative := folder.trim_prefix("res://").trim_suffix("/")
+		_scan_directory(DirAccess.open(folder), relative + "/" if not relative.is_empty() else "", [".gd"], files)
+		result["tests"] = files.filter(func(path): return RegEx.create_from_string("(?m)^extends\\s+(SceneTree|MainLoop)\\b").search(FileAccess.get_file_as_string(path)) != null)
+	_send_success(client_id, result, command_id)
+
+
+# --- get_script_outline ---------------------------------------------------------------------
+
+# The shape of a script with line numbers (extends, signals, exports, vars, consts, enums, funcs,
+# inner classes), so an agent can read a 400-line file as 30 lines and fetch only what it needs.
+func _get_script_outline(client_id: int, params: Dictionary, command_id: String) -> void:
+	var requested := str(params.get("script_path", ""))
+	var path := _contained_res_path(requested)
+	if path.is_empty() or not path.ends_with(".gd") or not FileAccess.file_exists(path):
+		return _send_error(client_id, "script_path must be an existing .gd file in the project: %s" % requested, command_id)
+	var keyword := RegEx.create_from_string("^((?:@\\w+(?:\\([^)]*\\))?\\s+)*)(static\\s+)?(func|signal|var|const|enum|class_name|extends|class)\\b(.*)$")
+	var lines := FileAccess.get_file_as_string(path).split("\n")
+	var outline: Array = []
+	var annotations := ""
+	var in_class := false
+	for i in range(lines.size()):
+		var raw: String = lines[i]
+		var leading := raw.substr(0, raw.length() - raw.lstrip(" \t").length())
+		var indent := leading.count("\t") + leading.count(" ") / 4
+		var text := raw.strip_edges()
+		if text.is_empty() or text.begins_with("#"):
+			continue
+		if indent == 0:
+			in_class = false
+		if indent > (1 if in_class else 0):
+			continue
+		if text.begins_with("@") and keyword.search(text) == null:
+			annotations += text + " "  # e.g. @export on its own line before the var
+			continue
+		var found := keyword.search(text)
+		if found == null:
+			annotations = ""
+			continue
+		var entry := (annotations + text).strip_edges()
+		annotations = ""
+		if found.get_string(3) == "func":
+			entry = entry.substr(0, entry.rfind(":")) if entry.ends_with(":") or entry.contains("):") else entry
+		elif found.get_string(3) == "class" and indent == 0:
+			in_class = true
+		outline.append("L%d %s%s" % [i + 1, "  " if indent > 0 else "", entry.left(160)])
+	_send_success(client_id, {"script_path": path, "line_count": lines.size(), "outline": outline}, command_id)
+
+
+# --- configure_particles_2d -----------------------------------------------------------------
+
+const PARTICLE_PRESETS := {
+	"dust": {"amount": 16, "lifetime": 0.6, "direction": Vector2(0, -1), "spread": 60.0, "gravity": Vector2(0, 120),
+		"velocity": [20.0, 60.0], "scale": [2.0, 4.0], "color": Color(0.85, 0.78, 0.65, 0.8), "color_end": Color(0.85, 0.78, 0.65, 0.0),
+		"emission_shape": "rectangle", "emission_rect_extents": Vector2(12, 2)},
+	"sparkle": {"amount": 24, "lifetime": 0.8, "direction": Vector2(0, -1), "spread": 180.0, "gravity": Vector2.ZERO,
+		"velocity": [10.0, 40.0], "scale": [1.5, 3.0], "color": Color(1, 1, 0.6), "color_end": Color(1, 1, 1, 0)},
+	"rain": {"amount": 200, "lifetime": 1.2, "direction": Vector2(0.1, 1), "spread": 3.0, "gravity": Vector2(0, 600),
+		"velocity": [400.0, 500.0], "scale": [1.0, 2.0], "color": Color(0.6, 0.75, 1, 0.7),
+		"emission_shape": "rectangle", "emission_rect_extents": Vector2(640, 10)},
+	"snow": {"amount": 120, "lifetime": 4.0, "direction": Vector2(0, 1), "spread": 20.0, "gravity": Vector2(0, 20),
+		"velocity": [20.0, 50.0], "scale": [2.0, 4.0], "color": Color(1, 1, 1, 0.9),
+		"emission_shape": "rectangle", "emission_rect_extents": Vector2(640, 10)},
+	"confetti": {"amount": 60, "lifetime": 1.5, "one_shot": true, "explosiveness": 1.0, "direction": Vector2(0, -1), "spread": 70.0,
+		"gravity": Vector2(0, 400), "velocity": [200.0, 350.0], "scale": [3.0, 5.0], "color": Color(1, 0.3, 0.3), "hue_variation": 1.0},
+	"burst": {"amount": 20, "lifetime": 0.4, "one_shot": true, "explosiveness": 1.0, "direction": Vector2(1, 0), "spread": 180.0,
+		"gravity": Vector2.ZERO, "velocity": [80.0, 160.0], "scale": [2.0, 4.0], "color": Color(1, 0.9, 0.5), "color_end": Color(1, 0.4, 0.1, 0)},
+}
+
+# Creates a CPUParticles2D (works on every renderer) or configures an existing CPUParticles2D or
+# GPUParticles2D, from a preset plus overrides. One undo step.
+func _configure_particles_2d(client_id: int, params: Dictionary, command_id: String) -> void:
+	var transaction_id := str(params.get("transaction_id", ""))
+	var preset_name := str(params.get("preset", ""))
+	if not preset_name.is_empty() and not PARTICLE_PRESETS.has(preset_name):
+		return _send_error(client_id, "preset must be one of: %s" % ", ".join(PackedStringArray(PARTICLE_PRESETS.keys())), command_id)
+	var settings: Dictionary = (PARTICLE_PRESETS.get(preset_name, {}) as Dictionary).duplicate()
+	for key in ["amount", "lifetime", "one_shot", "explosiveness", "spread", "emitting", "local_coords", "hue_variation", "emission_shape", "emission_radius"]:
+		if params.has(key):
+			settings[key] = params[key]
+	for key in ["direction", "gravity", "emission_rect_extents"]:
+		if params.has(key):
+			settings[key] = _coerce_to_vector2(params[key])
+	for key in ["color", "color_end"]:
+		if params.has(key):
+			settings[key] = _coerce_value_to_type(params[key], TYPE_COLOR)
+			if not settings[key] is Color:
+				return _send_error(client_id, "%s must be a color" % key, command_id)
+	if params.has("velocity_min") or params.has("velocity_max"):
+		settings["velocity"] = [float(params.get("velocity_min", params.get("velocity_max"))), float(params.get("velocity_max", params.get("velocity_min")))]
+	if params.has("scale_min") or params.has("scale_max"):
+		settings["scale"] = [float(params.get("scale_min", params.get("scale_max"))), float(params.get("scale_max", params.get("scale_min")))]
+	if settings.has("emission_shape") and not str(settings["emission_shape"]) in ["point", "sphere", "rectangle"]:
+		return _send_error(client_id, "emission_shape must be point, sphere or rectangle", command_id)
+	var texture: Texture2D = null
+	if params.has("texture"):
+		texture = load(_contained_res_path(str(params["texture"]))) as Texture2D
+		if texture == null:
+			return _send_error(client_id, "texture must be a res:// image or texture", command_id)
+
+	var node_path := str(params.get("node_path", ""))
+	var node: Node = _get_editor_node(node_path) if not node_path.is_empty() else null
+	var created := false
+	if node == null:
+		if not node_path.is_empty() and not params.has("parent_path"):
+			return _send_error(client_id, "Node not found: %s (pass parent_path to create one)" % node_path, command_id)
+		var parent := _get_editor_node(str(params.get("parent_path", "/root")))
+		if not parent:
+			return _send_error(client_id, "Parent node not found: %s" % params.get("parent_path", "/root"), command_id)
+		node = CPUParticles2D.new()
+		node.name = str(params.get("node_name", preset_name.capitalize().replace(" ", "") + "Particles" if not preset_name.is_empty() else "Particles"))
+		created = true
+	if not (node is CPUParticles2D or node is GPUParticles2D):
+		return _send_error(client_id, "%s is a %s, not CPUParticles2D or GPUParticles2D" % [node_path, node.get_class()], command_id)
+
+	# Desired values: on the node itself, and for GPUParticles2D on its ParticleProcessMaterial.
+	var on_node := {}
+	var on_material := {}
+	for key in ["amount", "lifetime", "one_shot", "explosiveness", "emitting", "local_coords"]:
+		if settings.has(key):
+			on_node[key] = settings[key]
+	if texture:
+		on_node["texture"] = texture
+	if params.has("position"):
+		on_node["position"] = _coerce_to_vector2(params["position"])
+	var gradient: Gradient = null
+	if settings.has("color_end"):
+		gradient = Gradient.new()
+		gradient.set_color(0, settings.get("color", Color.WHITE))
+		gradient.set_color(1, settings["color_end"])
+	var shape_names := ["point", "sphere", "rectangle"]
+	if node is CPUParticles2D:
+		var target := on_node
+		for key in ["direction", "spread", "gravity", "emission_rect_extents", "color"]:
+			if settings.has(key):
+				target[key] = settings[key]
+		if settings.has("velocity"):
+			target["initial_velocity_min"] = settings["velocity"][0]
+			target["initial_velocity_max"] = settings["velocity"][1]
+		if settings.has("scale"):
+			target["scale_amount_min"] = settings["scale"][0]
+			target["scale_amount_max"] = settings["scale"][1]
+		if settings.has("hue_variation"):
+			target["hue_variation_min"] = -float(settings["hue_variation"])
+			target["hue_variation_max"] = float(settings["hue_variation"])
+		if settings.has("emission_shape"):
+			target["emission_shape"] = [CPUParticles2D.EMISSION_SHAPE_POINT, CPUParticles2D.EMISSION_SHAPE_SPHERE, CPUParticles2D.EMISSION_SHAPE_RECTANGLE][shape_names.find(str(settings["emission_shape"]))]
+		if settings.has("emission_radius"):
+			target["emission_sphere_radius"] = float(settings["emission_radius"])
+		if gradient:
+			target["color_ramp"] = gradient
+	else:
+		var target := on_material
+		for key in ["spread", "color"]:
+			if settings.has(key):
+				target[key] = settings[key]
+		for key in ["direction", "gravity"]:
+			if settings.has(key):
+				target[key] = Vector3(settings[key].x, settings[key].y, 0)
+		if settings.has("emission_rect_extents"):
+			target["emission_box_extents"] = Vector3(settings["emission_rect_extents"].x, settings["emission_rect_extents"].y, 0)
+		if settings.has("velocity"):
+			target["initial_velocity_min"] = settings["velocity"][0]
+			target["initial_velocity_max"] = settings["velocity"][1]
+		if settings.has("scale"):
+			target["scale_min"] = settings["scale"][0]
+			target["scale_max"] = settings["scale"][1]
+		if settings.has("hue_variation"):
+			target["hue_variation_min"] = -float(settings["hue_variation"])
+			target["hue_variation_max"] = float(settings["hue_variation"])
+		if settings.has("emission_shape"):
+			target["emission_shape"] = [ParticleProcessMaterial.EMISSION_SHAPE_POINT, ParticleProcessMaterial.EMISSION_SHAPE_SPHERE, ParticleProcessMaterial.EMISSION_SHAPE_BOX][shape_names.find(str(settings["emission_shape"]))]
+		if settings.has("emission_radius"):
+			target["emission_sphere_radius"] = float(settings["emission_radius"])
+		if gradient:
+			var ramp := GradientTexture1D.new()
+			ramp.gradient = gradient
+			target["color_ramp"] = ramp
+
+	for key in on_node:
+		var error := _property_value_error(node, key, on_node[key])
+		if not error.is_empty():
+			if created:
+				node.free()
+			return _send_error(client_id, error, command_id)
+
+	var transaction = _transaction("Configure Particles 2D", transaction_id, {"command": "configure_particles_2d"})
+	if not transaction:
+		if created:
+			node.free()
+		return _send_error(client_id, "Failed to obtain scene transaction", command_id)
+	var changed: Array = on_node.keys() + on_material.keys()
+	if created:
+		for key in on_node:
+			node.set(key, on_node[key])
+		var parent := _get_editor_node(str(params.get("parent_path", "/root")))
+		node.name = _unique_child_name(parent, str(node.name))
+		transaction.add_do_method(parent, "add_child", [node, true])
+		transaction.add_do_method(node, "set_owner", [EditorInterface.get_edited_scene_root()])
+		transaction.add_do_reference(node)
+		transaction.add_undo_method(parent, "remove_child", [node])
+	else:
+		for key in on_node:
+			transaction.add_do_property(node, key, on_node[key])
+			transaction.add_undo_property(node, key, node.get(key))
+	if node is GPUParticles2D and not on_material.is_empty():
+		var current = node.process_material
+		var material: ParticleProcessMaterial = current.duplicate() if current is ParticleProcessMaterial else ParticleProcessMaterial.new()
+		for key in on_material:
+			material.set(key, on_material[key])
+		transaction.add_do_property(node, "process_material", material)
+		transaction.add_undo_property(node, "process_material", current)
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	var expected := _join_path(_to_mcp_path(_get_editor_node(str(params.get("parent_path", "/root")))), str(node.name)) if created else _to_mcp_path(node)
+	_finish_transaction(client_id, command_id, transaction, transaction_id, {
+		"node_path": expected, "type": node.get_class(), "created": created, "preset": preset_name, "changed": changed})
+
+
+func _unique_child_name(parent: Node, wanted: String) -> String:
+	var name := wanted
+	var suffix := 2
+	while parent.has_node(NodePath(name)):
+		name = "%s%d" % [wanted, suffix]
+		suffix += 1
+	return name
+
+
+func _join_path(parent_path: String, child: String) -> String:
+	return parent_path.trim_suffix("/") + "/" + child
+
+
+# --- manage_translations --------------------------------------------------------------------
+
+# Keeps a translation CSV (keys, then one column per locale) that Godot imports into
+# .translation files, and registers those files in the project.
+func _manage_translations(client_id: int, params: Dictionary, command_id: String) -> void:
+	var action := str(params.get("action", "list"))
+	var requested := str(params.get("csv_path", "res://translations/strings.csv"))
+	var csv_path := _contained_res_path(requested)
+	if csv_path.is_empty() or not csv_path.ends_with(".csv"):
+		return _send_error(client_id, "csv_path must be a .csv file inside the project: %s" % requested, command_id)
+	var locale_pattern := RegEx.create_from_string("^[a-z]{2,3}(_[A-Z]{2})?$")
+	var table := _read_translation_csv(csv_path)
+	var existed := FileAccess.file_exists(csv_path)
+	if action == "set_entries":
+		var entries = params.get("entries", {})
+		if typeof(entries) != TYPE_DICTIONARY or (entries as Dictionary).is_empty():
+			return _send_error(client_id, "entries must be {\"KEY\": {\"en\": \"text\", \"es\": \"texto\"}}", command_id)
+		for key in entries:
+			if str(key).strip_edges().is_empty() or typeof(entries[key]) != TYPE_DICTIONARY:
+				return _send_error(client_id, "Each key needs a {locale: text} object", command_id)
+			for locale in entries[key]:
+				if locale_pattern.search(str(locale)) == null:
+					return _send_error(client_id, "Locale %s should look like en, es or pt_BR" % locale, command_id)
+				if not str(locale) in table["locales"]:
+					table["locales"].append(str(locale))
+				if not table["rows"].has(str(key)):
+					table["rows"][str(key)] = {}
+				table["rows"][str(key)][str(locale)] = str(entries[key][locale])
+		DirAccess.make_dir_recursive_absolute(csv_path.get_base_dir())
+		var file := FileAccess.open(csv_path, FileAccess.WRITE)
+		if file == null:
+			return _send_error(client_id, "Failed to write %s" % csv_path, command_id)
+		file.store_csv_line(PackedStringArray(["keys"] + table["locales"]))
+		for key in table["rows"]:
+			var row := [key]
+			for locale in table["locales"]:
+				row.append(table["rows"][key].get(locale, ""))
+			file.store_csv_line(PackedStringArray(row))
+		file = null
+		var registered: PackedStringArray = ProjectSettings.get_setting("internationalization/locale/translations", PackedStringArray())
+		for locale in table["locales"]:
+			var translation_path := "%s.%s.translation" % [csv_path.get_basename(), locale]
+			if not translation_path in registered:
+				registered.append(translation_path)
+		ProjectSettings.set_setting("internationalization/locale/translations", registered)
+		ProjectSettings.save()
+		# A new CSV is imported by the scan; an edited one is re-imported explicitly, because a change
+		# within the same second as the last import kept the old .translation files (no new locale).
+		var filesystem := EditorInterface.get_resource_filesystem()
+		if existed:
+			filesystem.reimport_files(PackedStringArray([csv_path]))
+		else:
+			filesystem.scan()
+	elif action == "set_fallback":
+		var locale := str(params.get("locale", ""))
+		if locale_pattern.search(locale) == null:
+			return _send_error(client_id, "locale should look like en, es or pt_BR", command_id)
+		ProjectSettings.set_setting("internationalization/locale/fallback", locale)
+		ProjectSettings.save()
+	elif action != "list":
+		return _send_error(client_id, "action must be list, set_entries or set_fallback", command_id)
+	_send_success(client_id, {
+		"action": action,
+		"csv_path": csv_path,
+		"locales": table["locales"],
+		"key_count": (table["rows"] as Dictionary).size(),
+		"keys": (table["rows"] as Dictionary).keys().slice(0, 50),
+		"registered": ProjectSettings.get_setting("internationalization/locale/translations", PackedStringArray()),
+		"fallback": ProjectSettings.get_setting("internationalization/locale/fallback", "en"),
+	}, command_id)
+
+
+func _read_translation_csv(csv_path: String) -> Dictionary:
+	var table := {"locales": [], "rows": {}}
+	var file := FileAccess.open(csv_path, FileAccess.READ)
+	if file == null:
+		return table
+	var header := file.get_csv_line()
+	table["locales"] = Array(header).slice(1)
+	while not file.eof_reached():
+		var row := file.get_csv_line()
+		if row.size() < 1 or row[0].strip_edges().is_empty():
+			continue
+		var texts := {}
+		for i in range(1, mini(row.size(), header.size())):
+			texts[header[i]] = row[i]
+		table["rows"][row[0]] = texts
+	return table
+
+
+# --- select_in_editor -----------------------------------------------------------------------
+
+func _select_in_editor(client_id: int, params: Dictionary, command_id: String) -> void:
+	var selection := EditorInterface.get_selection()
+	var node_path := str(params.get("node_path", ""))
+	if not node_path.is_empty():
+		var node := _get_editor_node(node_path)
+		if not node:
+			return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+		selection.clear()
+		selection.add_node(node)
+		EditorInterface.edit_node(node)
+		if node is Node3D:
+			EditorInterface.set_main_screen_editor("3D")
+		elif node is CanvasItem:
+			EditorInterface.set_main_screen_editor("2D")
+	_send_success(client_id, {"selected": selection.get_selected_nodes().map(func(selected): return _to_mcp_path(selected))}, command_id)
 
 
 # --- helpers --------------------------------------------------------------------------------

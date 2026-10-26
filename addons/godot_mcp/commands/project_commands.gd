@@ -28,6 +28,9 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"delete_project_file":
 			_delete_project_file(client_id, params, command_id)
 			return true
+		"move_project_file":
+			_move_project_file(client_id, params, command_id)
+			return true
 		"get_project_info":
 			_get_project_info(client_id, params, command_id)
 			return true
@@ -1147,10 +1150,8 @@ func _delete_project_file(client_id: int, params: Dictionary, command_id: String
 	var path := _contained_res_path(requested)
 	if path.is_empty():
 		return _send_error(client_id, "Path must stay inside the project (res://): %s" % requested, command_id)
-	# macOS and Windows file systems ignore case, so "res://ADDONS/..." is the same folder.
-	for protected in PROTECTED_PATHS:
-		if path.to_lower() == protected or path.to_lower().begins_with(protected):
-			return _send_error(client_id, "%s is protected and cannot be deleted" % path, command_id)
+	if _is_protected_path(path):
+		return _send_error(client_id, "%s is protected and cannot be deleted" % path, command_id)
 	if DirAccess.dir_exists_absolute(path):
 		return _send_error(client_id, "%s is a folder; delete the files in it one at a time" % path, command_id)
 	if not FileAccess.file_exists(path):
@@ -1188,3 +1189,64 @@ func _delete_project_file(client_id: int, params: Dictionary, command_id: String
 		"trashed": trashed,
 		"still_referenced_by": referenced_by,
 	}, command_id)
+
+
+# macOS and Windows file systems ignore case, so "res://ADDONS/..." is the same folder.
+func _is_protected_path(path: String) -> bool:
+	for protected in PROTECTED_PATHS:
+		if path.to_lower() == protected or path.to_lower().begins_with(protected):
+			return true
+	return false
+
+
+# Moves or renames one file with its .import/.uid sidecars, then rewrites quoted references to the
+# old path in scenes, resources, scripts and project.godot (UIDs alone miss preload("res://...")).
+func _move_project_file(client_id: int, params: Dictionary, command_id: String) -> void:
+	var from := _contained_res_path(str(params.get("from_path", "")))
+	var to := _contained_res_path(str(params.get("to_path", "")))
+	if from.is_empty() or to.is_empty():
+		return _send_error(client_id, "from_path and to_path must stay inside the project (res://)", command_id)
+	if _is_protected_path(from) or _is_protected_path(to):
+		return _send_error(client_id, "MCP-critical paths cannot be moved: %s -> %s" % [from, to], command_id)
+	if DirAccess.dir_exists_absolute(from):
+		return _send_error(client_id, "%s is a folder; move the files in it one at a time" % from, command_id)
+	if not FileAccess.file_exists(from):
+		return _send_error(client_id, "File not found: %s" % from, command_id)
+	if FileAccess.file_exists(to) or DirAccess.dir_exists_absolute(to):
+		return _send_error(client_id, "%s already exists" % to, command_id)
+	if from.get_extension().to_lower() != to.get_extension().to_lower():
+		return _send_error(client_id, "Keep the file extension (.%s); Godot picks the loader from it" % from.get_extension(), command_id)
+	var edited := EditorInterface.get_edited_scene_root()
+	if edited and edited.scene_file_path == from:
+		return _send_error(client_id, "%s is the open scene; open another scene first" % from, command_id)
+
+	DirAccess.make_dir_recursive_absolute(to.get_base_dir())
+	var uid: int = ResourceLoader.get_resource_uid(from)
+	var moved: Array = []
+	for suffix in ["", ".import", ".uid"]:
+		if FileAccess.file_exists(from + suffix):
+			var err := DirAccess.rename_absolute(from + suffix, to + suffix)
+			if err != OK:
+				return _send_error(client_id, "Could not move %s: %s (moved so far: %s)" % [from + suffix, error_string(err), moved], command_id)
+			moved.append(to + suffix)
+
+	var candidates: Array = []
+	_scan_directory(DirAccess.open("res://"), "", [".tscn", ".tres", ".gd", ".gdshader", ".cfg", ".import", "project.godot"], candidates)
+	var updated: Array = []
+	for candidate in candidates:
+		var text := FileAccess.get_file_as_string(candidate)
+		# A reference is the full path right before a closing quote: path="...", preload('...').
+		var rewritten := text.replace(from + "\"", to + "\"").replace(from + "'", to + "'")
+		if rewritten == text:
+			continue
+		var file := FileAccess.open(candidate, FileAccess.WRITE)
+		if file == null:
+			continue
+		file.store_string(rewritten)
+		updated.append(candidate)
+	if uid != ResourceUID.INVALID_ID:
+		ResourceUID.set_id(uid, to)
+	if ResourceLoader.has_cached(from):
+		ResourceLoader.load(from).take_over_path(to)
+	EditorInterface.get_resource_filesystem().scan()
+	_send_success(client_id, {"from_path": from, "to_path": to, "moved": moved, "updated_references": updated}, command_id)

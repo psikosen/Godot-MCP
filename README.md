@@ -157,6 +157,14 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `save_branch_as_scene` - Godot's "Save Branch as Scene": the branch becomes its own scene and an instance takes its place, keeping its connections
 - `capture_scene_image` - PNG picture of the open scene (needs the editor window, not `--headless`)
 - `export_project` - Export for macOS, Windows, Linux or Web with the installed export templates (admin; creates a preset if needed)
+- `get_script_outline` - A script's extends, signals, exports, vars, consts, enums and funcs with line numbers
+- `move_project_file` - Move or rename a file with its `.import`/`.uid` and rewrite references to it
+- `configure_particles_2d` - Create or tune CPU/GPU 2D particles from a preset (dust, sparkle, rain, snow, confetti, burst) (undo-aware)
+- `manage_translations` - Translation CSV (keys x locales), registered translations and fallback locale
+- `select_in_editor` - Select a node and show it in the Inspector for the person at the editor
+- `run_game_tests` - Run `extends SceneTree` test scripts headless and report pass/fail (admin)
+- `capture_game_frame` - Run a scene in a game window, optionally holding inputs, and return a frame as a picture (admin)
+- `create_project` - New Godot project with a main scene and the MCP addon enabled (admin)
 
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
@@ -277,7 +285,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 58k tokens per session in clients that load all tool schemas; `core` alone is about 14k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 59k tokens per session in clients that load all tool schemas; `core` alone is about 15k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.

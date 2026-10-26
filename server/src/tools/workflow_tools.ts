@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
 import { MCPTool, CommandResult } from '../utils/types.js';
@@ -16,20 +19,30 @@ const fail = (what: string, error: unknown): never => {
   throw new Error(`Failed to ${what}: ${(error as Error).message}`);
 };
 
-// Runs Godot's command-line export in its own process: an export inside the editor would block
-// every other MCP call until it finished.
-function runExport(executable: string, args: string[], timeoutMs: number): Promise<{ code: number | null; output: string }> {
+// Runs Godot in its own process (export, tests, game frames): doing it inside the editor would
+// block every other MCP call until it finished.
+// code is a string when the run did not exit by itself ("timed out after 30s"); Godot keeps
+// running after a script error, so a crashed test only ends at the timeout.
+function runGodot(executable: string, args: string[], timeoutMs: number): Promise<{ code: number | string | null; output: string }> {
   return new Promise(resolve => {
     const child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
+    let timedOut = false;
     const collect = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-20000); };
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
-    const timer = setTimeout(() => { child.kill(); output += `\nStopped after ${timeoutMs / 1000}s.`; }, timeoutMs);
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeoutMs);
     child.on('error', error => { clearTimeout(timer); resolve({ code: -1, output: error.message }); });
-    child.on('close', code => { clearTimeout(timer); resolve({ code, output }); });
+    child.on('close', code => { clearTimeout(timer); resolve({ code: timedOut ? `timed out after ${timeoutMs / 1000}s` : code, output }); });
   });
 }
+
+const godotProblems = (output: string, limit = 12) => output.split('\n')
+  .filter(line => !line.startsWith('{') && /SCRIPT ERROR|^ERROR:|Parse Error|^FAIL|not ok/.test(line))
+  .slice(0, limit);
+
+// Repository root (dist/tools -> ../..), where the addon to install into new projects lives.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 export const workflowTools: MCPTool[] = [
   {
@@ -300,7 +313,7 @@ export const workflowTools: MCPTool[] = [
       } catch (error) {
         return fail('prepare export', error);
       }
-      const { code, output } = await runExport(plan.executable as string, [
+      const { code, output } = await runGodot(plan.executable as string, [
         '--headless', '--path', plan.project_dir as string,
         args.debug ? '--export-debug' : '--export-release', plan.preset as string, plan.output_path as string,
       ], (args.timeout_seconds ?? 300) * 1000);
@@ -319,6 +332,256 @@ export const workflowTools: MCPTool[] = [
     metadata: {
       requiredRole: 'admin',
       escalationPrompt: 'Request approval to export the project, which runs Godot in a separate process and writes the build files.',
+    },
+  },
+  {
+    name: 'get_script_outline',
+    description: 'Outline a .gd script with line numbers: extends, signals, exports, vars, consts, enums, funcs, inner classes. Read this before get_script on long files.',
+    parameters: z.object({
+      script_path: z.string().describe('res:// path of a .gd file'),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('get_script_outline', args);
+        return `${r.script_path} (${r.line_count} lines)\n${(r.outline as string[]).join('\n')}`;
+      } catch (error) {
+        return fail('outline script', error);
+      }
+    },
+    metadata: { requiredRole: 'read' },
+  },
+  {
+    name: 'move_project_file',
+    description: 'Move or rename one project file (with its .import/.uid) and rewrite references to it in scenes, resources, scripts and project.godot.',
+    parameters: z.object({
+      from_path: z.string().describe('res:// path now'),
+      to_path: z.string().describe('res:// path after the move (same extension)'),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('move_project_file', args);
+        const refs = r.updated_references as string[];
+        return `Moved ${r.from_path} to ${r.to_path}. ${refs.length ? `Updated references in: ${refs.join(', ')}` : 'No files referred to it by path.'}`;
+      } catch (error) {
+        return fail('move project file', error);
+      }
+    },
+    metadata: { requiredRole: 'edit' },
+  },
+  {
+    name: 'configure_particles_2d',
+    description: 'Create a CPUParticles2D (pass parent_path) or configure an existing CPU/GPUParticles2D (node_path) from a preset (dust, sparkle, rain, snow, confetti, burst) plus overrides. One undo step.',
+    parameters: z.object({
+      node_path: z.string().optional().describe('Existing particles node to configure'),
+      parent_path: z.string().optional().describe('Create a new CPUParticles2D under this node'),
+      node_name: z.string().optional(),
+      preset: z.enum(['dust', 'sparkle', 'rain', 'snow', 'confetti', 'burst']).optional(),
+      position: vector2.optional(),
+      amount: z.number().int().min(1).max(10000).optional(),
+      lifetime: z.number().min(0.01).max(600).optional(),
+      one_shot: z.boolean().optional(),
+      explosiveness: z.number().min(0).max(1).optional(),
+      emitting: z.boolean().optional(),
+      local_coords: z.boolean().optional(),
+      direction: vector2.optional(),
+      spread: z.number().min(0).max(180).optional(),
+      gravity: vector2.optional(),
+      velocity_min: z.number().optional(),
+      velocity_max: z.number().optional(),
+      scale_min: z.number().min(0).optional(),
+      scale_max: z.number().min(0).optional(),
+      color: z.any().optional().describe('Start color, e.g. "#ffd27f"'),
+      color_end: z.any().optional().describe('Color at the end of each particle\'s life (fade with alpha 0)'),
+      hue_variation: z.number().min(0).max(1).optional(),
+      emission_shape: z.enum(['point', 'sphere', 'rectangle']).optional(),
+      emission_radius: z.number().min(0).optional(),
+      emission_rect_extents: vector2.optional(),
+      texture: z.string().optional().describe('res:// image for each particle (default: a square)'),
+      transaction_id: z.string().optional(),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('configure_particles_2d', args);
+        return `${r.created ? 'Created' : 'Configured'} ${r.type} ${r.node_path}${r.preset ? ` (${r.preset})` : ''} [${r.status}]: ${(r.changed as string[]).join(', ')}`;
+      } catch (error) {
+        return fail('configure particles', error);
+      }
+    },
+    metadata: { requiredRole: 'edit' },
+  },
+  {
+    name: 'manage_translations',
+    description: 'Game text in several languages: set_entries writes keys to a translation CSV (keys x locales) and registers the imported files; set_fallback sets the fallback locale; list shows locales and keys. Use tr("KEY") in scripts or the key as Label text.',
+    parameters: z.object({
+      action: z.enum(['list', 'set_entries', 'set_fallback']),
+      csv_path: z.string().optional().describe('Default res://translations/strings.csv'),
+      entries: z.record(z.record(z.string())).optional().describe('{"MENU_START": {"en": "Start", "es": "Empezar"}}'),
+      locale: z.string().optional().describe('For set_fallback, e.g. "en"'),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('manage_translations', args);
+        const keys = r.keys as string[];
+        return `${r.csv_path}: locales ${(r.locales as string[]).join(', ') || 'none'}; ${r.key_count} key(s)${keys.length ? ` (${keys.join(', ')}${Number(r.key_count) > keys.length ? ', ...' : ''})` : ''}; registered ${(r.registered as string[]).length} translation file(s); fallback ${r.fallback}`;
+      } catch (error) {
+        return fail('manage translations', error);
+      }
+    },
+    metadata: { requiredRole: 'edit' },
+  },
+  {
+    name: 'select_in_editor',
+    description: 'Select a node in the Godot editor and show it in the Inspector, so the person at the editor sees what you mean. With no node_path, returns the current selection.',
+    parameters: z.object({
+      node_path: z.string().optional(),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('select_in_editor', args);
+        const selected = r.selected as string[];
+        return selected.length ? `Selected: ${selected.join(', ')}` : 'Nothing is selected.';
+      } catch (error) {
+        return fail('select in editor', error);
+      }
+    },
+    metadata: { requiredRole: 'read' },
+  },
+  {
+    name: 'run_game_tests',
+    description: 'Run GDScript test scripts (scripts that extend SceneTree, e.g. res://tests/*.gd) headless, one Godot process each, and report pass/fail. PASS/FAIL or ok/not ok lines are counted; SCRIPT ERRORs and a non-zero exit fail the script.',
+    parameters: z.object({
+      tests: z.array(z.string()).optional().describe('res:// test scripts; default: every SceneTree script in tests_dir'),
+      tests_dir: z.string().optional().describe('Default res://tests'),
+      timeout_seconds: z.number().int().min(5).max(1800).optional().describe('Per script, default 120'),
+    }),
+    execute: async (args: { tests?: string[]; tests_dir?: string; timeout_seconds?: number }): Promise<string> => {
+      let paths: CommandResult;
+      try {
+        paths = await send('get_runtime_paths', args.tests ? {} : { tests_dir: args.tests_dir ?? 'res://tests' });
+      } catch (error) {
+        return fail('find tests', error);
+      }
+      const tests = args.tests ?? (paths.tests as string[]);
+      if (tests.length === 0) return `No test scripts (extends SceneTree) found in ${args.tests_dir ?? 'res://tests'}.`;
+      const lines: string[] = [];
+      let failed = 0;
+      for (const test of tests) {
+        const started = Date.now();
+        const { code, output } = await runGodot(paths.executable as string,
+          ['--headless', '--path', paths.project_dir as string, '--fixed-fps', '60', '--script', test],
+          (args.timeout_seconds ?? 120) * 1000);
+        const passes = output.split('\n').filter(line => /^(PASS|ok)\b/.test(line)).length;
+        const problems = godotProblems(output);
+        const ok = code === 0 && !problems.some(line => /SCRIPT ERROR|^FAIL|not ok|Parse Error/.test(line));
+        if (!ok) failed += 1;
+        lines.push(`${ok ? 'PASS' : 'FAIL'} ${test}: ${passes} passed, ${problems.length} problem(s), ${typeof code === 'string' ? code : `exit ${code}`}, ${((Date.now() - started) / 1000).toFixed(1)}s`);
+        lines.push(...problems.map(line => `  ${line.trim().slice(0, 200)}`));
+      }
+      return `${tests.length - failed}/${tests.length} test script(s) passed\n${lines.join('\n')}`;
+    },
+    metadata: {
+      requiredRole: 'admin',
+      escalationPrompt: 'Request approval to run the project\'s test scripts in a separate headless Godot process.',
+    },
+  },
+  {
+    name: 'capture_game_frame',
+    description: 'Run a scene for some frames in a real game window (scripts run, so HUDs and movement are live), optionally holding input actions, and return the last frame as a picture. Briefly opens a window.',
+    parameters: z.object({
+      scene: z.string().optional().describe('res:// scene; default the main scene'),
+      frames: z.number().int().min(1).max(3600).optional().describe('Frames to run at 60 fps before the picture (default 60)'),
+      hold: z.array(z.object({
+        action: z.string().describe('Input action, e.g. "move_right"'),
+        from_frame: z.number().int().min(0),
+        to_frame: z.number().int().min(0),
+      })).max(20).optional().describe('Input to hold while it runs'),
+      width: z.number().int().min(64).max(3840).optional(),
+      height: z.number().int().min(64).max(2160).optional(),
+      timeout_seconds: z.number().int().min(5).max(600).optional().describe('Default 60'),
+    }),
+    execute: async (args: { scene?: string; frames?: number; hold?: Array<{ action: string; from_frame: number; to_frame: number }>; width?: number; height?: number; timeout_seconds?: number }) => {
+      let paths: CommandResult;
+      try {
+        paths = await send('get_runtime_paths', {});
+      } catch (error) {
+        return fail('find the game', error);
+      }
+      const scene = args.scene ?? (paths.main_scene as string);
+      if (!scene) throw new Error('No scene given and the project has no main scene');
+      const [defaultWidth, defaultHeight] = paths.window as [number, number];
+      const png = path.join(tmpdir(), `godot-mcp-frame-${process.pid}-${Date.now()}.png`);
+      const holds = (args.hold ?? []).map(h => `${h.action}:${h.from_frame}:${h.to_frame}`);
+      const { code, output } = await runGodot(paths.executable as string, [
+        '--path', paths.project_dir as string, '--fixed-fps', '60', '--resolution', `${args.width ?? defaultWidth}x${args.height ?? defaultHeight}`,
+        '--script', 'res://addons/godot_mcp/runtime/capture_frame.gd', '--', scene, String(args.frames ?? 60), png, ...holds,
+      ], (args.timeout_seconds ?? 60) * 1000);
+      if (!existsSync(png)) {
+        throw new Error(`The game did not produce a frame (exit ${code}).\n${godotProblems(output).join('\n') || output.slice(-1200)}`);
+      }
+      const data = readFileSync(png).toString('base64');
+      rmSync(png, { force: true });
+      const problems = godotProblems(output);
+      return {
+        content: [
+          { type: 'image' as const, data, mimeType: 'image/png' },
+          { type: 'text' as const, text: `${scene} after ${args.frames ?? 60} frame(s)${problems.length ? `\nErrors while running:\n${problems.join('\n')}` : ''}` },
+        ],
+      };
+    },
+    metadata: {
+      requiredRole: 'admin',
+      escalationPrompt: 'Request approval to run the game in a window to take a picture of it.',
+    },
+  },
+  {
+    name: 'create_project',
+    description: 'Create a new Godot project folder with a main scene and the Godot MCP addon installed and enabled, ready to open in the editor.',
+    parameters: z.object({
+      path: z.string().describe('Absolute folder for the new project (must not exist or be empty)'),
+      name: z.string().min(1).describe('Game name'),
+      dimension: z.enum(['2d', '3d']).optional().describe('Main scene root: Node2D or Node3D (default 2d)'),
+      renderer: z.enum(['gl_compatibility', 'mobile', 'forward_plus']).optional().describe('Default gl_compatibility (runs everywhere)'),
+      window_width: z.number().int().min(64).max(7680).optional(),
+      window_height: z.number().int().min(64).max(4320).optional(),
+      install_mcp: z.boolean().optional().describe('Copy and enable the Godot MCP addon (default true)'),
+    }),
+    execute: async (args: { path: string; name: string; dimension?: string; renderer?: string; window_width?: number; window_height?: number; install_mcp?: boolean }): Promise<string> => {
+      const target = path.resolve(args.path);
+      if (!path.isAbsolute(args.path)) throw new Error('path must be absolute');
+      if (existsSync(target) && readdirSync(target).length > 0) throw new Error(`${target} already exists and is not empty`);
+      let version = '4.4';
+      try { version = (await send('get_runtime_paths', {})).godot_version as string; } catch { /* no editor connected */ }
+      const renderer = args.renderer ?? 'gl_compatibility';
+      const feature = { gl_compatibility: 'GL Compatibility', mobile: 'Mobile', forward_plus: 'Forward Plus' }[renderer];
+      const install = args.install_mcp ?? true;
+      const is3d = args.dimension === '3d';
+      const quoted = JSON.stringify(args.name);
+      const projectFile = [
+        '; Engine configuration file.', '', 'config_version=5', '', '[application]', '',
+        `config/name=${quoted}`, 'run/main_scene="res://main.tscn"', `config/features=PackedStringArray("${version}", "${feature}")`, '',
+        ...(install ? ['[autoload]', '', 'MCPAutoload="*res://autoload_mcp_server.gd"', ''] : []),
+        '[display]', '', `window/size/viewport_width=${args.window_width ?? 1280}`, `window/size/viewport_height=${args.window_height ?? 720}`,
+        ...(is3d ? [] : ['window/stretch/mode="canvas_items"']), '',
+        ...(install ? ['[editor_plugins]', '', 'enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg")', ''] : []),
+        '[rendering]', '', `renderer/rendering_method="${renderer}"`,
+        ...(renderer === 'gl_compatibility' ? ['renderer/rendering_method.mobile="gl_compatibility"'] : []), '',
+      ].join('\n');
+      mkdirSync(target, { recursive: true });
+      writeFileSync(path.join(target, 'project.godot'), projectFile);
+      writeFileSync(path.join(target, 'main.tscn'), `[gd_scene format=3]\n\n[node name="Main" type="${is3d ? 'Node3D' : 'Node2D'}"]\n`);
+      writeFileSync(path.join(target, '.gitignore'), '.godot/\n');
+      if (install) {
+        cpSync(path.join(REPO_ROOT, 'addons', 'godot_mcp'), path.join(target, 'addons', 'godot_mcp'), {
+          recursive: true,
+          filter: source => !/_test\.gd|command_handler_minimal/.test(source),
+        });
+        cpSync(path.join(REPO_ROOT, 'autoload_mcp_server.gd'), path.join(target, 'autoload_mcp_server.gd'));
+      }
+      return `Created ${args.name} at ${target} (${is3d ? '3D' : '2D'}, ${feature}${install ? ', Godot MCP addon enabled' : ''}). Open it in Godot: godot --path "${target}" --editor`;
+    },
+    metadata: {
+      requiredRole: 'admin',
+      escalationPrompt: 'Request approval to create a new Godot project folder outside the current project.',
     },
   },
 ];
