@@ -46,7 +46,8 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	if script_path.is_empty():
 		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
 	
-	if FileAccess.file_exists(script_path) and not overwrite:
+	var replaced := FileAccess.file_exists(script_path)
+	if replaced and not overwrite:
 		return _send_error(client_id, "Script already exists: %s (pass overwrite=true to replace it)" % script_path, command_id)
 	
 	# Get editor plugin and interfaces
@@ -114,6 +115,7 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	
 	_send_success(client_id, {
 		"script_path": script_path,
+		"replaced": replaced,
 		"node_path": node_path
 	}, command_id)
 

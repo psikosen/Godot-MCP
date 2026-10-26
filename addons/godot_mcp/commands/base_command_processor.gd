@@ -305,6 +305,18 @@ func _coerce_value_to_type(value, value_type: int, property_class_name: String =
 		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY:
 			var packed = _points_to_packed(value, value_type == TYPE_PACKED_VECTOR3_ARRAY)
 			return packed if packed != null else value
+		TYPE_PACKED_COLOR_ARRAY:
+			# set() turned [r, g, b, a] lists and {r, g, b} maps into black. Convert each element; an
+			# element that is not a color leaves the value unconverted so it is refused.
+			if value is Array:
+				var colors := PackedColorArray()
+				for item in value:
+					var color = _coerce_to_color(item)
+					if not (color is Color):
+						return value
+					colors.append(color)
+				return colors
+			return value
 		TYPE_ARRAY:
 			# Arrays of point lists (NavigationPolygon.outlines): [x, y] pairs cannot become Vector2 on
 			# their own, so Godot stored zeros. Convert each inner list when every element is a point list.
@@ -406,7 +418,7 @@ func _coerce_to_color(value):
 		return Color(
 			value.get("r", 0.0), value.get("g", 0.0), value.get("b", 0.0), value.get("a", 1.0)
 		)
-	if value is Array and value.size() >= 3:
+	if value is Array and value.size() >= 3 and value.all(func(n): return n is float or n is int):
 		var alpha: float = float(value[3]) if value.size() >= 4 else 1.0
 		return Color(value[0], value[1], value[2], alpha)
 	if typeof(value) == TYPE_STRING:
@@ -470,10 +482,10 @@ func _property_value_error(target: Object, property_name: String, value) -> Stri
 		return "Property %s expects a %s (for a resource, a res:// path to an existing file), got %s" % [
 			property_name, str(info.get("class_name", "Object")), JSON.stringify(value)]
 	var numeric := [TYPE_INT, TYPE_FLOAT]
-	# Packed vector arrays are left out on purpose: an Array that _points_to_packed could not convert
+	# Packed vector and color arrays are left out on purpose: an Array that _points_to_packed could not convert
 	# would otherwise be stored as zeros.
 	var listish := [TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_INT64_ARRAY,
-		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY, TYPE_PACKED_COLOR_ARRAY]
+		TYPE_PACKED_FLOAT32_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY]
 	var stringish := [TYPE_STRING, TYPE_STRING_NAME, TYPE_NODE_PATH]
 	var compatible: bool = (
 		actual == expected

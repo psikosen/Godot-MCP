@@ -63,7 +63,7 @@ export const scriptTools: MCPTool[] = [
           ? ` and attached to node at ${node_path}` 
           : '';
         
-        return `Created script at ${result.script_path}${attachMessage}`;
+        return `${result.replaced ? 'Replaced' : 'Created'} script at ${result.script_path}${attachMessage}`;
       } catch (error) {
         throw new Error(`Failed to create script: ${(error as Error).message}`);
       }

@@ -74,7 +74,7 @@ export var scriptTools = [
                         attachMessage = node_path
                             ? " and attached to node at ".concat(node_path)
                             : '';
-                        return [2 /*return*/, "Created script at ".concat(result.script_path).concat(attachMessage)];
+                        return [2 /*return*/, "".concat(result.replaced ? 'Replaced' : 'Created', " script at ").concat(result.script_path).concat(attachMessage)];
                     case 3:
                         error_1 = _d.sent();
                         throw new Error("Failed to create script: ".concat(error_1.message));

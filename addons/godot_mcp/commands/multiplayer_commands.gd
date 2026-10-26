@@ -144,7 +144,7 @@ func _spawn_multiplayer_scene(client_id: int, params: Dictionary, command_id: St
 	if packed == null:
 		return _send_error(client_id, "Failed to load scene: %s" % scene_path, command_id)
 
-	var instance := packed.instantiate()
+	var instance := packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	if instance == null:
 		return _send_error(client_id, "Failed to instantiate scene: %s" % scene_path, command_id)
 

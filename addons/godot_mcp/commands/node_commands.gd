@@ -691,7 +691,9 @@ func _instantiate_scene(client_id: int, params: Dictionary, command_id: String) 
 	if not packed_resource or not (packed_resource is PackedScene):
 		return _send_error(client_id, "Failed to load PackedScene at %s" % scene_path, command_id)
 
-	var scene_instance = packed_resource.instantiate()
+	# GEN_EDIT_STATE_INSTANCE keeps the link to the source scene. Without it the saved scene stored
+	# every base property, group and signal connection as an override (connections then ran twice).
+	var scene_instance = packed_resource.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	if not scene_instance or not (scene_instance is Node):
 		return _send_error(client_id, "Failed to instantiate scene at %s" % scene_path, command_id)
 
@@ -2597,7 +2599,7 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 			return _send_error(client_id, "Failed to load PackedScene at %s" % enemy_scene_path, command_id)
 		for idx in range(selected_points.size()):
 			var point: Vector2 = selected_points[idx]
-			var instance = (packed_scene as PackedScene).instantiate()
+			var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 			if not instance or not (instance is Node2D):
 				return _send_error(client_id, "Spawned scene instance must inherit Node2D for wave spawner 2D", command_id)
 			var enemy_instance: Node2D = instance
@@ -2788,7 +2790,7 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 			return _send_error(client_id, "Failed to load PackedScene at %s" % enemy_scene_path, command_id)
 		for idx in range(selected_points.size()):
 			var point: Vector3 = selected_points[idx]
-			var instance = (packed_scene as PackedScene).instantiate()
+			var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 			if not instance or not (instance is Node3D):
 				return _send_error(client_id, "Spawned scene instance must inherit Node3D for wave spawner 3D", command_id)
 			var enemy_instance: Node3D = instance
@@ -4771,7 +4773,7 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var created_nodes: Array = []
 	for idx in range(accepted_points.size()):
 		var point: Vector2 = accepted_points[idx]
-		var instance = (packed_scene as PackedScene).instantiate()
+		var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 		if not instance or not (instance is Node2D):
 			return _send_error(client_id, "Scene at %s must instantiate to Node2D for 2D scattering" % scene_path, command_id)
 		var node_2d: Node2D = instance
@@ -4969,7 +4971,7 @@ func _scatter_scene_instances_3d(client_id: int, params: Dictionary, command_id:
 	var created_nodes: Array = []
 	for idx in range(accepted_points.size()):
 		var point: Vector3 = accepted_points[idx]
-		var instance = (packed_scene as PackedScene).instantiate()
+		var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 		if not instance or not (instance is Node3D):
 			return _send_error(client_id, "Scene at %s must instantiate to Node3D for 3D scattering" % scene_path, command_id)
 		var node_3d: Node3D = instance
