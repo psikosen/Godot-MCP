@@ -181,6 +181,19 @@ func _join_path(parent_path: String, child: String) -> String:
 	return parent_path.trim_suffix("/") + "/" + child
 
 
+func _godot_version() -> String:
+	var version: Dictionary = Engine.get_version_info()
+	return "%d.%d.%d" % [version["major"], version["minor"], version["patch"]]
+
+
+# Adds a new node (and its own new children) on commit, owned by the scene so it saves; undo removes it.
+func _add_owned(transaction, parent: Node, node: Node, owner: Node) -> void:
+	transaction.add_do_method(parent, "add_child", [node, true])
+	transaction.add_do_method(node, "set_owner", [owner])
+	transaction.add_do_reference(node)
+	transaction.add_undo_method(parent, "remove_child", [node])
+
+
 func _transaction(action_name: String, transaction_id: String, metadata: Dictionary):
 	if transaction_id.is_empty():
 		return MCPSceneTransactionManager.begin_inline(action_name, metadata)

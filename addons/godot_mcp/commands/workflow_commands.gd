@@ -37,6 +37,13 @@ const GAME_SETTINGS := {
 	"texture_filter": ["rendering/textures/canvas_textures/default_texture_filter", {"nearest": 0, "linear": 1}],
 	"gravity_2d": ["physics/2d/default_gravity", TYPE_FLOAT],
 	"gravity_3d": ["physics/3d/default_gravity", TYPE_FLOAT],
+	"physics_engine_3d": ["physics/3d/physics_engine", {"default": "DEFAULT", "jolt": "Jolt Physics", "godot": "GodotPhysics3D"}],
+	"physics_ticks_per_second": ["physics/common/physics_ticks_per_second", TYPE_INT],
+	"max_physics_steps_per_frame": ["physics/common/max_physics_steps_per_frame", TYPE_INT],
+	"physics_interpolation": ["physics/common/physics_interpolation", TYPE_BOOL],
+	"renderer": ["rendering/renderer/rendering_method", ["forward_plus", "mobile", "gl_compatibility"]],
+	"vsync": ["display/window/vsync/vsync_mode", {"disabled": 0, "enabled": 1, "adaptive": 2, "mailbox": 3}],
+	"hdr_output": ["display/window/hdr/request_hdr_output", TYPE_BOOL],
 }
 const LAYER_KINDS := ["2d_physics", "3d_physics", "2d_render", "3d_render", "2d_navigation", "3d_navigation", "avoidance"]
 const EXPORT_PLATFORMS := {"macos": "macOS", "windows": "Windows Desktop", "linux": "Linux", "web": "Web"}
@@ -395,6 +402,8 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 			return _send_error(client_id, "Unknown setting %s; known: %s, layer_names" % [key, ", ".join(PackedStringArray(GAME_SETTINGS.keys()))], command_id)
 		var spec: Array = GAME_SETTINGS[key]
 		var value = params[key]
+		if not ProjectSettings.has_setting(spec[0]):
+			return _send_error(client_id, "%s (%s) is not in this Godot (%s); it needs a newer version" % [key, spec[0], _godot_version()], command_id)
 		if spec[1] is Array or spec[1] is Dictionary:
 			var words: Array = spec[1] if spec[1] is Array else (spec[1] as Dictionary).keys()
 			if not str(value) in words:
@@ -408,6 +417,9 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]) or int(value) < 1 or int(value) > 16384:
 				return _send_error(client_id, "%s must be a whole number from 1 to 16384" % key, command_id)
 			value = int(value)
+		elif spec[1] == TYPE_BOOL:
+			if typeof(value) != TYPE_BOOL:
+				return _send_error(client_id, "%s must be true or false" % key, command_id)
 		elif spec[1] == TYPE_FLOAT:
 			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]):
 				return _send_error(client_id, "%s must be a number" % key, command_id)
@@ -444,7 +456,11 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 	for key in GAME_SETTINGS:
 		current[key] = ProjectSettings.get_setting(GAME_SETTINGS[key][0], null)
 		if GAME_SETTINGS[key][1] is Dictionary and current[key] != null:
-			current[key] = (GAME_SETTINGS[key][1] as Dictionary).find_key(int(current[key]))
+			var words: Dictionary = GAME_SETTINGS[key][1]
+			var word = words.find_key(current[key])
+			if word == null and typeof(current[key]) in [TYPE_INT, TYPE_FLOAT]:
+				word = words.find_key(int(current[key]))
+			current[key] = word if word != null else current[key]
 	_send_success(client_id, {"changes": changes, "current": current}, command_id)
 
 

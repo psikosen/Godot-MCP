@@ -17241,6 +17241,15 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 	if method_name.is_empty():
 		return _send_error(client_id, "Method name cannot be empty", command_id)
 
+	# The method name and argument names are written into a script, so only plain names pass.
+	if not method_name.is_valid_ascii_identifier():
+		return _send_error(client_id, "method_name must be a plain name (letters, digits, _): %s" % method_name, command_id)
+	var argument_pattern := RegEx.create_from_string("^[A-Za-z_][A-Za-z0-9_]*(\\s*:\\s*[A-Za-z_][A-Za-z0-9_.]*)?$")
+	if arguments_param is Array:
+		for argument in arguments_param:
+			if typeof(argument) == TYPE_STRING and not str(argument).strip_edges().is_empty() and not argument_pattern.search(str(argument).strip_edges()):
+				return _send_error(client_id, "Each argument must be a name or \"name: Type\": %s" % argument, command_id)
+
 	var source_node = _get_editor_node(source_path)
 	if not source_node:
 		return _send_error(client_id, "Source node not found: %s" % source_path, command_id)
@@ -17281,6 +17290,8 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 
 	if not script_resource_path.begins_with("res://"):
 		return _send_error(client_id, "Script path must be within the project (res://)", command_id)
+	if _is_protected_path(script_resource_path) or not script_resource_path.get_extension().to_lower() == "gd":
+		return _send_error(client_id, "Script path must be a .gd file outside protected folders: %s" % script_resource_path, command_id)
 
 	if create_script and not FileAccess.file_exists(script_resource_path):
 		var extends_type := target_node.get_class()
@@ -18452,10 +18463,11 @@ func _analyze_accessibility(control: Control) -> Array:
 	var tooltip_text := ""
 	var control_text := ""
 
-	if "accessible_name" in control:
-		accessible_name = str(control.get("accessible_name"))
-	if "accessible_description" in control:
-		accessible_description = str(control.get("accessible_description"))
+	# Godot 4.5+ names these accessibility_name/accessibility_description; older builds have neither.
+	if "accessibility_name" in control:
+		accessible_name = str(control.get("accessibility_name"))
+	if "accessibility_description" in control:
+		accessible_description = str(control.get("accessibility_description"))
 	if "tooltip_text" in control:
 		tooltip_text = str(control.get("tooltip_text"))
 	if "text" in control:

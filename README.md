@@ -23,6 +23,16 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
   - **Multiplayer Commands**: Spin up ENet/WebSocket/WebRTC peers and spawn network-ready scenes
   - **Compression Commands**: Manage GPU texture presets, import profiles, and batch reimports
 
+## Godot Versions
+
+The addon runs on Godot 4.4 and newer. It is built and tested on Godot 4.7, and checked to load on 4.4.1. Tools for features that arrived after 4.4 check the running engine and say which version they need:
+
+| Feature | Needs |
+|---|---|
+| `get_godot_errors`, stencil outlines, accessibility names, bone aim/copy constraints | Godot 4.5+ |
+| `setup_ik_chain` (TwoBoneIK3D, FABRIK3D, CCDIK3D, JacobianIK3D, SplineIK3D) | Godot 4.6+ |
+| `add_touch_controls` joystick (VirtualJoystick), `hdr_output` setting | Godot 4.7+ |
+
 ## Quick Setup
 
 ### 1. Clone the Repository
@@ -151,7 +161,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `replace_in_script` - Replace an exact piece of a `.gd`/`.gdshader` file (cheaper than rewriting it); reports compile errors
 - `list_signal_connections` / `disconnect_signal` - Show a node's connections in and out; remove one (undo-aware)
 - `manage_autoloads` - List, add or remove autoload singletons
-- `configure_game_settings` - Game name, main scene, window size, stretch, background color, texture filter, gravity, layer names
+- `configure_game_settings` - Game name, main scene, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names
 - `set_control_layout` - UI anchor presets (full_rect, center, top_right, ...), margin, size, size flags (undo-aware)
 - `create_inherited_scene` - New scene inheriting another (Godot's "New Inherited Scene")
 - `save_branch_as_scene` - Godot's "Save Branch as Scene": the branch becomes its own scene and an instance takes its place, keeping its connections
@@ -177,6 +187,19 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `setup_2d_lighting` - CanvasModulate darkness plus PointLight2D glows
 - `profile_game` - Run a scene and report frame time, draw calls, nodes and memory (admin)
 - `import_asset_files` - Copy images, sounds, fonts or models from this computer into the project (admin)
+
+#### Newer Godot Features
+- `describe_skeleton` - A Skeleton3D's bone tree, its modifiers, and arm/leg chains ready for IK
+- `setup_ik_chain` - Inverse kinematics: two-bone (arms, legs) with auto-made target and pole markers, FABRIK, CCDIK, Jacobian, spline (4.6+)
+- `add_bone_constraint` - A bone aims at, copies, or smoothly looks at a node or another bone (aim/copy 4.5+, look_at 4.4+)
+- `setup_spring_bones` - Hair, tails and capes that swing (SpringBoneSimulator3D), with collision spheres on bones
+- `set_stencil_effect` - Outline a 3D object, or show it through walls (x-ray), with the stencil buffer (4.5+)
+- `create_spatial_shader` - 3D shader effects: toon, rim_glow, hologram, dissolve, wind_sway
+- `add_touch_controls` - Phone controls: VirtualJoystick bound to move actions plus round touch buttons; hidden on desktop
+- `set_accessibility_info` - Screen-reader names and descriptions on UI controls, or auto-fill the missing ones (4.5+)
+- `create_path` - Path2D/Path3D through points, smooth or closed
+- `place_along_path` - Copies of a scene along a path by count or spacing, turned to follow it
+- `build_mesh_library` - GridMap MeshLibrary from a scene of mesh tiles (with collision and navmesh), like Export As MeshLibrary
 
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
@@ -297,7 +320,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 62k tokens per session in clients that load all tool schemas; `core` alone is about 16k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 65k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.

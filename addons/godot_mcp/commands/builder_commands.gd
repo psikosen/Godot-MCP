@@ -650,10 +650,3 @@ func _setup_2d_lighting(client_id: int, params: Dictionary, command_id: String) 
 	transaction.register_on_commit(func(): _mark_scene_modified())
 	_finish_transaction(client_id, command_id, transaction, transaction_id, {
 		"parent_path": _to_mcp_path(parent), "darkness": var_to_str(darkness), "lights": names})
-
-
-func _add_owned(transaction, parent: Node, node: Node, owner: Node) -> void:
-	transaction.add_do_method(parent, "add_child", [node, true])
-	transaction.add_do_method(node, "set_owner", [owner])
-	transaction.add_do_reference(node)
-	transaction.add_undo_method(parent, "remove_child", [node])

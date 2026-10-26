@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { MCPTool, CommandResult } from '../utils/types.js';
 import { fail, godotProblems, runGodot, send, vector2 } from './workflow_tools.js';
 
-const vector3 = z.union([
+export const vector3 = z.union([
   z.object({ x: z.number(), y: z.number(), z: z.number() }),
   z.tuple([z.number(), z.number(), z.number()]),
 ]);

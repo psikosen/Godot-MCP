@@ -47,7 +47,7 @@ import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { fail, godotProblems, runGodot, send, vector2 } from './workflow_tools.js';
-var vector3 = z.union([
+export var vector3 = z.union([
     z.object({ x: z.number(), y: z.number(), z: z.number() }),
     z.tuple([z.number(), z.number(), z.number()]),
 ]);
