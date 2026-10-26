@@ -200,6 +200,30 @@ func _finish_transaction(client_id: int, command_id: String, transaction, transa
 	_send_success(client_id, response, command_id)
 
 
+# MultiMesh transforms as one buffer (12 floats each: one row of the 3x4 matrix at a time). A
+# --headless editor drops set_instance_transform, so fields built there were empty on save; a buffer
+# assigned in one go is kept.
+func _multimesh_buffer_3d(transforms: Array) -> PackedFloat32Array:
+	var data := PackedFloat32Array()
+	data.resize(transforms.size() * 12)
+	for i in range(transforms.size()):
+		var t: Transform3D = transforms[i]
+		var o := i * 12
+		data[o] = t.basis.x.x
+		data[o + 1] = t.basis.y.x
+		data[o + 2] = t.basis.z.x
+		data[o + 3] = t.origin.x
+		data[o + 4] = t.basis.x.y
+		data[o + 5] = t.basis.y.y
+		data[o + 6] = t.basis.z.y
+		data[o + 7] = t.origin.y
+		data[o + 8] = t.basis.x.z
+		data[o + 9] = t.basis.y.z
+		data[o + 10] = t.basis.z.z
+		data[o + 11] = t.origin.z
+	return data
+
+
 # Paths the MCP itself depends on (its addon code, approvals, project file, import cache): tools
 # must not delete, move or rewrite them.
 const PROTECTED_PATHS := ["res://project.godot", "res://addons/godot_mcp/", "res://project-manager/", "res://.godot/"]

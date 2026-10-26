@@ -2902,6 +2902,13 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 
 	if audio_stream is AudioStreamWAV:
 		var sample_stream: AudioStreamWAV = audio_stream
+		# Godot 4.3+ imports WAV files compressed (QOA) by default, which left nothing to analyze;
+		# decode the source file to PCM instead.
+		if not sample_stream.format in [AudioStreamWAV.FORMAT_8_BITS, AudioStreamWAV.FORMAT_16_BITS] and normalized_path.to_lower().ends_with(".wav"):
+			var decoded := AudioStreamWAV.load_from_file(ProjectSettings.globalize_path(normalized_path), {"compress/mode": 0})
+			if decoded != null:
+				sample_stream = decoded
+				metadata["decoded_from_source"] = true
 		var format := sample_stream.format
 		var pcm_supported := format == AudioStreamWAV.FORMAT_8_BITS or format == AudioStreamWAV.FORMAT_16_BITS
 		if not pcm_supported:

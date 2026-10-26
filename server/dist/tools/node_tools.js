@@ -2095,7 +2095,7 @@ export var nodeTools = [
     },
     {
         name: 'scatter_scene_instances_3d',
-        description: 'Procedurally scatter PackedScene Node3D instances across a 3D volume',
+        description: 'Procedurally scatter PackedScene Node3D instances across a 3D volume. origin is the volume\'s minimum corner (it spans origin to origin + size).',
         parameters: z.object({
             parent_path: z.string().optional(),
             scene_path: z.string()
@@ -3141,7 +3141,7 @@ export var nodeTools = [
     },
     {
         name: 'build_water_body_3d',
-        description: 'Generate a 3D water volume scaffold (surface mesh + Area3D volume) with tunable rendering and wave metadata',
+        description: 'Generate a 3D water volume scaffold (flat surface mesh + Area3D volume). Wave settings are stored as metadata for your own water shader or script; the surface itself is flat.',
         parameters: z.object({
             parent_path: z.string().optional()
                 .describe('Parent node path for the generated water root (defaults to "/root")'),
@@ -3230,24 +3230,25 @@ export var nodeTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_57, fieldPath, grains, error_61;
-            var _a, _b, _c;
-            return __generator(this, function (_d) {
-                switch (_d.label) {
+            var godot, result, status_57, fieldPath, grains, gridPoints, error_61;
+            var _a, _b, _c, _d;
+            return __generator(this, function (_e) {
+                switch (_e.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _d.label = 1;
+                        _e.label = 1;
                     case 1:
-                        _d.trys.push([1, 3, , 4]);
+                        _e.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('build_sand_field_3d', args)];
                     case 2:
-                        result = _d.sent();
+                        result = _e.sent();
                         status_57 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         fieldPath = (_b = result.field_path) !== null && _b !== void 0 ? _b : 'unknown';
                         grains = Number((_c = result.grain_count) !== null && _c !== void 0 ? _c : 0);
-                        return [2 /*return*/, "Built 3D sand field at ".concat(fieldPath, " with ").concat(grains, " grains [").concat(status_57, "]")];
+                        gridPoints = Number((_d = result.grid_points) !== null && _d !== void 0 ? _d : 0);
+                        return [2 /*return*/, "Built 3D sand field at ".concat(fieldPath, " with ").concat(grains, " grains").concat(gridPoints > Number(grains) ? " (max_grains capped a ".concat(gridPoints, "-point grid; grains are spread over the whole field)") : '', " [").concat(status_57, "]")];
                     case 3:
-                        error_61 = _d.sent();
+                        error_61 = _e.sent();
                         throw new Error("Failed to build sand field 3D: ".concat(error_61.message));
                     case 4: return [2 /*return*/];
                 }
@@ -3322,7 +3323,7 @@ export var nodeTools = [
             field_name: z.string().optional(),
             origin: vector2ParamSchema.optional(),
             size: vector2ParamSchema.optional(),
-            create_visual: z.boolean().optional(),
+            create_visual: z.boolean().optional().describe('Grain polygons (default true); false builds only the sand volume area'),
             create_volume_area: z.boolean().optional(),
             collision_layer: z.number().int().optional(),
             collision_mask: z.number().int().optional(),
@@ -4365,7 +4366,7 @@ export var nodeTools = [
     },
     {
         name: 'simulate_water_current_step_3d',
-        description: 'Apply one water current/buoyancy simulation step to a Node3D body against a 3D water volume',
+        description: 'Apply one water current/buoyancy step to a Node3D body over a 3D water volume. Gravity always pulls (a body above the surface falls in); buoyancy pushes up by how deep the body sits (1 hovers fully under, 2 floats half under, 0 sinks). Bodies outside the water footprint are left alone unless require_inside is false.',
         parameters: z.object({
             water_path: z.string()
                 .describe('Path to the 3D water root node'),
@@ -4376,6 +4377,7 @@ export var nodeTools = [
             depth: z.number().positive().optional(),
             flow_direction: vector2ParamSchema.optional(),
             flow_speed: z.number().optional(),
+            gravity: z.number().optional().describe('m/s² (default: project 3D gravity, 9.8)'),
             buoyancy: z.number().optional(),
             drag: z.number().nonnegative().optional(),
             delta: z.number().positive().optional(),

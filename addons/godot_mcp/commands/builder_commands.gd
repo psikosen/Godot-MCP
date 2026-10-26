@@ -513,9 +513,10 @@ func _build_blockout_3d(client_id: int, params: Dictionary, command_id: String) 
 			group.free()
 			return _send_error(client_id, "blocks[%d].shape must be box, sphere, cylinder or capsule" % index, command_id)
 		var size = _coerce_to_vector3(spec.get("size", [1, 1, 1]))
-		if not size is Vector3 or size.x <= 0 or size.y <= 0 or size.z <= 0:
+		# Round shapes use only x (diameter) and y (height), so z may be anything.
+		if not size is Vector3 or size.x <= 0 or size.y <= 0 or (kind == "box" and size.z <= 0):
 			group.free()
-			return _send_error(client_id, "blocks[%d].size must be {x, y, z} above 0" % index, command_id)
+			return _send_error(client_id, "blocks[%d].size needs x and y above 0 (and z for a box)" % index, command_id)
 		var color = _coerce_value_to_type(spec.get("color", "#9aa0a6"), TYPE_COLOR)
 		if not color is Color:
 			group.free()

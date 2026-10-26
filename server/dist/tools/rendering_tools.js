@@ -596,7 +596,11 @@ var formatProceduralOceanResponse = function (result) {
     return lines.join('\n');
 };
 var formatSimpleNodeResponse = function (label, result) {
-    var _a;
+    var _a, _b;
+    // create_node false returns "skipped"; the label ("Moon proxy created.") claimed success.
+    if (result.status === 'skipped') {
+        return "Nothing created: ".concat((_a = result.reason) !== null && _a !== void 0 ? _a : 'skipped', ".");
+    }
     var lines = [label];
     var nodePath = typeof result.created_node_path === 'string' ? result.created_node_path : '';
     var rootPath = typeof result.root_path === 'string' ? result.root_path : '';
@@ -610,7 +614,7 @@ var formatSimpleNodeResponse = function (label, result) {
     if (pivotPath.length > 0) {
         lines.push("Pivot node: ".concat(pivotPath));
     }
-    var savedPaths = (_a = result.saved_paths) !== null && _a !== void 0 ? _a : {};
+    var savedPaths = (_b = result.saved_paths) !== null && _b !== void 0 ? _b : {};
     var savedEntries = Object.entries(savedPaths).filter(function (_a) {
         var value = _a[1];
         return typeof value === 'string' && value.length > 0;
@@ -618,7 +622,7 @@ var formatSimpleNodeResponse = function (label, result) {
     if (savedEntries.length > 0) {
         lines.push('Saved resources:');
         for (var _i = 0, savedEntries_3 = savedEntries; _i < savedEntries_3.length; _i++) {
-            var _b = savedEntries_3[_i], key = _b[0], value = _b[1];
+            var _c = savedEntries_3[_i], key = _c[0], value = _c[1];
             lines.push("- ".concat(key, ": ").concat(value));
         }
     }

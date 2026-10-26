@@ -2377,7 +2377,7 @@ func _build_wave_spawner_2d(client_id: int, params: Dictionary, command_id: Stri
 		var timer := Timer.new()
 		timer.name = _resolve_unique_child_name(spawner_root, timer_name)
 		timer.one_shot = false
-		timer.autostart = false
+		timer.autostart = bool(params.get("auto_start", false))  # was stored only as metadata
 		timer.wait_time = max(0.01, float(params.get("wave_interval", 2.0)))
 		attach_plans.append({"parent": spawner_root, "node": timer})
 		created_nodes.append(timer)
@@ -2543,7 +2543,7 @@ func _build_wave_spawner_3d(client_id: int, params: Dictionary, command_id: Stri
 		var timer := Timer.new()
 		timer.name = _resolve_unique_child_name(spawner_root, timer_name)
 		timer.one_shot = false
-		timer.autostart = false
+		timer.autostart = bool(params.get("auto_start", false))  # was stored only as metadata
 		timer.wait_time = max(0.01, float(params.get("wave_interval", 2.0)))
 		attach_plans.append({"parent": spawner_root, "node": timer})
 		created_nodes.append(timer)
@@ -2725,7 +2725,9 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 			spawned_nodes.append(enemy_instance)
 
 	var meta_changes: Array = []
-	meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
+	# A preview (instantiate_enemy false) spawns nothing, so it must not use up spawn points.
+	if instantiate_enemy:
+		meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
 	if advance_wave:
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_current_wave", next_wave))
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_wave_complete", reached_limit))
@@ -2916,7 +2918,9 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 			spawned_nodes.append(enemy_instance)
 
 	var meta_changes: Array = []
-	meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
+	# A preview (instantiate_enemy false) spawns nothing, so it must not use up spawn points.
+	if instantiate_enemy:
+		meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
 	if advance_wave:
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_current_wave", next_wave))
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_wave_complete", reached_limit))
@@ -8181,7 +8185,7 @@ func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: Stri
 
 	var smoke_particles := GPUParticles2D.new()
 	smoke_particles.name = _resolve_unique_child_name(smoke_root, "SmokeParticles")
-	smoke_particles.position = Vector2(area_size.x * 0.5, area_size.y + 24.0)
+	smoke_particles.position = area_size * 0.5  # emit inside the area (it sat 24 px below it)
 	smoke_particles.one_shot = false
 	smoke_particles.local_coords = false
 	smoke_particles.fixed_fps = int(params.get("particle_fixed_fps", 24))
@@ -9426,19 +9430,24 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 	var precipitation_mode: String = str(params.get("precipitation_mode", str(preset_profile.get("precipitation_mode", "none")))).strip_edges().to_lower()
 	if not _mcp_is_valid_weather_precipitation_mode_2d(precipitation_mode):
 		precipitation_mode = str(preset_profile.get("precipitation_mode", "none"))
+	# A precipitation_mode unlike the preset's (ash on a snow preset) takes its particle look from the
+	# preset that uses that mode; the override used to keep the snow color and gravity.
+	var look_profile: Dictionary = preset_profile
+	if precipitation_mode != str(preset_profile.get("precipitation_mode", "none")) and precipitation_mode in ["rain", "snow", "ash"]:
+		look_profile = _mcp_weather_profile_2d(precipitation_mode)
 	var precipitation_intensity_scale: float = clampf(
 		float(params.get("precipitation_intensity_scale", float(preset_profile.get("precipitation_intensity", 1.0)))),
 		0.0,
 		2.0
 	)
 	var max_particles: int = clampi(int(params.get("max_particles", 2200)), 0, 50000)
-	var particle_lifetime: float = max(0.05, float(params.get("particle_lifetime", float(preset_profile.get("particle_lifetime", 1.8)))))
-	var particle_speed_min: float = max(0.0, float(params.get("particle_speed_min", float(preset_profile.get("particle_speed_min", 260.0)))))
-	var particle_speed_max: float = max(particle_speed_min, float(params.get("particle_speed_max", float(preset_profile.get("particle_speed_max", 560.0)))))
-	var spread_degrees: float = clampf(float(params.get("spread_degrees", float(preset_profile.get("spread_degrees", 4.0)))), 0.0, 180.0)
-	var gravity_strength: float = max(0.0, float(params.get("gravity_strength", float(preset_profile.get("gravity_strength", 980.0)))))
-	var particle_scale_min: Vector2 = _parse_vector2_param(params.get("particle_scale_min", preset_profile.get("particle_scale_min", Vector2(0.7, 5.2))))
-	var particle_scale_max: Vector2 = _parse_vector2_param(params.get("particle_scale_max", preset_profile.get("particle_scale_max", Vector2(1.2, 12.0))))
+	var particle_lifetime: float = max(0.05, float(params.get("particle_lifetime", float(look_profile.get("particle_lifetime", 1.8)))))
+	var particle_speed_min: float = max(0.0, float(params.get("particle_speed_min", float(look_profile.get("particle_speed_min", 260.0)))))
+	var particle_speed_max: float = max(particle_speed_min, float(params.get("particle_speed_max", float(look_profile.get("particle_speed_max", 560.0)))))
+	var spread_degrees: float = clampf(float(params.get("spread_degrees", float(look_profile.get("spread_degrees", 4.0)))), 0.0, 180.0)
+	var gravity_strength: float = max(0.0, float(params.get("gravity_strength", float(look_profile.get("gravity_strength", 980.0)))))
+	var particle_scale_min: Vector2 = _parse_vector2_param(params.get("particle_scale_min", look_profile.get("particle_scale_min", Vector2(0.7, 5.2))))
+	var particle_scale_max: Vector2 = _parse_vector2_param(params.get("particle_scale_max", look_profile.get("particle_scale_max", Vector2(1.2, 12.0))))
 	particle_scale_min.x = max(0.01, particle_scale_min.x)
 	particle_scale_min.y = max(0.01, particle_scale_min.y)
 	particle_scale_max.x = max(particle_scale_min.x, particle_scale_max.x)
@@ -9451,9 +9460,9 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 	var ambient_color = _coerce_color(params.get("ambient_color", preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))))
 	if ambient_color == null:
 		ambient_color = preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
-	var precipitation_color = _coerce_color(params.get("precipitation_color", preset_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))))
+	var precipitation_color = _coerce_color(params.get("precipitation_color", look_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))))
 	if precipitation_color == null:
-		precipitation_color = preset_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))
+		precipitation_color = look_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))
 
 	var lightning_enabled: bool = bool(params.get("lightning_enabled", bool(preset_profile.get("lightning_enabled", false))))
 	var lightning_chance: float = clampf(float(params.get("lightning_chance", float(preset_profile.get("lightning_chance", 0.0)))), 0.0, 1.0)
@@ -9746,8 +9755,9 @@ func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String
 		water_name = "Water2D"
 	if size.x <= 0.0 or size.y <= 0.0:
 		return _send_error(client_id, "size must be greater than zero on both axes", command_id)
-	if create_collision and not create_area:
-		create_area = true
+	# The collision shape lives on the water area; create_area false used to be overridden.
+	if not create_area:
+		create_collision = false
 
 	var plugin = Engine.get_meta("GodotMCPPlugin")
 	if not plugin:
@@ -10199,6 +10209,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 	predicted_paths["field_path"] = predicted_field_path
 
 	var grain_count := 0
+	var grid_points := 0
 	if create_visual:
 		var grains_node := MultiMeshInstance3D.new()
 		grains_node.name = _resolve_unique_child_name(field_root, "SandGrains")
@@ -10206,29 +10217,30 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		var nx := max(1, int(floor(size.x / grain_spacing)) + 1)
 		var ny := max(1, int(floor(size.y / grain_spacing)) + 1)
 		var nz := max(1, int(floor(size.z / grain_spacing)) + 1)
+		grid_points = nx * ny * nz
+		field_root.set_meta("mcp_grid_points", grid_points)
 		var transforms: Array = []
-		for y_idx in range(ny):
-			for z_idx in range(nz):
-				for x_idx in range(nx):
-					if transforms.size() >= max_grains:
-						break
-					var point := Vector3(
-						-size.x * 0.5 + float(x_idx) * grain_spacing,
-						-size.y * 0.5 + float(y_idx) * grain_spacing,
-						-size.z * 0.5 + float(z_idx) * grain_spacing
-					)
-					if jitter > 0.0:
-						point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
-						point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
-						point.z = clampf(point.z + rng.randf_range(-jitter, jitter), -size.z * 0.5, size.z * 0.5)
-					var basis := Basis.IDENTITY
-					if random_yaw:
-						basis = basis.rotated(Vector3.UP, deg_to_rad(rng.randf_range(-180.0, 180.0)))
-					transforms.append(Transform3D(basis, point))
-				if transforms.size() >= max_grains:
-					break
-			if transforms.size() >= max_grains:
-				break
+		# When max_grains caps the grid, take every n-th grid point so the whole field is covered;
+		# stopping at the cap filled the bottom layers and left the top half empty.
+		var take := mini(grid_points, max_grains)
+		for i in range(take):
+			var grid_index := int(float(i) * grid_points / take)
+			var x_idx: int = grid_index % nx
+			var z_idx: int = (grid_index / nx) % nz
+			var y_idx: int = grid_index / (nx * nz)
+			var point := Vector3(
+				-size.x * 0.5 + float(x_idx) * grain_spacing,
+				-size.y * 0.5 + float(y_idx) * grain_spacing,
+				-size.z * 0.5 + float(z_idx) * grain_spacing
+			)
+			if jitter > 0.0:
+				point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
+				point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
+				point.z = clampf(point.z + rng.randf_range(-jitter, jitter), -size.z * 0.5, size.z * 0.5)
+			var basis := Basis.IDENTITY
+			if random_yaw:
+				basis = basis.rotated(Vector3.UP, deg_to_rad(rng.randf_range(-180.0, 180.0)))
+			transforms.append(Transform3D(basis, point))
 
 		grain_count = transforms.size()
 		if grain_count <= 0:
@@ -10245,8 +10257,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		sphere_mesh.height = grain_radius * 2.0
 		multimesh.mesh = sphere_mesh
 
-		for idx in range(grain_count):
-			multimesh.set_instance_transform(idx, transforms[idx])
+		multimesh.buffer = _multimesh_buffer_3d(transforms)
 
 		grains_node.multimesh = multimesh
 
@@ -10290,6 +10301,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		"parent_path": parent_mcp_path,
 		"field_name": field_root.name,
 		"grain_count": grain_count,
+		"grid_points": grid_points,
 		"grain_spacing": grain_spacing,
 		"seed": seed_value,
 		"create_visual": create_visual,
@@ -10323,6 +10335,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 			"field_path": _to_mcp_path(field_root),
 			"parent_path": parent_mcp_path,
 			"grain_count": grain_count,
+		"grid_points": grid_points,
 			"grain_spacing": grain_spacing,
 			"seed": seed_value,
 			"create_visual": create_visual,
@@ -10340,6 +10353,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		"origin": _vector3_to_dict(origin),
 		"size": _vector3_to_dict(size),
 		"grain_count": grain_count,
+		"grid_points": grid_points,
 		"grain_spacing": grain_spacing,
 		"grain_radius": grain_radius,
 		"seed": seed_value,
@@ -10574,13 +10588,15 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 				var center_y: float = (float(y) + 0.5 - grid_half_y) * cell_size.y
 				var segment_position := Vector2(center_x, center_y)
 
-				var wall_body := StaticBody2D.new()
+				# Without collision a wall is plain art: a StaticBody2D with no shape is a body that collides
+				# with nothing.
+				var wall_body = StaticBody2D.new() if create_collision else Node2D.new()
 				wall_segment_count += 1
 				wall_body.name = "WallSegment%04d" % wall_segment_count
 				wall_body.position = segment_position
-				if collision_layer_value != null:
+				if collision_layer_value != null and create_collision:
 					wall_body.collision_layer = int(collision_layer_value)
-				if collision_mask_value != null:
+				if collision_mask_value != null and create_collision:
 					wall_body.collision_mask = int(collision_mask_value)
 
 				if create_collision:
@@ -10827,31 +10843,31 @@ func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String
 			var angle := TAU * float(point_idx) / float(grain_segments)
 			grain_polygon_template.append(Vector2(cos(angle), sin(angle)) * grain_radius)
 
-		for y_idx in range(ny):
-			for x_idx in range(nx):
-				if grain_count >= max_grains:
-					break
-				var point := Vector2(
-					-size.x * 0.5 + float(x_idx) * grain_spacing,
-					-size.y * 0.5 + float(y_idx) * grain_spacing
-				)
-				if jitter > 0.0:
-					point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
-					point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
+		# When max_grains caps the grid, take every n-th grid point so grains cover the whole field;
+		# stopping at the cap filled the first rows and left the rest empty.
+		var grid_points: int = nx * ny
+		var take := mini(grid_points, max_grains)
+		for i in range(take):
+			var grid_index := int(float(i) * grid_points / take)
+			var point := Vector2(
+				-size.x * 0.5 + float(grid_index % nx) * grain_spacing,
+				-size.y * 0.5 + float(grid_index / nx) * grain_spacing
+			)
+			if jitter > 0.0:
+				point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
+				point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
 
-				var grain := Polygon2D.new()
-				grain.name = "Grain%04d" % (grain_count + 1)
-				grain.polygon = grain_polygon_template
-				grain.position = point
-				if random_rotation:
-					grain.rotation = deg_to_rad(rng.randf_range(-180.0, 180.0))
-				_assign_converted(grain, "color", grain_color_value)
+			var grain := Polygon2D.new()
+			grain.name = "Grain%04d" % (grain_count + 1)
+			grain.polygon = grain_polygon_template
+			grain.position = point
+			if random_rotation:
+				grain.rotation = deg_to_rad(rng.randf_range(-180.0, 180.0))
+			_assign_converted(grain, "color", grain_color_value)
 
-				grains_container.add_child(grain)
-				created_nodes.append(grain)
-				grain_count += 1
-			if grain_count >= max_grains:
-				break
+			grains_container.add_child(grain)
+			created_nodes.append(grain)
+			grain_count += 1
 
 		if grain_count <= 0:
 			return _send_error(client_id, "Failed to generate any 2D grains with requested parameters", command_id)
@@ -11072,7 +11088,13 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 
 	for idx in range(segment_count):
 		if idx > 0:
-			current_y = clampf(current_y + rng.randf_range(min_height_step, max_height_step), min_y, max_y)
+			current_y += rng.randf_range(min_height_step, max_height_step)
+			# Bounce off the limits; clamping parked long runs of platforms flat on min_y or max_y.
+			if current_y < min_y:
+				current_y = min_y + (min_y - current_y)
+			elif current_y > max_y:
+				current_y = max_y - (current_y - max_y)
+			current_y = clampf(current_y, min_y, max_y)
 		var platform_width := rng.randf_range(min_platform_width, max_platform_width)
 		var center := Vector2(x_cursor + platform_width * 0.5, current_y)
 
@@ -11548,13 +11570,15 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 					(float(y) + 0.5 - grid_half_y) * cell_size.y
 				)
 
-				var wall_body := StaticBody2D.new()
+				# Without collision a wall is plain art: a StaticBody2D with no shape is a body that collides
+				# with nothing.
+				var wall_body = StaticBody2D.new() if create_wall_collision else Node2D.new()
 				wall_segment_count += 1
 				wall_body.name = "WallSegment%04d" % wall_segment_count
 				wall_body.position = wall_center
-				if collision_layer_value != null:
+				if collision_layer_value != null and create_wall_collision:
 					wall_body.collision_layer = int(collision_layer_value)
-				if collision_mask_value != null:
+				if collision_mask_value != null and create_wall_collision:
 					wall_body.collision_mask = int(collision_mask_value)
 
 				if create_wall_collision:
@@ -11840,10 +11864,20 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 	var max_generated_height := -2147483648
 	var height_sum := 0.0
 
+	# Simplex noise rarely nears -1 or 1, so min_height and max_height never appeared (0..4 gave 1..3);
+	# stretch the grid's own noise range over the requested heights.
+	var noise_min := INF
+	var noise_max := -INF
+	for sample_y in range(grid_size.y):
+		for sample_x in range(grid_size.x):
+			var sample := noise.get_noise_2d(float(sample_x) + sample_offset.x, float(sample_y) + sample_offset.y)
+			noise_min = minf(noise_min, sample)
+			noise_max = maxf(noise_max, sample)
+	var noise_span := maxf(noise_max - noise_min, 0.00001)
 	for y in range(grid_size.y):
 		for x in range(grid_size.x):
 			var noise_value := noise.get_noise_2d(float(x) + sample_offset.x, float(y) + sample_offset.y)
-			var normalized := clampf((noise_value + 1.0) * 0.5, 0.0, 1.0)
+			var normalized := clampf((noise_value - noise_min) / noise_span, 0.0, 1.0)
 			var height := int(round(lerpf(float(min_height), float(max_height), normalized)))
 			min_generated_height = min(min_generated_height, height)
 			max_generated_height = max(max_generated_height, height)
@@ -12085,10 +12119,15 @@ func _generate_tentacle_waypoints_2d(client_id: int, params: Dictionary, command
 	var total_length := 0.0
 	var previous_point := Vector2.ZERO
 
+	# The seed picks the wave's phase and strength; before, it only nudged points by 1-3 px. The
+	# ramp keeps the root at the origin whatever the phase.
+	var phase_offset := rng.randf_range(0.0, TAU)
+	var amplitude_scale := rng.randf_range(0.7, 1.3)
 	for idx in range(waypoint_count):
 		var t := float(idx) / float(max(1, waypoint_count - 1))
 		var base := Vector2(float(idx) * segment_length, 0.0)
-		var wave := sin(t * TAU * wave_count + rng.randf_range(-0.12, 0.12)) * lateral_amplitude * (1.0 - t * 0.35)
+		var root_ramp := smoothstep(0.0, 0.25, t)
+		var wave := sin(t * TAU * wave_count + phase_offset + rng.randf_range(-0.12, 0.12)) * lateral_amplitude * amplitude_scale * (1.0 - t * 0.35) * root_ramp
 		var jitter := rng.randf_range(-random_jitter, random_jitter)
 		var local_point := Vector2(base.x, wave + jitter).rotated(direction_angle)
 		points.append(local_point)
@@ -12313,11 +12352,12 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 
 	var part_specs: Array = [
 		{"name": "Body", "offset": Vector2(0.0, 0.0), "size": Vector2(120.0, 90.0), "accent": false, "shape": "rect"},
-		{"name": "Head", "offset": Vector2(0.0, -92.0), "size": Vector2(74.0, 62.0), "accent": false, "shape": "rect"},
-		{"name": "LeftArm", "offset": Vector2(-88.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
-		{"name": "RightArm", "offset": Vector2(88.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
-		{"name": "LeftLeg", "offset": Vector2(-34.0, 96.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
-		{"name": "RightLeg", "offset": Vector2(34.0, 96.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
+		# Parts overlap the body by a few pixels; the head, arms and legs used to float 8-16 px away.
+		{"name": "Head", "offset": Vector2(0.0, -70.0), "size": Vector2(74.0, 62.0), "accent": false, "shape": "rect"},
+		{"name": "LeftArm", "offset": Vector2(-78.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
+		{"name": "RightArm", "offset": Vector2(78.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
+		{"name": "LeftLeg", "offset": Vector2(-34.0, 84.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
+		{"name": "RightLeg", "offset": Vector2(34.0, 84.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
 	]
 	if include_tail:
 		part_specs.append({"name": "Tail", "offset": Vector2(0.0, 72.0), "size": Vector2(34.0, 96.0), "accent": true, "shape": "diamond"})
@@ -12325,8 +12365,8 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 		part_specs.append({"name": "LeftWing", "offset": Vector2(-122.0, -36.0), "size": Vector2(86.0, 108.0), "accent": true, "shape": "diamond"})
 		part_specs.append({"name": "RightWing", "offset": Vector2(122.0, -36.0), "size": Vector2(86.0, 108.0), "accent": true, "shape": "diamond"})
 	if include_horns:
-		part_specs.append({"name": "LeftHorn", "offset": Vector2(-18.0, -140.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
-		part_specs.append({"name": "RightHorn", "offset": Vector2(18.0, -140.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
+		part_specs.append({"name": "LeftHorn", "offset": Vector2(-18.0, -117.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
+		part_specs.append({"name": "RightHorn", "offset": Vector2(18.0, -117.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
 
 	var parts_preview: Array = []
 	for part_data in part_specs:
@@ -12563,13 +12603,15 @@ func _build_slime_mold_colony_2d(client_id: int, params: Dictionary, command_id:
 	var occupied_lookup: Dictionary = {}
 	occupied_lookup[_mcp_grid_key_from_vec2i(center)] = true
 
+	# The starting square must hold initial_cell_count cells; a radius of 0 silently gave 1 cell.
+	var placement_radius: int = max(initial_radius, int(ceil((sqrt(float(initial_cell_count)) - 1.0) * 0.5)))
 	var attempts := 0
-	var max_attempts := max(initial_cell_count * 12, 16)
+	var max_attempts := max(initial_cell_count * 40, 64)
 	while occupied_lookup.size() < initial_cell_count and attempts < max_attempts:
 		attempts += 1
 		var offset := Vector2i(
-			rng.randi_range(-initial_radius, initial_radius),
-			rng.randi_range(-initial_radius, initial_radius)
+			rng.randi_range(-placement_radius, placement_radius),
+			rng.randi_range(-placement_radius, placement_radius)
 		)
 		var coords := center + offset
 		coords.x = clampi(coords.x, 0, grid_size.x - 1)
@@ -13168,18 +13210,16 @@ func _mcp_configure_smoke_particle_material_3d(
 		wind = Vector3(1.0, 0.0, 0.3)
 	wind = wind.normalized()
 
-	var drift_strength := 0.22 + wind_strength * 0.95
+	var drift_strength := wind_strength * 0.95
 	var flow_direction := Vector3(wind.x * drift_strength, 1.0, wind.z * drift_strength).normalized()
 
 	material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
 	material.emission_box_extents = Vector3(volume_size.x * 0.5, 0.2, volume_size.z * 0.5)
 	material.direction = flow_direction
 	material.spread = spread_degrees
-	material.gravity = Vector3(
-		wind.x * (18.0 + wind_strength * 48.0),
-		32.0,
-		wind.z * (18.0 + wind_strength * 48.0)
-	)
+	# Meters per second squared: a gentle buoyant lift plus a push along the wind. The old values
+	# (32 up, 18 + 48 * wind sideways, even with no wind) threw smoke ~250 m up and ~150 m sideways.
+	material.gravity = Vector3(wind.x * wind_strength * 1.5, 0.45, wind.z * wind_strength * 1.5)
 	material.initial_velocity_min = rise_speed_min
 	material.initial_velocity_max = rise_speed_max
 	material.scale_min = 0.42
@@ -13470,6 +13510,9 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 	var preset_profile: Dictionary = _mcp_weather_profile_2d(active_preset)
 	if preset_profile.is_empty():
 		return _send_error(client_id, "Failed to resolve weather preset profile for %s" % active_preset, command_id)
+	# Switching preset applies the new preset's look; values stored by the old one used to win, so
+	# rain -> storm only renamed the preset (no lightning, rain gravity).
+	var preset_changed := active_preset != current_preset
 
 	var area_size: Vector2 = _parse_vector2_param(
 		params.get("area_size", weather.get_meta("mcp_weather_area_size") if weather.has_meta("mcp_weather_area_size") else Vector2(1280.0, 720.0))
@@ -13481,7 +13524,7 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 	)
 	var current_intensity: float = clampf(float(weather.get_meta("mcp_weather_intensity") if weather.has_meta("mcp_weather_intensity") else 0.0), 0.0, 1.0)
 	var target_intensity: float = clampf(
-		float(params.get("target_intensity", weather.get_meta("mcp_weather_target_intensity") if weather.has_meta("mcp_weather_target_intensity") else preset_profile.get("default_intensity", 0.65))),
+		float(params.get("target_intensity", weather.get_meta("mcp_weather_target_intensity") if (not preset_changed and weather.has_meta("mcp_weather_target_intensity")) else preset_profile.get("default_intensity", 0.65))),
 		0.0,
 		1.0
 	)
@@ -13501,13 +13544,13 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 
 	var precipitation_mode: String = str(params.get(
 		"precipitation_mode",
-		weather.get_meta("mcp_weather_precipitation_mode") if weather.has_meta("mcp_weather_precipitation_mode") else preset_profile.get("precipitation_mode", "none")
+		weather.get_meta("mcp_weather_precipitation_mode") if (not preset_changed and weather.has_meta("mcp_weather_precipitation_mode")) else preset_profile.get("precipitation_mode", "none")
 	)).strip_edges().to_lower()
 	if not _mcp_is_valid_weather_precipitation_mode_2d(precipitation_mode):
 		precipitation_mode = str(preset_profile.get("precipitation_mode", "none"))
 	var precipitation_intensity_scale: float = clampf(float(params.get(
 		"precipitation_intensity_scale",
-		weather.get_meta("mcp_weather_precipitation_intensity_scale") if weather.has_meta("mcp_weather_precipitation_intensity_scale") else preset_profile.get("precipitation_intensity", 1.0)
+		weather.get_meta("mcp_weather_precipitation_intensity_scale") if (not preset_changed and weather.has_meta("mcp_weather_precipitation_intensity_scale")) else preset_profile.get("precipitation_intensity", 1.0)
 	)), 0.0, 2.0)
 	var max_particles: int = clampi(int(params.get(
 		"max_particles",
@@ -13515,31 +13558,31 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 	)), 0, 50000)
 	var particle_lifetime: float = max(0.05, float(params.get(
 		"particle_lifetime",
-		weather.get_meta("mcp_weather_particle_lifetime") if weather.has_meta("mcp_weather_particle_lifetime") else preset_profile.get("particle_lifetime", 1.8)
+		weather.get_meta("mcp_weather_particle_lifetime") if (not preset_changed and weather.has_meta("mcp_weather_particle_lifetime")) else preset_profile.get("particle_lifetime", 1.8)
 	)))
 	var particle_speed_min: float = max(0.0, float(params.get(
 		"particle_speed_min",
-		weather.get_meta("mcp_weather_particle_speed_min") if weather.has_meta("mcp_weather_particle_speed_min") else preset_profile.get("particle_speed_min", 260.0)
+		weather.get_meta("mcp_weather_particle_speed_min") if (not preset_changed and weather.has_meta("mcp_weather_particle_speed_min")) else preset_profile.get("particle_speed_min", 260.0)
 	)))
 	var particle_speed_max: float = max(particle_speed_min, float(params.get(
 		"particle_speed_max",
-		weather.get_meta("mcp_weather_particle_speed_max") if weather.has_meta("mcp_weather_particle_speed_max") else preset_profile.get("particle_speed_max", 560.0)
+		weather.get_meta("mcp_weather_particle_speed_max") if (not preset_changed and weather.has_meta("mcp_weather_particle_speed_max")) else preset_profile.get("particle_speed_max", 560.0)
 	)))
 	var spread_degrees: float = clampf(float(params.get(
 		"spread_degrees",
-		weather.get_meta("mcp_weather_spread_degrees") if weather.has_meta("mcp_weather_spread_degrees") else preset_profile.get("spread_degrees", 6.0)
+		weather.get_meta("mcp_weather_spread_degrees") if (not preset_changed and weather.has_meta("mcp_weather_spread_degrees")) else preset_profile.get("spread_degrees", 6.0)
 	)), 0.0, 180.0)
 	var gravity_strength: float = max(0.0, float(params.get(
 		"gravity_strength",
-		weather.get_meta("mcp_weather_gravity_strength") if weather.has_meta("mcp_weather_gravity_strength") else preset_profile.get("gravity_strength", 980.0)
+		weather.get_meta("mcp_weather_gravity_strength") if (not preset_changed and weather.has_meta("mcp_weather_gravity_strength")) else preset_profile.get("gravity_strength", 980.0)
 	)))
 	var particle_scale_min: Vector2 = _parse_vector2_param(params.get(
 		"particle_scale_min",
-		weather.get_meta("mcp_weather_particle_scale_min") if weather.has_meta("mcp_weather_particle_scale_min") else preset_profile.get("particle_scale_min", Vector2(0.7, 5.2))
+		weather.get_meta("mcp_weather_particle_scale_min") if (not preset_changed and weather.has_meta("mcp_weather_particle_scale_min")) else preset_profile.get("particle_scale_min", Vector2(0.7, 5.2))
 	))
 	var particle_scale_max: Vector2 = _parse_vector2_param(params.get(
 		"particle_scale_max",
-		weather.get_meta("mcp_weather_particle_scale_max") if weather.has_meta("mcp_weather_particle_scale_max") else preset_profile.get("particle_scale_max", Vector2(1.2, 13.0))
+		weather.get_meta("mcp_weather_particle_scale_max") if (not preset_changed and weather.has_meta("mcp_weather_particle_scale_max")) else preset_profile.get("particle_scale_max", Vector2(1.2, 13.0))
 	))
 	particle_scale_min.x = max(0.01, particle_scale_min.x)
 	particle_scale_min.y = max(0.01, particle_scale_min.y)
@@ -13548,17 +13591,17 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 
 	var fog_density: float = clampf(float(params.get(
 		"fog_density",
-		weather.get_meta("mcp_weather_fog_density") if weather.has_meta("mcp_weather_fog_density") else preset_profile.get("fog_density", 0.18)
+		weather.get_meta("mcp_weather_fog_density") if (not preset_changed and weather.has_meta("mcp_weather_fog_density")) else preset_profile.get("fog_density", 0.18)
 	)), 0.0, 1.0)
 	var fog_color = _coerce_color(params.get(
 		"fog_color",
-		weather.get_meta("mcp_weather_fog_color") if weather.has_meta("mcp_weather_fog_color") else preset_profile.get("fog_color", Color(0.74, 0.8, 0.86, 0.24))
+		weather.get_meta("mcp_weather_fog_color") if (not preset_changed and weather.has_meta("mcp_weather_fog_color")) else preset_profile.get("fog_color", Color(0.74, 0.8, 0.86, 0.24))
 	))
 	if fog_color == null:
 		fog_color = preset_profile.get("fog_color", Color(0.74, 0.8, 0.86, 0.24))
 	var ambient_color = _coerce_color(params.get(
 		"ambient_color",
-		weather.get_meta("mcp_weather_ambient_color") if weather.has_meta("mcp_weather_ambient_color") else preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
+		weather.get_meta("mcp_weather_ambient_color") if (not preset_changed and weather.has_meta("mcp_weather_ambient_color")) else preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
 	))
 	if ambient_color == null:
 		ambient_color = preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
@@ -13571,25 +13614,25 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 
 	var lightning_enabled: bool = bool(params.get(
 		"lightning_enabled",
-		weather.get_meta("mcp_weather_lightning_enabled") if weather.has_meta("mcp_weather_lightning_enabled") else preset_profile.get("lightning_enabled", false)
+		weather.get_meta("mcp_weather_lightning_enabled") if (not preset_changed and weather.has_meta("mcp_weather_lightning_enabled")) else preset_profile.get("lightning_enabled", false)
 	))
 	var lightning_chance: float = clampf(float(params.get(
 		"lightning_chance",
-		weather.get_meta("mcp_weather_lightning_chance") if weather.has_meta("mcp_weather_lightning_chance") else preset_profile.get("lightning_chance", 0.0)
+		weather.get_meta("mcp_weather_lightning_chance") if (not preset_changed and weather.has_meta("mcp_weather_lightning_chance")) else preset_profile.get("lightning_chance", 0.0)
 	)), 0.0, 1.0)
 	var lightning_flash_strength: float = clampf(float(params.get(
 		"lightning_flash_strength",
-		weather.get_meta("mcp_weather_lightning_flash_strength") if weather.has_meta("mcp_weather_lightning_flash_strength") else preset_profile.get("lightning_flash_strength", 0.82)
+		weather.get_meta("mcp_weather_lightning_flash_strength") if (not preset_changed and weather.has_meta("mcp_weather_lightning_flash_strength")) else preset_profile.get("lightning_flash_strength", 0.82)
 	)), 0.0, 1.0)
 	if lightning_enabled and lightning_flash_strength <= 0.0:
 		lightning_flash_strength = 0.82
 	var lightning_decay: float = max(0.01, float(params.get(
 		"lightning_decay",
-		weather.get_meta("mcp_weather_lightning_decay") if weather.has_meta("mcp_weather_lightning_decay") else 2.4
+		weather.get_meta("mcp_weather_lightning_decay") if (not preset_changed and weather.has_meta("mcp_weather_lightning_decay")) else 2.4
 	)))
 	var lightning_color = _coerce_color(params.get(
 		"lightning_color",
-		weather.get_meta("mcp_weather_lightning_color") if weather.has_meta("mcp_weather_lightning_color") else Color(1.0, 1.0, 1.0, 1.0)
+		weather.get_meta("mcp_weather_lightning_color") if (not preset_changed and weather.has_meta("mcp_weather_lightning_color")) else Color(1.0, 1.0, 1.0, 1.0)
 	))
 	if lightning_color == null:
 		lightning_color = Color(1.0, 1.0, 1.0, 1.0)
@@ -14162,13 +14205,12 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 
 	var local_position: Vector3 = body.global_position - water.global_position
 	var half_extents := Vector2(water_size_2d.x * 0.5, water_size_2d.y * 0.5)
-	var inside_water: bool = (
-		absf(local_position.x) <= half_extents.x and
-		absf(local_position.z) <= half_extents.y and
-		local_position.y <= 0.0 and local_position.y >= -water_depth
-	)
+	var in_footprint: bool = absf(local_position.x) <= half_extents.x and absf(local_position.z) <= half_extents.y
+	var inside_water: bool = in_footprint and local_position.y <= 0.0 and local_position.y >= -water_depth
 	var require_inside: bool = bool(params.get("require_inside", true))
-	if not inside_water and require_inside:
+	# Bodies over the water are simulated even above the surface, so they fall back in; before,
+	# every body that left the water froze in place.
+	if not in_footprint and require_inside:
 		return _send_success(client_id, {
 			"water_path": _to_mcp_path(water),
 			"body_path": _to_mcp_path(body),
@@ -14177,7 +14219,8 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 			"status": "out_of_water",
 		}, command_id)
 
-	var submersion: float = clampf((-local_position.y) / max(0.0001, water_depth), 0.0, 1.0) if inside_water else 0.0
+	var submersion: float = clampf((-local_position.y) / max(0.0001, water_depth), 0.0, 1.0) if in_footprint else 0.0
+	var gravity: float = float(params.get("gravity", ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)))
 	var flow_direction_2d := _parse_vector2_param(
 		params.get(
 			"flow_direction",
@@ -14225,10 +14268,15 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 
 	var target_flow_velocity := Vector3(flow_direction_2d.x, 0.0, flow_direction_2d.y) * flow_speed * flow_scale
 	var damping_factor: float = clampf(drag * drag_scale * delta, 0.0, 1.0)
-	var new_velocity: Vector3 = current_velocity.lerp(target_flow_velocity, damping_factor)
-	if preserve_vertical_velocity:
-		new_velocity.y = current_velocity.y
-	new_velocity.y += buoyancy * buoyancy_scale * submersion * 9.8 * delta
+	var new_velocity: Vector3 = current_velocity
+	if submersion > 0.0:
+		# Water drag pulls the body toward the current (and damps vertical motion).
+		new_velocity = current_velocity.lerp(target_flow_velocity, damping_factor)
+		if preserve_vertical_velocity:
+			new_velocity.y = current_velocity.y
+	# Gravity always pulls; buoyancy pushes up in proportion to how deep the body sits, so a body
+	# floats where buoyancy * submersion = 1 (buoyancy 0 sinks, buoyancy 2 floats half under).
+	new_velocity.y += (buoyancy * buoyancy_scale * submersion - 1.0) * gravity * delta
 	new_velocity.y -= sink_bias * delta
 	if clamp_speed > 0.0 and new_velocity.length() > clamp_speed:
 		new_velocity = new_velocity.normalized() * clamp_speed
@@ -14434,14 +14482,20 @@ func _settle_sand_field_3d(client_id: int, params: Dictionary, command_id: Strin
 		settled_multimesh.visible_instance_count = source_multimesh.visible_instance_count
 	if "custom_aabb" in source_multimesh and "custom_aabb" in settled_multimesh:
 		settled_multimesh.custom_aabb = source_multimesh.custom_aabb
+	# The buffer (12 floats per transform, then color and custom data) is read and written as a
+	# whole: per-instance calls are dropped by --headless editors and returned zeros.
+	var buffer: PackedFloat32Array = source_multimesh.buffer
+	var stride := 12 + (4 if source_multimesh.use_colors else 0) + (4 if source_multimesh.use_custom_data else 0)
+	if source_multimesh.transform_format != MultiMesh.TRANSFORM_3D or buffer.size() < instance_count * stride:
+		return _send_error(client_id, "The sand grains have no stored positions (fields built by older versions in a --headless editor lost them); rebuild the field with build_sand_field_3d", command_id)
 	var moved_instances := 0
 	var total_drop := 0.0
 	var total_horizontal_shift := 0.0
 	var settle_ratio := settle_strength / float(iterations)
 
 	for idx in range(instance_count):
-		var current_transform: Transform3D = source_multimesh.get_instance_transform(idx)
-		var original_origin: Vector3 = current_transform.origin
+		var offset := idx * stride
+		var original_origin := Vector3(buffer[offset + 3], buffer[offset + 7], buffer[offset + 11])
 		var settled_origin: Vector3 = original_origin
 		for step in range(iterations):
 			settled_origin.x += rng.randf_range(-horizontal_jitter, horizontal_jitter) * settle_ratio
@@ -14458,11 +14512,10 @@ func _settle_sand_field_3d(client_id: int, params: Dictionary, command_id: Strin
 		total_drop += max(0.0, original_origin.y - settled_origin.y)
 		total_horizontal_shift += Vector2(delta_vec.x, delta_vec.z).length()
 
-		settled_multimesh.set_instance_transform(idx, Transform3D(current_transform.basis, settled_origin))
-		if source_multimesh.use_colors:
-			settled_multimesh.set_instance_color(idx, source_multimesh.get_instance_color(idx))
-		if source_multimesh.use_custom_data:
-			settled_multimesh.set_instance_custom_data(idx, source_multimesh.get_instance_custom_data(idx))
+		buffer[offset + 3] = settled_origin.x
+		buffer[offset + 7] = settled_origin.y
+		buffer[offset + 11] = settled_origin.z
+	settled_multimesh.buffer = buffer
 
 	var pending_property_changes: Array = []
 	pending_property_changes.append_array(_capture_property_change(grains, "multimesh", settled_multimesh))

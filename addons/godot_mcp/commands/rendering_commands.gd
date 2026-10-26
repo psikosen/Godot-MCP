@@ -634,12 +634,17 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var albedo_image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	var height_image := Image.create(width, height, false, Image.FORMAT_RF)
 	var specular_image := Image.create(width, height, false, Image.FORMAT_L8)
+	var roughness_image := Image.create(width, height, false, Image.FORMAT_L8)
 
 	var height_values := PackedFloat32Array()
 	height_values.resize(width * height)
+	var humidity_values := PackedFloat32Array()
+	humidity_values.resize(width * height)
 	var min_elevation := 1000.0
 	var max_elevation := -1000.0
 
+	# Pass 1 samples the noise. Fractal noise only spans about -0.2..0.2, so a sea_level outside that
+	# gave all land or all ocean and mountains never appeared; pass 2 stretches it to -1..1.
 	for y in range(height):
 		var v := float(y) / float(height - 1)
 		var latitude := (v - 0.5) * PI
@@ -670,18 +675,28 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 				lacunarity,
 				persistence
 			)
-			var elevation := clampf(elevation_raw, -1.0, 1.0)
-			var humidity := clampf((humidity_raw + 1.0) * 0.5, 0.0, 1.0)
-			var color := _planet_biome_color(elevation, humidity, sea_level)
+			height_values[y * width + x] = elevation_raw
+			humidity_values[y * width + x] = clampf((humidity_raw + 1.0) * 0.5, 0.0, 1.0)
+			min_elevation = min(min_elevation, elevation_raw)
+			max_elevation = max(max_elevation, elevation_raw)
+
+	var elevation_span: float = max(max_elevation - min_elevation, 0.0001)
+	for y in range(height):
+		for x in range(width):
+			var index: int = y * width + x
+			var elevation := (height_values[index] - min_elevation) / elevation_span * 2.0 - 1.0
+			height_values[index] = elevation
+			var color := _planet_biome_color(elevation, humidity_values[index], sea_level)
 			var water_factor := 1.0 - smoothstep(sea_level - 0.08, sea_level + 0.02, elevation)
 			var specular_value := water_factor * specular_intensity
-
+			# Godot 4 has no specular map: shiny water is low roughness.
+			var roughness_value := lerpf(roughness, 0.08, specular_value)
 			albedo_image.set_pixel(x, y, color)
-			height_image.set_pixel(x, y, Color(elevation, 0.0, 0.0, 1.0))
+			height_image.set_pixel(x, y, Color((elevation + 1.0) * 0.5, 0.0, 0.0, 1.0))
 			specular_image.set_pixel(x, y, Color(specular_value, specular_value, specular_value, 1.0))
-			height_values[y * width + x] = elevation
-			min_elevation = min(min_elevation, elevation)
-			max_elevation = max(max_elevation, elevation)
+			roughness_image.set_pixel(x, y, Color(roughness_value, roughness_value, roughness_value, 1.0))
+	min_elevation = -1.0
+	max_elevation = 1.0
 
 	var normal_image := _build_planet_normal_map(height_values, width, height, normal_strength)
 
@@ -689,6 +704,7 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var normal_texture := ImageTexture.create_from_image(normal_image)
 	var height_texture := ImageTexture.create_from_image(height_image)
 	var specular_texture := ImageTexture.create_from_image(specular_image)
+	var roughness_texture := ImageTexture.create_from_image(roughness_image)
 
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = radius
@@ -703,8 +719,9 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	material.normal_texture = normal_texture
 	material.heightmap_enabled = true
 	material.heightmap_texture = height_texture
-	material.specular_texture = specular_texture
-	material.roughness = roughness
+	material.roughness_texture = roughness_texture
+	material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	material.roughness = 1.0
 	material.metallic = metallic
 
 	var mesh_save_path := str(params.get("save_mesh_path", ""))
@@ -713,6 +730,16 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var height_save_path := str(params.get("save_height_path", ""))
 	var normal_save_path := str(params.get("save_normal_path", ""))
 	var specular_save_path := str(params.get("save_specular_path", ""))
+	var roughness_save_path := specular_save_path.get_basename() + "_roughness.png" if specular_save_path != "" else ""
+	# Textures that end up in a saved file (the scene, or the saved material) were embedded as
+	# megabytes of pixels; save every missing one as a PNG next to the material, or under
+	# res://generated/<node_name in snake_case>/, and reference it.
+	if create_node or material_save_path != "":
+		var folder := material_save_path.get_basename() + "_textures" if material_save_path != "" else "res://generated/%s" % str(node_name).to_snake_case()
+		albedo_save_path = albedo_save_path if albedo_save_path != "" else folder + "/albedo.png"
+		height_save_path = height_save_path if height_save_path != "" else folder + "/height.png"
+		normal_save_path = normal_save_path if normal_save_path != "" else folder + "/normal.png"
+		roughness_save_path = roughness_save_path if roughness_save_path != "" else folder + "/roughness.png"
 
 	if mesh_save_path != "" and not ResourceUtils.safe_save(sphere_mesh, mesh_save_path):
 		return _send_error(client_id, "Failed to save planet mesh to %s" % mesh_save_path, command_id)
@@ -724,11 +751,13 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 		return _send_error(client_id, "Failed to save normal texture to %s" % normal_save_path, command_id)
 	if specular_save_path != "" and not _save_image_or_texture(specular_image, specular_texture, specular_save_path):
 		return _send_error(client_id, "Failed to save specular texture to %s" % specular_save_path, command_id)
+	if roughness_save_path != "" and not _save_image_or_texture(roughness_image, roughness_texture, roughness_save_path):
+		return _send_error(client_id, "Failed to save roughness texture to %s" % roughness_save_path, command_id)
 
 	# Reference the saved files instead of embedding pixels (an embedded 1.6 MB material, orphaned PNGs).
-	var reloaded: Dictionary = await _reload_saved_textures([albedo_save_path, height_save_path, normal_save_path, specular_save_path])
+	var reloaded: Dictionary = await _reload_saved_textures([albedo_save_path, height_save_path, normal_save_path, roughness_save_path])
 	for entry in [[albedo_save_path, "albedo_texture"], [height_save_path, "heightmap_texture"],
-			[normal_save_path, "normal_texture"], [specular_save_path, "specular_texture"]]:
+			[normal_save_path, "normal_texture"], [roughness_save_path, "roughness_texture"]]:
 		var saved_texture = reloaded.get(_contained_res_path(entry[0]) if entry[0] != "" else "")
 		if saved_texture != null:
 			material.set(entry[1], saved_texture)
@@ -1010,7 +1039,7 @@ void fragment() {
 		ocean_node.mesh = ocean_mesh
 		ocean_node.material_override = material
 		if planet_node != null and ocean_node is Node3D and planet_node is Node3D:
-			ocean_node.transform = (planet_node as Node3D).transform
+			ocean_node.transform = _local_transform_matching(planet_node, parent)
 
 		var plugin = Engine.get_meta("GodotMCPPlugin")
 		var edited_scene_root = null
@@ -1157,6 +1186,15 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 	var create_node := params.get("create_node", true)
 	var save_mesh_path := str(params.get("save_mesh_path", ""))
 	var save_material_path := str(params.get("save_material_path", ""))
+
+	# Check the parent and name before saving files; a bad parent left saved mesh/material behind.
+	if create_node:
+		var early_parent := _get_editor_node(parent_path)
+		if early_parent == null:
+			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var early_name_error := _sibling_name_error(early_parent, node_name)
+		if not early_name_error.is_empty():
+			return _send_error(client_id, early_name_error, command_id)
 
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = radius
@@ -1381,69 +1419,9 @@ func _generate_planet_cloud_layer(client_id: int, params: Dictionary, command_id
 	var parent_path := str(params.get("parent_path", ""))
 	var create_node := params.get("create_node", true)
 
-	var shader_code := """
-shader_type spatial;
-render_mode blend_mix, cull_back, unshaded, depth_draw_opaque;
 
-uniform vec4 cloud_color : source_color = vec4(0.95, 0.97, 1.0, 1.0);
-uniform float cloud_density = 0.45;
-uniform float cloud_scale = 2.4;
-uniform float cloud_speed = 0.05;
-uniform float cloud_alpha = 0.6;
-
-float hash31(vec3 p) {
-	p = fract(p * 0.1031);
-	p += dot(p, p.yzx + 33.33);
-	return fract((p.x + p.y) * p.z);
-}
-
-float noise3(vec3 p) {
-	vec3 i = floor(p);
-	vec3 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-	float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
-	float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
-	float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
-	float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
-	float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
-	float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
-	float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
-	float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
-	float nx00 = mix(n000, n100, f.x);
-	float nx10 = mix(n010, n110, f.x);
-	float nx01 = mix(n001, n101, f.x);
-	float nx11 = mix(n011, n111, f.x);
-	float nxy0 = mix(nx00, nx10, f.y);
-	float nxy1 = mix(nx01, nx11, f.y);
-	return mix(nxy0, nxy1, f.z);
-}
-
-varying vec3 local_pos;
-
-void vertex() {
-	local_pos = VERTEX;
-}
-
-void fragment() {
-	vec3 p = normalize(local_pos) * cloud_scale;
-	float t = TIME * cloud_speed;
-	float n = noise3(p + vec3(t, t * 0.7, -t * 0.45));
-	float cloud = smoothstep(1.0 - cloud_density, 1.0, n);
-	ALBEDO = cloud_color.rgb;
-	EMISSION = cloud_color.rgb * 0.05;
-	ALPHA = cloud * cloud_alpha;
-}
-"""
-
-	var shader := Shader.new()
-	shader.code = shader_code
-	var material := ShaderMaterial.new()
-	material.shader = shader
-	material.set_shader_parameter("cloud_color", cloud_color)
-	material.set_shader_parameter("cloud_density", cloud_density)
-	material.set_shader_parameter("cloud_scale", cloud_scale)
-	material.set_shader_parameter("cloud_speed", cloud_speed)
-	material.set_shader_parameter("cloud_alpha", cloud_alpha)
+	var material := _cloud_shader_material(cloud_color, cloud_density, cloud_scale, cloud_speed, cloud_alpha)
+	var shader: Shader = material.shader
 
 	var save_shader_path := str(params.get("save_shader_path", ""))
 	var save_material_path := str(params.get("save_material_path", ""))
@@ -1486,7 +1464,7 @@ void fragment() {
 		cloud_node.mesh = cloud_mesh
 		cloud_node.material_override = material
 		if planet_node != null and cloud_node is Node3D and planet_node is Node3D:
-			cloud_node.transform = (planet_node as Node3D).transform
+			cloud_node.transform = _local_transform_matching(planet_node, parent)
 
 		var transaction = SceneTransactionManager.begin_inline("Generate Planet Cloud Layer", {
 			"command": "generate_planet_cloud_layer",
@@ -1575,7 +1553,7 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 		atmosphere_node.mesh = atmosphere_mesh
 		atmosphere_node.material_override = material
 		if planet_node != null and atmosphere_node is Node3D and planet_node is Node3D:
-			atmosphere_node.transform = (planet_node as Node3D).transform
+			atmosphere_node.transform = _local_transform_matching(planet_node, parent)
 
 		var transaction = SceneTransactionManager.begin_inline("Create Atmosphere Glow", {
 			"command": "create_planet_atmosphere_glow",
@@ -1671,7 +1649,9 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 		crater_node.name = "Crater%03d" % i
 		crater_node.mesh = crater_mesh
 		crater_node.material_override = crater_material
-		crater_node.transform = Transform3D(_basis_from_y_axis(direction), direction * (planet_radius - crater_radius * crater_depth))
+		# The disc's underside touches the surface, so its rim stands clear of the curving sphere;
+		# (planet_radius - crater_radius * depth) buried every crater inside the planet.
+		crater_node.transform = Transform3D(_basis_from_y_axis(direction), direction * (planet_radius + crater_mesh.height * crater_depth * 0.5))
 		crater_node.scale = Vector3(1.0, crater_depth, 1.0)
 		crater_root.add_child(crater_node)
 
@@ -1855,7 +1835,7 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	for y in range(height):
 		var t := float(y) / float(max(1, height - 1))
-		var row_color = background_bottom.lerp(background_top, pow(t, 0.75))
+		var row_color = background_top.lerp(background_bottom, pow(t, 0.75))  # row 0 is the zenith
 		for x in range(width):
 			image.set_pixel(x, y, row_color)
 
@@ -1888,6 +1868,12 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	var save_material_path := str(params.get("save_material_path", ""))
 	var save_sky_path := str(params.get("save_sky_path", ""))
 	var save_environment_path := str(params.get("save_environment_path", ""))
+	# Saved resources without a saved image embedded the whole panorama (480 KB for 256x128).
+	if save_image_path == "":
+		for resource_path in [save_environment_path, save_sky_path, save_material_path]:
+			if resource_path != "":
+				save_image_path = resource_path.get_basename() + "_panorama.png"
+				break
 
 	if save_image_path != "":
 		if not _save_image_or_texture(image, panorama_texture, save_image_path):
@@ -1928,6 +1914,14 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 			var previous_sky = environment.sky
 			transaction.add_do_property(environment, "sky", sky)
 			transaction.add_undo_property(environment, "sky", previous_sky)
+			if environment.background_mode != Environment.BG_SKY:
+				transaction.add_do_property(environment, "background_mode", Environment.BG_SKY)
+				transaction.add_undo_property(environment, "background_mode", environment.background_mode)
+			# A WorldEnvironment without an Environment got a new one that was never assigned.
+			var assign_to = resolve.get("assign_to")
+			if assign_to != null:
+				transaction.add_do_property(assign_to, "environment", environment)
+				transaction.add_undo_property(assign_to, "environment", assign_to.environment)
 			transaction.register_on_commit(func():
 				_mark_scene_modified()
 			)
@@ -2060,6 +2054,7 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 
 	var config := {
 		"planet_color": Color(0.30, 0.42, 0.30, 1.0),
+		"ocean": "water",
 		"ocean_color": Color(0.08, 0.28, 0.52, 0.72),
 		"cloud_alpha": 0.45,
 		"atmo_color": Color(0.32, 0.58, 1.0, 1.0),
@@ -2067,6 +2062,7 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 	match preset:
 		"desert":
 			config["planet_color"] = Color(0.72, 0.58, 0.36, 1.0)
+			config["ocean"] = "none"
 			config["ocean_color"] = Color(0.18, 0.30, 0.34, 0.35)
 			config["cloud_alpha"] = 0.20
 			config["atmo_color"] = Color(0.95, 0.72, 0.45, 1.0)
@@ -2077,6 +2073,7 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 			config["atmo_color"] = Color(0.72, 0.86, 1.0, 1.0)
 		"lava":
 			config["planet_color"] = Color(0.32, 0.19, 0.18, 1.0)
+			config["ocean"] = "lava"
 			config["ocean_color"] = Color(0.85, 0.25, 0.06, 0.40)
 			config["cloud_alpha"] = 0.10
 			config["atmo_color"] = Color(1.0, 0.42, 0.18, 1.0)
@@ -2116,21 +2113,26 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 	ocean_material.albedo_color = config["ocean_color"]
 	ocean_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ocean_material.roughness = 0.10
+	if config["ocean"] == "lava":
+		# A glowing lava sea; desert planets have no sea at all (both got a blue-ish ocean sphere).
+		ocean_material.emission_enabled = true
+		ocean_material.emission = config["ocean_color"]
+		ocean_material.emission_energy_multiplier = 1.6
 	var ocean_node := MeshInstance3D.new()
-	ocean_node.name = "Ocean"
+	ocean_node.name = "LavaSea" if config["ocean"] == "lava" else "Ocean"
 	ocean_node.mesh = ocean_mesh
 	ocean_node.material_override = ocean_material
-	root.add_child(ocean_node)
+	var has_ocean: bool = config["ocean"] != "none"
+	if has_ocean:
+		root.add_child(ocean_node)
 
 	var cloud_mesh := SphereMesh.new()
 	cloud_mesh.radius = planet_radius * 1.05
 	cloud_mesh.height = cloud_mesh.radius * 2.0
 	cloud_mesh.radial_segments = 64
 	cloud_mesh.rings = 48
-	var cloud_material := StandardMaterial3D.new()
-	cloud_material.albedo_color = Color(1, 1, 1, config["cloud_alpha"])
-	cloud_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	cloud_material.roughness = 1.0
+	# Noise clouds (the same shader as generate_planet_cloud_layer), not a flat white haze.
+	var cloud_material := _cloud_shader_material(Color(0.95, 0.97, 1.0, 1.0), 0.45, 2.4, 0.03, minf(1.0, float(config["cloud_alpha"]) * 1.8))
 	var cloud_node := MeshInstance3D.new()
 	cloud_node.name = "Clouds"
 	cloud_node.mesh = cloud_mesh
@@ -2201,11 +2203,13 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 		"preset": preset,
 		"root_path": _to_mcp_path(root),
 		"planet_path": _to_mcp_path(planet_node),
-		"ocean_path": _to_mcp_path(ocean_node),
+		"ocean_path": _to_mcp_path(ocean_node) if has_ocean else "",  # desert: no sea
 		"cloud_path": _to_mcp_path(cloud_node),
 		"atmosphere_path": _to_mcp_path(atmo_node),
 		"moon_path": moon_path,
 	}, command_id)
+	if not has_ocean:
+		ocean_node.free()  # built but never added (desert)
 
 func _fractal_noise_sample(
 	noise: FastNoiseLite,
@@ -2590,3 +2594,79 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 		return result
 
 	return result
+
+
+# A transform for a new child of parent that puts it exactly where planet is. Copying the planet's
+# local transform misplaced layers created under a different parent.
+func _local_transform_matching(planet: Node3D, parent: Node) -> Transform3D:
+	if parent is Node3D:
+		return (parent as Node3D).global_transform.affine_inverse() * planet.global_transform
+	return planet.global_transform
+
+
+const CLOUD_SHADER_CODE := """
+shader_type spatial;
+render_mode blend_mix, cull_back, unshaded, depth_draw_opaque;
+
+uniform vec4 cloud_color : source_color = vec4(0.95, 0.97, 1.0, 1.0);
+uniform float cloud_density = 0.45;
+uniform float cloud_scale = 2.4;
+uniform float cloud_speed = 0.05;
+uniform float cloud_alpha = 0.6;
+
+float hash31(vec3 p) {
+	p = fract(p * 0.1031);
+	p += dot(p, p.yzx + 33.33);
+	return fract((p.x + p.y) * p.z);
+}
+
+float noise3(vec3 p) {
+	vec3 i = floor(p);
+	vec3 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
+	float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+	float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+	float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+	float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+	float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+	float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+	float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+	float nx00 = mix(n000, n100, f.x);
+	float nx10 = mix(n010, n110, f.x);
+	float nx01 = mix(n001, n101, f.x);
+	float nx11 = mix(n011, n111, f.x);
+	float nxy0 = mix(nx00, nx10, f.y);
+	float nxy1 = mix(nx01, nx11, f.y);
+	return mix(nxy0, nxy1, f.z);
+}
+
+varying vec3 local_pos;
+
+void vertex() {
+	local_pos = VERTEX;
+}
+
+void fragment() {
+	vec3 p = normalize(local_pos) * cloud_scale;
+	float t = TIME * cloud_speed;
+	float n = noise3(p + vec3(t, t * 0.7, -t * 0.45));
+	float cloud = smoothstep(1.0 - cloud_density, 1.0, n);
+	ALBEDO = cloud_color.rgb;
+	EMISSION = cloud_color.rgb * 0.05;
+	ALPHA = cloud * cloud_alpha;
+}
+"""
+
+
+func _cloud_shader_material(color: Color, density: float, scale: float, speed: float, alpha: float) -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = CLOUD_SHADER_CODE
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("cloud_color", color)
+	material.set_shader_parameter("cloud_density", density)
+	material.set_shader_parameter("cloud_scale", scale)
+	material.set_shader_parameter("cloud_speed", speed)
+	material.set_shader_parameter("cloud_alpha", alpha)
+	return material

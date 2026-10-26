@@ -583,6 +583,10 @@ const formatProceduralOceanResponse = (result: CommandResult): string => {
 };
 
 const formatSimpleNodeResponse = (label: string, result: CommandResult): string => {
+  // create_node false returns "skipped"; the label ("Moon proxy created.") claimed success.
+  if (result.status === 'skipped') {
+    return `Nothing created: ${result.reason ?? 'skipped'}.`;
+  }
   const lines = [label];
   const nodePath = typeof result.created_node_path === 'string' ? result.created_node_path : '';
   const rootPath = typeof result.root_path === 'string' ? result.root_path : '';
