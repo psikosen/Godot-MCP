@@ -1324,13 +1324,7 @@ func _batch_delete_nodes(client_id: int, params: Dictionary, command_id: String)
 	for node in nodes_to_delete:
 		var parent = node.get_parent()
 		var child_index = parent.get_children().find(node)
-		var previous_owner = node.owner
-		transaction.add_do_method(parent, "remove_child", [node])
-		transaction.add_do_method(node, "queue_free")
-		transaction.add_undo_method(parent, "add_child", [node])
-		transaction.add_undo_method(parent, "move_child", [node, child_index])
-		transaction.add_undo_property(node, "owner", previous_owner)
-		transaction.add_do_reference(node)
+		_remove_with_undo(transaction, node)
 		deleted_entries.append({
 			"node_path": _to_mcp_path(node),
 			"parent_path": _to_mcp_path(parent),
@@ -16777,8 +16771,6 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not parent:
 		return _send_error(client_id, "Node has no parent: %s" % node_path, command_id)
 	
-	var child_index = parent.get_children().find(node)
-
 	var transaction_metadata := {
 		"command": "delete_node",
 		"node_path": node_path,
@@ -16797,12 +16789,7 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for node deletion", command_id)
 
-	transaction.add_do_method(parent, "remove_child", [node])
-	transaction.add_do_method(node, "queue_free")
-	transaction.add_undo_method(parent, "add_child", [node])
-	transaction.add_undo_method(parent, "move_child", [node, child_index])
-	transaction.add_undo_method(node, "set_owner", [edited_scene_root])
-	transaction.add_do_reference(node)
+	_remove_with_undo(transaction, node)
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
 		var selection: EditorSelection = editor_interface.get_selection()

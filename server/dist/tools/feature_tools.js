@@ -40,7 +40,7 @@ import { vector3 } from './builder_tools.js';
 var status = function (r) { return "[".concat(r.status, "]"); };
 var point = z.union([vector2, vector3]);
 var boneAxis = z.enum(['+x', '-x', '+y', '-y', '+z', '-z']);
-var editableNote = function (r) {
+export var editableNote = function (r) {
     var _a;
     var opened = (_a = r.editable_children) !== null && _a !== void 0 ? _a : [];
     return opened.length ? "\nTurned on Editable Children for ".concat(opened.join(', '), " so the change saves") : '';

@@ -186,6 +186,39 @@ func _godot_version() -> String:
 	return "%d.%d.%d" % [version["major"], version["minor"], version["patch"]]
 
 
+# A change to a node inside an instanced scene (an imported model, say) saves only with Editable
+# Children on for that instance; turns it on where needed. Returns the instances it opened.
+func _open_instances(transaction, nodes: Array) -> Array:
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var seen: Array = []
+	var opened: Array = []
+	for node in nodes:
+		var instance: Node = node.owner
+		while instance and instance != scene_root and not instance in seen:
+			seen.append(instance)
+			if not scene_root.is_editable_instance(instance):
+				transaction.add_do_method(scene_root, "set_editable_instance", [instance, true])
+				transaction.add_undo_method(scene_root, "set_editable_instance", [instance, false])
+				opened.append(_to_mcp_path(instance))
+			instance = instance.owner
+	return opened
+
+
+# Removes node on commit; undo puts it back at its index with its owners. The node stays in memory
+# while that undo exists (freeing it at once left undo nothing to put back).
+func _remove_with_undo(transaction, node: Node) -> void:
+	var parent := node.get_parent()
+	transaction.add_do_method(parent, "remove_child", [node])
+	transaction.add_undo_method(parent, "add_child", [node, true])
+	transaction.add_undo_method(parent, "move_child", [node, node.get_index()])
+	var owned: Array = [node]
+	owned.append_array(node.find_children("*", "", true, false))
+	for item in owned:
+		if item.owner:
+			transaction.add_undo_method(item, "set_owner", [item.owner])
+	transaction.add_undo_reference(node)
+
+
 # Adds a new node (and its own new children) on commit, owned by the scene so it saves; undo removes it.
 func _add_owned(transaction, parent: Node, node: Node, owner: Node) -> void:
 	transaction.add_do_method(parent, "add_child", [node, true])

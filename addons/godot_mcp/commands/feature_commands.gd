@@ -537,24 +537,6 @@ func _setup_spring_bones(client_id: int, params: Dictionary, command_id: String)
 
 # --- 3D looks -------------------------------------------------------------------------------
 
-# A change to a node inside an instanced scene (an imported model, say) saves only with Editable
-# Children on for that instance; turns it on where needed. Returns the instances it opened.
-func _open_instances(transaction, nodes: Array) -> Array:
-	var scene_root := EditorInterface.get_edited_scene_root()
-	var seen: Array = []
-	var opened: Array = []
-	for node in nodes:
-		var instance: Node = node.owner
-		while instance and instance != scene_root and not instance in seen:
-			seen.append(instance)
-			if not scene_root.is_editable_instance(instance):
-				transaction.add_do_method(scene_root, "set_editable_instance", [instance, true])
-				transaction.add_undo_method(scene_root, "set_editable_instance", [instance, false])
-				opened.append(_to_mcp_path(instance))
-			instance = instance.owner
-	return opened
-
-
 func _mesh_instances(node: Node) -> Array:
 	var found: Array = [node] if node is MeshInstance3D else []
 	found.append_array(node.find_children("*", "MeshInstance3D", true, true))

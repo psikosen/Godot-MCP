@@ -201,6 +201,16 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `place_along_path` - Copies of a scene along a path by count or spacing, turned to follow it
 - `build_mesh_library` - GridMap MeshLibrary from a scene of mesh tiles (with collision and navmesh), like Export As MeshLibrary
 
+#### Asset Pipeline
+- `inspect_model` - What a .glb/.gltf/.fbx/.blend/.obj model holds: meshes, materials, skeletons, animations, import settings
+- `configure_model_import` - Model import settings, then reimport: root type and scale, collision on meshes, looping animations, humanoid bone map (Mixamo, VRM, Unreal and Blender rigs share animations), import as animation library, extract materials, lightmap UVs
+- `add_animation_library` - Animations from a library or model onto an AnimationPlayer; reports how many tracks find their bones
+- `generate_mesh_collision` - Trimesh, convex or multiple-convex collision from 3D meshes
+- `sprite_to_polygon` - A Sprite2D's visible pixels traced into collision, a light occluder or a textured Polygon2D
+- `bake_csg` - CSG blockout to a plain mesh plus collision (4.4+)
+- `generate_terrain_3d` - Noise terrain colored by height, HeightMapShape3D collision, optional island and water
+- `generate_ui_theme` - A full UI Theme (buttons, panels, fields, sliders, tabs...) from a primary and a background color
+
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
 - `edit_script` - Replace the contents of an existing `.gd` script file
@@ -320,7 +330,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 65k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 67k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.

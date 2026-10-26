@@ -6,7 +6,7 @@ import { vector3 } from './builder_tools.js';
 const status = (r: CommandResult) => `[${r.status}]`;
 const point = z.union([vector2, vector3]);
 const boneAxis = z.enum(['+x', '-x', '+y', '-y', '+z', '-z']);
-const editableNote = (r: CommandResult) => {
+export const editableNote = (r: CommandResult) => {
   const opened = (r.editable_children as string[] | undefined) ?? [];
   return opened.length ? `\nTurned on Editable Children for ${opened.join(', ')} so the change saves` : '';
 };
