@@ -98,8 +98,8 @@ export const workflowTools: MCPTool[] = [
     description: 'Replace an exact piece of text in a .gd or .gdshader file (much cheaper than rewriting the file with edit_script). Reports compile errors.',
     parameters: z.object({
       script_path: z.string().describe('res:// path'),
-      old_text: z.string().min(1).describe('Exact text to replace, including indentation; must be unique unless replace_all'),
-      new_text: z.string().describe('Replacement text'),
+      find: z.string().min(1).describe('Exact text to replace, including indentation; must be unique unless replace_all'),
+      replace: z.string().describe('Replacement text'),
       replace_all: z.boolean().optional(),
     }),
     execute: async (args: Record<string, unknown>): Promise<string> => {

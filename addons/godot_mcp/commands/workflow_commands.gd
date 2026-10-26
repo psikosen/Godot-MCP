@@ -240,8 +240,9 @@ func _search_project(client_id: int, params: Dictionary, command_id: String) -> 
 # whole file that edit_script needs.
 func _replace_in_script(client_id: int, params: Dictionary, command_id: String) -> void:
 	var requested := str(params.get("script_path", ""))
-	var old_text := str(params.get("old_text", ""))
-	var new_text := str(params.get("new_text", ""))
+	# Same names as replace_in_project: find (exact text here) and replace.
+	var old_text := str(params.get("find", ""))
+	var new_text := str(params.get("replace", ""))
 	var replace_all: bool = params.get("replace_all", false)
 	if not (requested.ends_with(".gd") or requested.ends_with(".gdshader")):
 		return _send_error(client_id, "replace_in_script only edits .gd and .gdshader files: %s" % requested, command_id)
@@ -253,13 +254,13 @@ func _replace_in_script(client_id: int, params: Dictionary, command_id: String) 
 	if not FileAccess.file_exists(path):
 		return _send_error(client_id, "Script file not found: %s" % path, command_id)
 	if old_text.is_empty():
-		return _send_error(client_id, "old_text cannot be empty", command_id)
+		return _send_error(client_id, "find cannot be empty", command_id)
 	var content := FileAccess.get_file_as_string(path)
 	var count := content.count(old_text)
 	if count == 0:
-		return _send_error(client_id, "old_text was not found in %s (check tabs vs spaces and line breaks)" % path, command_id)
+		return _send_error(client_id, "find text was not found in %s (check tabs vs spaces and line breaks)" % path, command_id)
 	if count > 1 and not replace_all:
-		return _send_error(client_id, "old_text appears %d times in %s; include more surrounding lines or set replace_all" % [count, path], command_id)
+		return _send_error(client_id, "find text appears %d times in %s; include more surrounding lines or set replace_all" % [count, path], command_id)
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		return _send_error(client_id, "Failed to open %s for writing" % path, command_id)

@@ -70,6 +70,11 @@ class SceneTransaction extends RefCounted:
 	func add_undo_method(target: Object, method: StringName, args: Array = []) -> void:
 		if not is_ready():
 			return
+		# Freeing a created node on undo left redo nothing to put back (about 40 tools did this).
+		# Hold it as a do-reference instead: UndoRedo frees it once that redo is dropped.
+		if method in [&"queue_free", &"free"] and target is Node:
+			add_do_reference(target)
+			return
 		_undo_methods.append({"target": target, "method": method, "args": args})
 
 	func add_do_property(target: Object, property: StringName, value) -> void:

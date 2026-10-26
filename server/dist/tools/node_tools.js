@@ -4575,7 +4575,7 @@ export var nodeTools = [
     },
     {
         name: 'author_enemy_ai_2d',
-        description: 'Author a 2D enemy AI scaffold (navigation, vision sensor, cooldown timer, metadata, and signal wiring)',
+        description: 'Give a CharacterBody2D enemy AI: a navigation agent, a vision area, an attack cooldown timer and settings, plus (when it has no script) a behavior script that patrols, chases the detection group and emits attacked(target) in range. The vision mask is set to the target group\'s layers when it would miss them.',
         parameters: z.object({
             enemy_path: z.string()
                 .describe('Path to the CharacterBody2D enemy node'),
@@ -4610,13 +4610,15 @@ export var nodeTools = [
             vision_entered_method: z.string().optional(),
             vision_exited_method: z.string().optional(),
             attack_timeout_method: z.string().optional(),
+            write_script: z.boolean().optional().describe('Write a behavior script (default: only when the enemy has no script)'),
+            script_path: z.string().optional().describe('Default res://scripts/<enemy>_ai.gd'),
             signal_deferred: z.boolean().optional(),
             signal_one_shot: z.boolean().optional(),
             signal_reference_counted: z.boolean().optional(),
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_81, createdCount, signalCount, warnings, error_85;
+            var godot, result, status_81, createdCount, signalCount, warnings, scriptNote, notes, error_85;
             var _a;
             return __generator(this, function (_b) {
                 switch (_b.label) {
@@ -4632,7 +4634,9 @@ export var nodeTools = [
                         createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
                         signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
                         warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? "\nWarnings:\n- ".concat(result.warnings.join('\n- ')) : '';
-                        return [2 /*return*/, "Authored enemy AI 2D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_81, "]").concat(warnings)];
+                        scriptNote = result.script_path ? "\nWrote behavior script ".concat(result.script_path, ": connect its attacked(target) signal to deal damage.") : '';
+                        notes = Array.isArray(result.notes) && result.notes.length > 0 ? "\n".concat(result.notes.join('\n')) : '';
+                        return [2 /*return*/, "Authored enemy AI 2D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_81, "]").concat(scriptNote).concat(notes).concat(warnings)];
                     case 3:
                         error_85 = _b.sent();
                         throw new Error("Failed to author enemy AI 2D: ".concat(error_85.message));
@@ -4646,7 +4650,7 @@ export var nodeTools = [
     },
     {
         name: 'author_enemy_ai_3d',
-        description: 'Author a 3D enemy AI scaffold (navigation, vision sensor, cooldown timer, metadata, and signal wiring)',
+        description: 'Give a CharacterBody3D enemy AI: a navigation agent, a vision area, an attack cooldown timer and settings, plus (when it has no script) a behavior script that patrols, chases the detection group and emits attacked(target) in range. The vision mask is set to the target group\'s layers when it would miss them.',
         parameters: z.object({
             enemy_path: z.string()
                 .describe('Path to the CharacterBody3D enemy node'),
@@ -4680,13 +4684,15 @@ export var nodeTools = [
             vision_entered_method: z.string().optional(),
             vision_exited_method: z.string().optional(),
             attack_timeout_method: z.string().optional(),
+            write_script: z.boolean().optional().describe('Write a behavior script (default: only when the enemy has no script)'),
+            script_path: z.string().optional().describe('Default res://scripts/<enemy>_ai.gd'),
             signal_deferred: z.boolean().optional(),
             signal_one_shot: z.boolean().optional(),
             signal_reference_counted: z.boolean().optional(),
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_82, createdCount, signalCount, warnings, error_86;
+            var godot, result, status_82, createdCount, signalCount, warnings, scriptNote, notes, error_86;
             var _a;
             return __generator(this, function (_b) {
                 switch (_b.label) {
@@ -4702,7 +4708,9 @@ export var nodeTools = [
                         createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
                         signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
                         warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? "\nWarnings:\n- ".concat(result.warnings.join('\n- ')) : '';
-                        return [2 /*return*/, "Authored enemy AI 3D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_82, "]").concat(warnings)];
+                        scriptNote = result.script_path ? "\nWrote behavior script ".concat(result.script_path, ": connect its attacked(target) signal to deal damage.") : '';
+                        notes = Array.isArray(result.notes) && result.notes.length > 0 ? "\n".concat(result.notes.join('\n')) : '';
+                        return [2 /*return*/, "Authored enemy AI 3D for ".concat(args.enemy_path, ": ").concat(createdCount, " created node(s), ").concat(signalCount, " signal wiring change(s) [").concat(status_82, "]").concat(scriptNote).concat(notes).concat(warnings)];
                     case 3:
                         error_86 = _b.sent();
                         throw new Error("Failed to author enemy AI 3D: ".concat(error_86.message));
