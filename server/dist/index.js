@@ -72,6 +72,7 @@ import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
 import { workflowTools } from './tools/workflow_tools.js';
+import { builderTools } from './tools/builder_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
@@ -143,7 +144,7 @@ function main() {
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true).filter(function (tool) { return toolsets === null || toolsets.has(toolsetOf(tool.name)); })
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true), builderTools, true).filter(function (tool) { return toolsets === null || toolsets.has(toolsetOf(tool.name)); })
                         .forEach(function (tool) {
                         registerTool(tool);
                     });

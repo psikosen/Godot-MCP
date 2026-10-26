@@ -50,21 +50,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
-var vector2 = z.union([
+export var vector2 = z.union([
     z.object({ x: z.number(), y: z.number() }),
     z.tuple([z.number(), z.number()]),
 ]);
-var send = function (command, params) {
+export var send = function (command, params) {
     return getGodotConnection().sendCommand(command, params);
 };
-var fail = function (what, error) {
+export var fail = function (what, error) {
     throw new Error("Failed to ".concat(what, ": ").concat(error.message));
 };
 // Runs Godot in its own process (export, tests, game frames): doing it inside the editor would
 // block every other MCP call until it finished.
 // code is a string when the run did not exit by itself ("timed out after 30s"); Godot keeps
 // running after a script error, so a crashed test only ends at the timeout.
-function runGodot(executable, args, timeoutMs) {
+export function runGodot(executable, args, timeoutMs) {
     return new Promise(function (resolve) {
         var child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
         var output = '';
@@ -77,7 +77,7 @@ function runGodot(executable, args, timeoutMs) {
         child.on('close', function (code) { clearTimeout(timer); resolve({ code: timedOut ? "timed out after ".concat(timeoutMs / 1000, "s") : code, output: output }); });
     });
 }
-var godotProblems = function (output, limit) {
+export var godotProblems = function (output, limit) {
     if (limit === void 0) { limit = 12; }
     return output.split('\n')
         .filter(function (line) { return !line.startsWith('{') && /SCRIPT ERROR|^ERROR:|Parse Error|^FAIL|not ok/.test(line); })
@@ -747,7 +747,7 @@ export var workflowTools = [
                         return [4 /*yield*/, runGodot(paths.executable, __spreadArray([
                                 '--path', paths.project_dir, '--fixed-fps', '60', '--resolution',
                                 "".concat((_e = args.width) !== null && _e !== void 0 ? _e : defaultWidth, "x").concat((_f = args.height) !== null && _f !== void 0 ? _f : defaultHeight),
-                                '--script', 'res://addons/godot_mcp/runtime/capture_frame.gd', '--', scene, String((_g = args.frames) !== null && _g !== void 0 ? _g : 60), png
+                                '--script', 'res://addons/godot_mcp/runtime/run_scene.gd', '--', scene, String((_g = args.frames) !== null && _g !== void 0 ? _g : 60), png
                             ], holds, true), ((_h = args.timeout_seconds) !== null && _h !== void 0 ? _h : 60) * 1000)];
                     case 4:
                         _b = _k.sent(), code = _b.code, output = _b.output;

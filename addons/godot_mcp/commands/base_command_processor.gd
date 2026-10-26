@@ -167,23 +167,79 @@ func _scan_directory(dir: DirAccess, path: String, extensions: Array, files: Arr
 	dir.list_dir_end()
 
 
+# Shared by the workflow and builder processors.
+func _unique_child_name(parent: Node, wanted: String) -> String:
+	var name := wanted
+	var suffix := 2
+	while parent.has_node(NodePath(name)):
+		name = "%s%d" % [wanted, suffix]
+		suffix += 1
+	return name
+
+
+func _join_path(parent_path: String, child: String) -> String:
+	return parent_path.trim_suffix("/") + "/" + child
+
+
+func _transaction(action_name: String, transaction_id: String, metadata: Dictionary):
+	if transaction_id.is_empty():
+		return MCPSceneTransactionManager.begin_inline(action_name, metadata)
+	var existing = MCPSceneTransactionManager.get_transaction(transaction_id)
+	return existing if existing else MCPSceneTransactionManager.begin_registered(transaction_id, action_name, metadata)
+
+
+func _finish_transaction(client_id: int, command_id: String, transaction, transaction_id: String, response: Dictionary) -> void:
+	response["transaction_id"] = transaction.transaction_id
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit the change", command_id)
+		response["status"] = "committed"
+	else:
+		response["status"] = "pending"
+	_send_success(client_id, response, command_id)
+
+
+# Paths the MCP itself depends on (its addon code, approvals, project file, import cache): tools
+# must not delete, move or rewrite them.
+const PROTECTED_PATHS := ["res://project.godot", "res://addons/godot_mcp/", "res://project-manager/", "res://.godot/"]
+
+
+# macOS and Windows file systems ignore case, so "res://ADDONS/..." is the same folder.
+func _is_protected_path(path: String) -> bool:
+	for protected in PROTECTED_PATHS:
+		if path.to_lower() == protected or path.to_lower().begins_with(protected):
+			return true
+	return false
+
+
 # The recent-errors buffer (utils/error_log.gd), or null before Godot 4.5.
 func _error_log():
 	return Engine.get_meta("GodotMCPErrorLog") if Engine.has_meta("GodotMCPErrorLog") else null
 
 
-# Reloads a saved .gd file the way the editor does and returns why it does not compile, or "".
-# Writing a file never parsed it, so broken scripts were reported as created successfully.
-func _gdscript_compile_error(script_path: String) -> String:
+# Returns why a saved .gd file does not compile, or "". Writing a file never parsed it, so broken
+# scripts were reported as created successfully. reload_cached reloads the loaded script (so the
+# editor runs the new code); otherwise a throwaway copy is compiled, because reloading a script
+# while it runs (an editor plugin, this addon) crashed the editor.
+func _gdscript_compile_error(script_path: String, reload_cached := true) -> String:
 	var error_log = _error_log()
 	var mark: int = error_log.mark() if error_log else 0
 	var err: int = ERR_PARSE_ERROR
-	var script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_REUSE)
-	if script is GDScript:
-		script.source_code = FileAccess.get_file_as_string(script_path)
-		err = script.reload(true)
-	elif script is Script:
-		return ""
+	if not reload_cached:
+		var probe := GDScript.new()
+		# The copy gets the file's path without entering the resource cache, so the real script is
+		# untouched while class_name checks, relative preloads and the addon warning rules still apply.
+		probe.set_path_cache(script_path)
+		probe.source_code = FileAccess.get_file_as_string(script_path)
+		err = probe.reload()
+	else:
+		var script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_REUSE)
+		if script is GDScript:
+			script.source_code = FileAccess.get_file_as_string(script_path)
+			err = script.reload(true)
+		elif script is Script:
+			return ""
 	if err == OK:
 		return ""
 	var reasons: Array = []

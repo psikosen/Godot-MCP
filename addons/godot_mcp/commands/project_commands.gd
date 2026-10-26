@@ -31,6 +31,15 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"move_project_file":
 			_move_project_file(client_id, params, command_id)
 			return true
+		"check_project":
+			_check_project(client_id, params, command_id)
+			return true
+		"find_unused_files":
+			_find_unused_files(client_id, params, command_id)
+			return true
+		"replace_in_project":
+			_replace_in_project(client_id, params, command_id)
+			return true
 		"get_project_info":
 			_get_project_info(client_id, params, command_id)
 			return true
@@ -1140,8 +1149,6 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 	print(JSON.stringify(payload))
 
 
-# Paths the MCP itself depends on; deleting them would break the editor connection or approvals.
-const PROTECTED_PATHS := ["res://project.godot", "res://addons/godot_mcp/", "res://project-manager/", "res://.godot/"]
 
 # Moves one project file (plus its .import/.uid sidecars) to the system Trash, so it can be
 # restored. Reports the files that still refer to it, since Godot does not fix those up.
@@ -1189,14 +1196,6 @@ func _delete_project_file(client_id: int, params: Dictionary, command_id: String
 		"trashed": trashed,
 		"still_referenced_by": referenced_by,
 	}, command_id)
-
-
-# macOS and Windows file systems ignore case, so "res://ADDONS/..." is the same folder.
-func _is_protected_path(path: String) -> bool:
-	for protected in PROTECTED_PATHS:
-		if path.to_lower() == protected or path.to_lower().begins_with(protected):
-			return true
-	return false
 
 
 # Moves or renames one file with its .import/.uid sidecars, then rewrites quoted references to the
@@ -1250,3 +1249,142 @@ func _move_project_file(client_id: int, params: Dictionary, command_id: String) 
 		ResourceLoader.load(from).take_over_path(to)
 	EditorInterface.get_resource_filesystem().scan()
 	_send_success(client_id, {"from_path": from, "to_path": to, "moved": moved, "updated_references": updated}, command_id)
+
+
+const ASSET_EXTENSIONS := [".png", ".jpg", ".jpeg", ".webp", ".svg", ".wav", ".ogg", ".mp3", ".ttf", ".otf", ".woff2",
+	".glb", ".gltf", ".obj", ".fbx", ".tscn", ".tres", ".gd", ".gdshader"]
+const REFERENCE_EXTENSIONS := [".tscn", ".tres", ".gd", ".gdshader", ".cfg", "project.godot"]
+
+
+func _project_files(extensions: Array, include_addons: bool) -> Array:
+	var files: Array = []
+	_scan_directory(DirAccess.open("res://"), "", extensions, files)
+	return files if include_addons else files.filter(func(path): return not str(path).begins_with("res://addons/"))
+
+
+# One pass over the project for what usually breaks a game: missing files behind scene/resource
+# links, scripts that do not compile, input actions scripts use but the project does not define.
+func _check_project(client_id: int, params: Dictionary, command_id: String) -> void:
+	var include_addons: bool = params.get("include_addons", false)
+	var issues: Array = []
+	var main_scene := str(ProjectSettings.get_setting("application/run/main_scene", ""))
+	if main_scene.is_empty():
+		issues.append("warning: project.godot: no main scene (configure_game_settings main_scene)")
+	elif not _resource_exists(main_scene):
+		issues.append("error: project.godot: main scene %s is missing" % main_scene)
+	for info in ProjectSettings.get_property_list():
+		var setting := str(info["name"])
+		if setting.begins_with("autoload/"):
+			var target := str(ProjectSettings.get_setting(setting)).trim_prefix("*")
+			if not _resource_exists(target):
+				issues.append("error: project.godot: autoload %s points to missing %s" % [setting.trim_prefix("autoload/"), target])
+
+	var link := RegEx.create_from_string("\\[ext_resource[^\\]]*?(?:uid=\"(uid://[^\"]+)\")?[^\\]]*?path=\"([^\"]+)\"")
+	for path in _project_files([".tscn", ".tres"], include_addons):
+		for found in link.search_all(FileAccess.get_file_as_string(path)):
+			var target := found.get_string(2)
+			var uid := found.get_string(1)
+			if not _resource_exists(target) and not (not uid.is_empty() and _resource_exists(uid)):
+				issues.append("error: %s: links to missing %s" % [path, target])
+
+	var action_call := RegEx.create_from_string("(?:is_action_pressed|is_action_just_pressed|is_action_just_released|is_action_released|get_action_strength|get_action_raw_strength|get_axis|get_vector|action_press|action_release|is_action)\\(([^)]*)\\)")
+	var quoted := RegEx.create_from_string("[\"']([A-Za-z0-9_]+)[\"']")
+	var missing_actions := {}
+	for path in _project_files([".gd"], include_addons):
+		var compile_error := _gdscript_compile_error(path, false)
+		if not compile_error.is_empty():
+			issues.append("error: %s: does not compile: %s" % [path, compile_error])
+		for action_match in action_call.search_all(FileAccess.get_file_as_string(path)):
+			for name_match in quoted.search_all(action_match.get_string(1)):
+				var action := name_match.get_string(1)
+				if not action.begins_with("ui_") and not ProjectSettings.has_setting("input/" + action):
+					missing_actions[action] = missing_actions.get(action, []) + [path.get_file()]
+	for action in missing_actions:
+		issues.append("error: input action \"%s\" is used in %s but not defined (add_input_action)" % [action, ", ".join(PackedStringArray(missing_actions[action]))])
+	var errors := issues.filter(func(issue): return str(issue).begins_with("error"))
+	_send_success(client_id, {"issues": issues.slice(0, 200), "error_count": errors.size(), "warning_count": issues.size() - errors.size()}, command_id)
+
+
+func _resource_exists(path: String) -> bool:
+	if path.begins_with("uid://"):
+		var id := ResourceUID.text_to_id(path)
+		return ResourceUID.has_id(id) and FileAccess.file_exists(ResourceUID.get_id_path(id))
+	return FileAccess.file_exists(path)
+
+
+# Files nothing points to: no scene, resource, script or project setting names their path or UID.
+# Scripts that build paths at runtime ("res://levels/%d.tscn") cannot be seen, so review the list.
+func _find_unused_files(client_id: int, params: Dictionary, command_id: String) -> void:
+	var include_addons: bool = params.get("include_addons", false)
+	var texts := {}
+	for path in _project_files(REFERENCE_EXTENSIONS, true):
+		texts[path] = FileAccess.get_file_as_string(path)
+	var unused: Array = []
+	var total_bytes := 0
+	var entry_point := RegEx.create_from_string("(?m)^extends\\s+(SceneTree|MainLoop|EditorScript)\\b")
+	for path in _project_files(ASSET_EXTENSIONS, include_addons):
+		# Test and tool scripts run with --script or from the editor, not through references.
+		if path.ends_with(".gd") and entry_point.search(FileAccess.get_file_as_string(path)) != null:
+			continue
+		var needles: Array = [path]
+		var uid: int = ResourceLoader.get_resource_uid(path)
+		if uid != ResourceUID.INVALID_ID:
+			needles.append(ResourceUID.id_to_text(uid))
+		var used := false
+		for other in texts:
+			if other == path:
+				continue
+			for needle in needles:
+				if texts[other].contains(needle):
+					used = true
+					break
+			if used:
+				break
+		if not used:
+			var bytes := FileAccess.get_file_as_bytes(path).size()
+			total_bytes += bytes
+			unused.append("%s (%s)" % [path, String.humanize_size(bytes)])
+	_send_success(client_id, {"unused": unused, "total": String.humanize_size(total_bytes)}, command_id)
+
+
+# Find and replace across project text files. Preview by default (dry_run); applying it
+# compile-checks every changed script.
+func _replace_in_project(client_id: int, params: Dictionary, command_id: String) -> void:
+	var find := str(params.get("find", ""))
+	if find.is_empty():
+		return _send_error(client_id, "find cannot be empty", command_id)
+	var replace := str(params.get("replace", ""))
+	var dry_run: bool = params.get("dry_run", true)
+	var regex: RegEx = null
+	if params.get("regex", false):
+		regex = RegEx.create_from_string(find)
+		if not regex.is_valid():
+			return _send_error(client_id, "Invalid regular expression: %s" % find, command_id)
+	var extensions: Array = params.get("extensions", [".gd"])
+	var changes: Array = []
+	var changed_scripts: Array = []
+	for path in _project_files(extensions, params.get("include_addons", false)):
+		if _is_protected_path(path):
+			continue
+		var text := FileAccess.get_file_as_string(path)
+		var count: int = regex.search_all(text).size() if regex else text.count(find)
+		if count == 0:
+			continue
+		changes.append("%s: %d" % [path, count])
+		if dry_run:
+			continue
+		var file := FileAccess.open(path, FileAccess.WRITE)
+		if file == null:
+			return _send_error(client_id, "Failed to write %s (changed so far: %s)" % [path, changes], command_id)
+		file.store_string(regex.sub(text, replace, true) if regex else text.replace(find, replace))
+		file = null
+		if path.ends_with(".gd"):
+			changed_scripts.append(path)
+	var compile_errors: Array = []
+	for path in changed_scripts:
+		var compile_error := _gdscript_compile_error(path)
+		if not compile_error.is_empty():
+			compile_errors.append("%s: %s" % [path, compile_error])
+	if not dry_run and not changes.is_empty():
+		EditorInterface.get_resource_filesystem().scan()
+	_send_success(client_id, {"dry_run": dry_run, "files": changes, "compile_errors": compile_errors}, command_id)

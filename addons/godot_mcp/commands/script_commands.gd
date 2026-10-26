@@ -45,6 +45,8 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	script_path = _contained_res_path(script_path)
 	if script_path.is_empty():
 		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
+	if _is_protected_path(script_path):
+		return _send_error(client_id, "%s belongs to the Godot MCP addon and cannot be changed by tools" % script_path, command_id)
 	
 	var replaced := FileAccess.file_exists(script_path)
 	if replaced and not overwrite:
@@ -144,6 +146,8 @@ func _edit_script(client_id: int, params: Dictionary, command_id: String) -> voi
 	script_path = _contained_res_path(script_path)
 	if script_path.is_empty():
 		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
+	if _is_protected_path(script_path):
+		return _send_error(client_id, "%s belongs to the Godot MCP addon and cannot be changed by tools" % script_path, command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(script_path):

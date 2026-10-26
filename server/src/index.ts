@@ -16,6 +16,7 @@ import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
 import { workflowTools } from './tools/workflow_tools.js';
+import { builderTools } from './tools/builder_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
@@ -117,6 +118,7 @@ async function main() {
     ...compressionTools,
     ...renderingTools,
     ...workflowTools,
+    ...builderTools,
   ]
     .filter(tool => toolsets === null || toolsets.has(toolsetOf(tool.name)))
     .forEach(tool => {

@@ -240,6 +240,8 @@ func _replace_in_script(client_id: int, params: Dictionary, command_id: String) 
 	var path := _contained_res_path(requested)
 	if path.is_empty():
 		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested, command_id)
+	if _is_protected_path(path):
+		return _send_error(client_id, "%s belongs to the Godot MCP addon and cannot be changed by tools" % path, command_id)
 	if not FileAccess.file_exists(path):
 		return _send_error(client_id, "Script file not found: %s" % path, command_id)
 	if old_text.is_empty():
@@ -1001,19 +1003,6 @@ func _configure_particles_2d(client_id: int, params: Dictionary, command_id: Str
 		"node_path": expected, "type": node.get_class(), "created": created, "preset": preset_name, "changed": changed})
 
 
-func _unique_child_name(parent: Node, wanted: String) -> String:
-	var name := wanted
-	var suffix := 2
-	while parent.has_node(NodePath(name)):
-		name = "%s%d" % [wanted, suffix]
-		suffix += 1
-	return name
-
-
-func _join_path(parent_path: String, child: String) -> String:
-	return parent_path.trim_suffix("/") + "/" + child
-
-
 # --- manage_translations --------------------------------------------------------------------
 
 # Keeps a translation CSV (keys, then one column per locale) that Godot imports into
@@ -1121,24 +1110,3 @@ func _select_in_editor(client_id: int, params: Dictionary, command_id: String) -
 		elif node is CanvasItem:
 			EditorInterface.set_main_screen_editor("2D")
 	_send_success(client_id, {"selected": selection.get_selected_nodes().map(func(selected): return _to_mcp_path(selected))}, command_id)
-
-
-# --- helpers --------------------------------------------------------------------------------
-
-func _transaction(action_name: String, transaction_id: String, metadata: Dictionary):
-	if transaction_id.is_empty():
-		return SceneTransactionManager.begin_inline(action_name, metadata)
-	var existing = SceneTransactionManager.get_transaction(transaction_id)
-	return existing if existing else SceneTransactionManager.begin_registered(transaction_id, action_name, metadata)
-
-
-func _finish_transaction(client_id: int, command_id: String, transaction, transaction_id: String, response: Dictionary) -> void:
-	response["transaction_id"] = transaction.transaction_id
-	if transaction_id.is_empty():
-		if not transaction.commit():
-			transaction.rollback()
-			return _send_error(client_id, "Failed to commit the change", command_id)
-		response["status"] = "committed"
-	else:
-		response["status"] = "pending"
-	_send_success(client_id, response, command_id)

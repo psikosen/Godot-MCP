@@ -7,15 +7,15 @@ import { z } from 'zod';
 import { getGodotConnection } from '../utils/godot_connection.js';
 import { MCPTool, CommandResult } from '../utils/types.js';
 
-const vector2 = z.union([
+export const vector2 = z.union([
   z.object({ x: z.number(), y: z.number() }),
   z.tuple([z.number(), z.number()]),
 ]);
 
-const send = (command: string, params: Record<string, unknown>) =>
+export const send = (command: string, params: Record<string, unknown>) =>
   getGodotConnection().sendCommand<CommandResult>(command, params);
 
-const fail = (what: string, error: unknown): never => {
+export const fail = (what: string, error: unknown): never => {
   throw new Error(`Failed to ${what}: ${(error as Error).message}`);
 };
 
@@ -23,7 +23,7 @@ const fail = (what: string, error: unknown): never => {
 // block every other MCP call until it finished.
 // code is a string when the run did not exit by itself ("timed out after 30s"); Godot keeps
 // running after a script error, so a crashed test only ends at the timeout.
-function runGodot(executable: string, args: string[], timeoutMs: number): Promise<{ code: number | string | null; output: string }> {
+export function runGodot(executable: string, args: string[], timeoutMs: number): Promise<{ code: number | string | null; output: string }> {
   return new Promise(resolve => {
     const child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
@@ -37,7 +37,7 @@ function runGodot(executable: string, args: string[], timeoutMs: number): Promis
   });
 }
 
-const godotProblems = (output: string, limit = 12) => output.split('\n')
+export const godotProblems = (output: string, limit = 12) => output.split('\n')
   .filter(line => !line.startsWith('{') && /SCRIPT ERROR|^ERROR:|Parse Error|^FAIL|not ok/.test(line))
   .slice(0, limit);
 
@@ -513,7 +513,7 @@ export const workflowTools: MCPTool[] = [
       const holds = (args.hold ?? []).map(h => `${h.action}:${h.from_frame}:${h.to_frame}`);
       const { code, output } = await runGodot(paths.executable as string, [
         '--path', paths.project_dir as string, '--fixed-fps', '60', '--resolution', `${args.width ?? defaultWidth}x${args.height ?? defaultHeight}`,
-        '--script', 'res://addons/godot_mcp/runtime/capture_frame.gd', '--', scene, String(args.frames ?? 60), png, ...holds,
+        '--script', 'res://addons/godot_mcp/runtime/run_scene.gd', '--', scene, String(args.frames ?? 60), png, ...holds,
       ], (args.timeout_seconds ?? 60) * 1000);
       if (!existsSync(png)) {
         throw new Error(`The game did not produce a frame (exit ${code}).\n${godotProblems(output).join('\n') || output.slice(-1200)}`);
