@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { FastMCP } from 'fastmcp';
+import { FastMCP, type ContentResult } from 'fastmcp';
 import { z } from 'zod';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
@@ -15,6 +15,7 @@ import { xrTools } from './tools/xr_tools.js';
 import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
+import { workflowTools } from './tools/workflow_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
@@ -86,7 +87,7 @@ async function main() {
       // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
       // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
       parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
-      async execute(args: T): Promise<string> {
+      async execute(args: T): Promise<string | ContentResult> {
         await commandGuard.assertAllowed(tool, args);
         const output = await tool.execute(args);
         // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
@@ -115,6 +116,7 @@ async function main() {
     ...multiplayerTools,
     ...compressionTools,
     ...renderingTools,
+    ...workflowTools,
   ]
     .filter(tool => toolsets === null || toolsets.has(toolsetOf(tool.name)))
     .forEach(tool => {

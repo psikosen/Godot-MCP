@@ -145,6 +145,19 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `list_node_groups` - List all groups the node currently belongs to
 - `list_nodes_in_group` - Enumerate nodes that are members of a group in the edited scene
 
+#### Workflow Commands
+- `describe_class` - Godot class reference (properties with types and defaults, methods, signals, enums) for engine classes and project `class_name` scripts
+- `search_project` - Search project text files for text or a regex; returns `file:line: text`
+- `replace_in_script` - Replace an exact piece of a `.gd`/`.gdshader` file (cheaper than rewriting it); reports compile errors
+- `list_signal_connections` / `disconnect_signal` - Show a node's connections in and out; remove one (undo-aware)
+- `manage_autoloads` - List, add or remove autoload singletons
+- `configure_game_settings` - Game name, main scene, window size, stretch, background color, texture filter, gravity, layer names
+- `set_control_layout` - UI anchor presets (full_rect, center, top_right, ...), margin, size, size flags (undo-aware)
+- `create_inherited_scene` - New scene inheriting another (Godot's "New Inherited Scene")
+- `save_branch_as_scene` - Godot's "Save Branch as Scene": the branch becomes its own scene and an instance takes its place, keeping its connections
+- `capture_scene_image` - PNG picture of the open scene (needs the editor window, not `--headless`)
+- `export_project` - Export for macOS, Windows, Linux or Web with the installed export templates (admin; creates a preset if needed)
+
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
 - `edit_script` - Replace the contents of an existing `.gd` script file
@@ -264,7 +277,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 55k tokens per session in clients that load all tool schemas; `core` alone is about 12k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 58k tokens per session in clients that load all tool schemas; `core` alone is about 14k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.

@@ -1,0 +1,776 @@
+@tool
+class_name MCPWorkflowCommands
+extends "res://addons/godot_mcp/commands/base_command_processor.gd"
+## Everyday editor workflows: class reference, project search, small script edits, signal
+## connections, autoloads, game settings, UI layout, scene inheritance and branching, scene
+## pictures and export preparation.
+
+var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
+
+const LIST_LIMIT := 200
+const SEARCH_EXTENSIONS := [".gd", ".tscn", ".tres", ".gdshader", ".cfg", ".godot", ".json", ".md", ".txt", ".csv"]
+const LAYOUT_PRESETS := {
+	"top_left": Control.PRESET_TOP_LEFT, "top_right": Control.PRESET_TOP_RIGHT,
+	"bottom_left": Control.PRESET_BOTTOM_LEFT, "bottom_right": Control.PRESET_BOTTOM_RIGHT,
+	"center_left": Control.PRESET_CENTER_LEFT, "center_top": Control.PRESET_CENTER_TOP,
+	"center_right": Control.PRESET_CENTER_RIGHT, "center_bottom": Control.PRESET_CENTER_BOTTOM,
+	"center": Control.PRESET_CENTER, "left_wide": Control.PRESET_LEFT_WIDE, "top_wide": Control.PRESET_TOP_WIDE,
+	"right_wide": Control.PRESET_RIGHT_WIDE, "bottom_wide": Control.PRESET_BOTTOM_WIDE,
+	"vcenter_wide": Control.PRESET_VCENTER_WIDE, "hcenter_wide": Control.PRESET_HCENTER_WIDE,
+	"full_rect": Control.PRESET_FULL_RECT,
+}
+const SIZE_FLAGS := {"fill": Control.SIZE_FILL, "expand_fill": Control.SIZE_EXPAND_FILL,
+	"shrink_center": Control.SIZE_SHRINK_CENTER, "shrink_end": Control.SIZE_SHRINK_END, "shrink_begin": Control.SIZE_SHRINK_BEGIN}
+const LAYOUT_PROPERTIES := ["anchor_left", "anchor_top", "anchor_right", "anchor_bottom", "offset_left", "offset_top",
+	"offset_right", "offset_bottom", "grow_horizontal", "grow_vertical", "size_flags_horizontal", "size_flags_vertical",
+	"custom_minimum_size"]
+# Project settings configure_game_settings may change: name -> [setting path, type, or the accepted
+# words (an Array is stored as the word, a Dictionary maps the word to the stored number)].
+const GAME_SETTINGS := {
+	"game_name": ["application/config/name", TYPE_STRING],
+	"main_scene": ["application/run/main_scene", TYPE_STRING],
+	"window_width": ["display/window/size/viewport_width", TYPE_INT],
+	"window_height": ["display/window/size/viewport_height", TYPE_INT],
+	"stretch_mode": ["display/window/stretch/mode", ["disabled", "canvas_items", "viewport"]],
+	"stretch_aspect": ["display/window/stretch/aspect", ["ignore", "keep", "keep_width", "keep_height", "expand"]],
+	"clear_color": ["rendering/environment/defaults/default_clear_color", TYPE_COLOR],
+	"texture_filter": ["rendering/textures/canvas_textures/default_texture_filter", {"nearest": 0, "linear": 1}],
+	"gravity_2d": ["physics/2d/default_gravity", TYPE_FLOAT],
+	"gravity_3d": ["physics/3d/default_gravity", TYPE_FLOAT],
+}
+const LAYER_KINDS := ["2d_physics", "3d_physics", "2d_render", "3d_render", "2d_navigation", "3d_navigation", "avoidance"]
+const EXPORT_PLATFORMS := {"macos": "macOS", "windows": "Windows Desktop", "linux": "Linux", "web": "Web"}
+const EXPORT_EXTENSIONS := {"macOS": ".zip", "Windows Desktop": ".exe", "Linux": ".x86_64", "Web": ".html"}
+
+
+func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
+	match command_type:
+		"describe_class":
+			_describe_class(client_id, params, command_id)
+		"search_project":
+			_search_project(client_id, params, command_id)
+		"replace_in_script":
+			_replace_in_script(client_id, params, command_id)
+		"list_signal_connections":
+			_list_signal_connections(client_id, params, command_id)
+		"disconnect_signal":
+			_disconnect_signal(client_id, params, command_id)
+		"manage_autoloads":
+			_manage_autoloads(client_id, params, command_id)
+		"configure_game_settings":
+			_configure_game_settings(client_id, params, command_id)
+		"set_control_layout":
+			_set_control_layout(client_id, params, command_id)
+		"create_inherited_scene":
+			_create_inherited_scene(client_id, params, command_id)
+		"save_branch_as_scene":
+			_save_branch_as_scene(client_id, params, command_id)
+		"capture_scene_image":
+			_capture_scene_image(client_id, params, command_id)
+		"prepare_export":
+			_prepare_export(client_id, params, command_id)
+		_:
+			return false
+	return true
+
+
+# --- describe_class -------------------------------------------------------------------------
+
+func _describe_class(client_id: int, params: Dictionary, command_id: String) -> void:
+	var name := str(params.get("class_name", "")).strip_edges()
+	var filter := str(params.get("filter", "")).to_lower()
+	var inherited: bool = params.get("inherited", false)
+	var sections: Array = params.get("sections", ["properties", "methods", "signals"])
+	var out := {"class": name}
+	if ClassDB.class_exists(name):
+		var chain: Array = []
+		var parent := ClassDB.get_parent_class(name)
+		while not parent.is_empty():
+			chain.append(parent)
+			parent = ClassDB.get_parent_class(parent)
+		out["inherits"] = chain
+		if "properties" in sections:
+			out["properties"] = _class_properties(ClassDB.class_get_property_list(name, not inherited), filter, name)
+		if "methods" in sections:
+			out["methods"] = _method_lines(ClassDB.class_get_method_list(name, not inherited), filter)
+		if "signals" in sections:
+			out["signals"] = _method_lines(ClassDB.class_get_signal_list(name, not inherited), filter)
+		if "constants" in sections:
+			var lines: Array = []
+			for enum_name in ClassDB.class_get_enum_list(name, not inherited):
+				var values: Array = []
+				for constant in ClassDB.class_get_enum_constants(name, enum_name, true):
+					values.append("%s=%d" % [constant, ClassDB.class_get_integer_constant(name, constant)])
+				var line := "%s: %s" % [enum_name, ", ".join(PackedStringArray(values))]
+				if filter.is_empty() or line.to_lower().contains(filter):
+					lines.append(line)
+			out["constants"] = lines
+		return _send_success(client_id, out, command_id)
+
+	# A class_name script in this project.
+	for entry in ProjectSettings.get_global_class_list():
+		if str(entry["class"]) == name:
+			var script: Script = load(entry["path"])
+			out["inherits"] = [str(entry["base"])]
+			out["script"] = entry["path"]
+			if "properties" in sections:
+				out["properties"] = _class_properties(script.get_script_property_list(), filter, "")
+			if "methods" in sections:
+				out["methods"] = _method_lines(script.get_script_method_list(), filter)
+			if "signals" in sections:
+				out["signals"] = _method_lines(script.get_script_signal_list(), filter)
+			return _send_success(client_id, out, command_id)
+
+	var similar: Array = []
+	for known in ClassDB.get_class_list():
+		if str(known).to_lower().contains(name.to_lower()) and similar.size() < 10:
+			similar.append(known)
+	_send_error(client_id, "Unknown class: %s%s" % [name, (". Did you mean: " + ", ".join(PackedStringArray(similar))) if not similar.is_empty() else ""], command_id)
+
+
+func _class_properties(list: Array, filter: String, owner_class: String) -> Array:
+	var lines: Array = []
+	var skip := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP | PROPERTY_USAGE_INTERNAL
+	for info in list:
+		var name := str(info["name"])
+		if info.get("usage", 0) & skip or name.begins_with("_") or name.ends_with(".gd"):
+			continue
+		if not filter.is_empty() and not name.to_lower().contains(filter):
+			continue
+		var line := "%s: %s" % [name, _type_label(info)]
+		if not owner_class.is_empty():
+			var default_value = ClassDB.class_get_property_default_value(owner_class, name)
+			if default_value != null:
+				line += " = %s" % var_to_str(default_value)
+		if info.get("hint", 0) in [PROPERTY_HINT_ENUM, PROPERTY_HINT_RANGE] and not str(info.get("hint_string", "")).is_empty():
+			line += " (%s)" % str(info["hint_string"]).left(120)
+		lines.append(line)
+		if lines.size() >= LIST_LIMIT:
+			break
+	return lines
+
+
+func _method_lines(list: Array, filter: String) -> Array:
+	var lines: Array = []
+	for info in list:
+		var name := str(info["name"])
+		if not filter.is_empty() and not name.to_lower().contains(filter):
+			continue
+		var args: Array = []
+		for arg in info.get("args", []):
+			args.append("%s: %s" % [arg["name"], _type_label(arg)])
+		var line := "%s(%s)" % [name, ", ".join(PackedStringArray(args))]
+		if info.has("return") and int(info["return"].get("type", TYPE_NIL)) != TYPE_NIL:
+			line += " -> " + _type_label(info["return"])
+		if int(info.get("flags", 0)) & METHOD_FLAG_VIRTUAL:
+			line += " [virtual]"
+		lines.append(line)
+		if lines.size() >= LIST_LIMIT:
+			break
+	return lines
+
+
+func _type_label(info: Dictionary) -> String:
+	var type: int = int(info.get("type", TYPE_NIL))
+	var hinted_class := str(info.get("class_name", ""))
+	if not hinted_class.is_empty() and type in [TYPE_OBJECT, TYPE_INT]:
+		return hinted_class
+	if type == TYPE_NIL:
+		return "Variant"
+	return type_string(type)
+
+
+# --- search_project -------------------------------------------------------------------------
+
+func _search_project(client_id: int, params: Dictionary, command_id: String) -> void:
+	var query := str(params.get("query", ""))
+	if query.is_empty():
+		return _send_error(client_id, "query cannot be empty", command_id)
+	var case_sensitive: bool = params.get("case_sensitive", false)
+	var include_addons: bool = params.get("include_addons", false)
+	var max_results: int = clampi(int(params.get("max_results", 100)), 1, 1000)
+	var extensions: Array = params.get("extensions", SEARCH_EXTENSIONS)
+	var regex: RegEx = null
+	if params.get("regex", false):
+		regex = RegEx.new()
+		if regex.compile(("(?i)" if not case_sensitive else "") + query) != OK:
+			return _send_error(client_id, "Invalid regular expression: %s" % query, command_id)
+	var needle := query if case_sensitive else query.to_lower()
+
+	var files: Array = []
+	_scan_directory(DirAccess.open("res://"), "", extensions, files)
+	var matches: Array = []
+	var searched := 0
+	for path in files:
+		if not include_addons and str(path).begins_with("res://addons/"):
+			continue
+		searched += 1
+		var lines := FileAccess.get_file_as_string(path).split("\n")
+		for i in range(lines.size()):
+			var line: String = lines[i]
+			var hit: bool = regex.search(line) != null if regex else (line if case_sensitive else line.to_lower()).contains(needle)
+			if hit:
+				matches.append("%s:%d: %s" % [path, i + 1, line.strip_edges().left(200)])
+				if matches.size() >= max_results:
+					return _send_success(client_id, {"matches": matches, "truncated": true, "files_searched": searched}, command_id)
+	_send_success(client_id, {"matches": matches, "truncated": false, "files_searched": searched}, command_id)
+
+
+# --- replace_in_script ----------------------------------------------------------------------
+
+# Swaps one exact piece of text in a script, so a small fix costs a few lines instead of the
+# whole file that edit_script needs.
+func _replace_in_script(client_id: int, params: Dictionary, command_id: String) -> void:
+	var requested := str(params.get("script_path", ""))
+	var old_text := str(params.get("old_text", ""))
+	var new_text := str(params.get("new_text", ""))
+	var replace_all: bool = params.get("replace_all", false)
+	if not (requested.ends_with(".gd") or requested.ends_with(".gdshader")):
+		return _send_error(client_id, "replace_in_script only edits .gd and .gdshader files: %s" % requested, command_id)
+	var path := _contained_res_path(requested)
+	if path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested, command_id)
+	if not FileAccess.file_exists(path):
+		return _send_error(client_id, "Script file not found: %s" % path, command_id)
+	if old_text.is_empty():
+		return _send_error(client_id, "old_text cannot be empty", command_id)
+	var content := FileAccess.get_file_as_string(path)
+	var count := content.count(old_text)
+	if count == 0:
+		return _send_error(client_id, "old_text was not found in %s (check tabs vs spaces and line breaks)" % path, command_id)
+	if count > 1 and not replace_all:
+		return _send_error(client_id, "old_text appears %d times in %s; include more surrounding lines or set replace_all" % [count, path], command_id)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return _send_error(client_id, "Failed to open %s for writing" % path, command_id)
+	file.store_string(content.replace(old_text, new_text))
+	file = null
+	var compile_error := _gdscript_compile_error(path) if path.ends_with(".gd") else ""
+	if not compile_error.is_empty():
+		return _send_error(client_id, "Replaced %d occurrence(s) in %s but the script does not compile: %s" % [count, path, compile_error], command_id)
+	_send_success(client_id, {"script_path": path, "replacements": count}, command_id)
+
+
+# --- signal connections ---------------------------------------------------------------------
+
+func _list_signal_connections(client_id: int, params: Dictionary, command_id: String) -> void:
+	var node_path := str(params.get("node_path", ""))
+	var node := _get_editor_node(node_path)
+	if not node:
+		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+	var outgoing: Array = []
+	# Signals the node's own class and script add; the ~20 every Node/CanvasItem has are left out.
+	var signal_names: Array = ClassDB.class_get_signal_list(node.get_class(), true).map(func(info): return str(info["name"]))
+	if node.get_script():
+		signal_names = node.get_script().get_script_signal_list().map(func(info): return str(info["name"])) + signal_names
+	for info in node.get_signal_list():
+		for connection in node.get_signal_connection_list(info["name"]):
+			var target = connection["callable"].get_object()
+			if _in_edited_scene(target):
+				outgoing.append(_connection_line("%s ->" % info["name"], target, connection))
+	var incoming: Array = []
+	for connection in node.get_incoming_connections():
+		var source = connection["signal"].get_object()
+		if _in_edited_scene(source):
+			incoming.append("%s.%s -> %s%s" % [_to_mcp_path(source), connection["signal"].get_name(),
+				connection["callable"].get_method(), _connection_flags(connection)])
+	_send_success(client_id, {"node_path": _to_mcp_path(node), "outgoing": outgoing, "incoming": incoming, "signals": signal_names}, command_id)
+
+
+func _connection_line(prefix: String, target: Object, connection: Dictionary) -> String:
+	return "%s %s.%s%s" % [prefix, _to_mcp_path(target), connection["callable"].get_method(), _connection_flags(connection)]
+
+
+func _connection_flags(connection: Dictionary) -> String:
+	var notes: Array = []
+	var binds: Array = connection["callable"].get_bound_arguments()
+	if not binds.is_empty():
+		notes.append("binds %s" % JSON.stringify(binds))
+	if int(connection.get("flags", 0)) & CONNECT_DEFERRED:
+		notes.append("deferred")
+	if int(connection.get("flags", 0)) & CONNECT_ONE_SHOT:
+		notes.append("one_shot")
+	if not (int(connection.get("flags", 0)) & CONNECT_PERSIST):
+		notes.append("not saved")
+	return " (%s)" % ", ".join(PackedStringArray(notes)) if not notes.is_empty() else ""
+
+
+func _in_edited_scene(object) -> bool:
+	var root := EditorInterface.get_edited_scene_root()
+	return object is Node and root != null and (object == root or root.is_ancestor_of(object)) and not _is_editor_internal_node(object)
+
+
+func _disconnect_signal(client_id: int, params: Dictionary, command_id: String) -> void:
+	var source := _get_editor_node(str(params.get("source_path", "")))
+	var target := _get_editor_node(str(params.get("target_path", "")))
+	var signal_name := str(params.get("signal_name", ""))
+	var method_name := str(params.get("method_name", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
+	if not source or not target:
+		return _send_error(client_id, "Source or target node not found", command_id)
+	if not source.has_signal(signal_name):
+		return _send_error(client_id, "%s has no signal %s" % [_to_mcp_path(source), signal_name], command_id)
+	var found: Dictionary = {}
+	for connection in source.get_signal_connection_list(signal_name):
+		if connection["callable"].get_object() == target and str(connection["callable"].get_method()) == method_name:
+			found = connection
+			break
+	if found.is_empty():
+		return _send_error(client_id, "No connection %s.%s -> %s.%s" % [_to_mcp_path(source), signal_name, _to_mcp_path(target), method_name], command_id)
+	var transaction = _transaction("Disconnect Signal", transaction_id, {"command": "disconnect_signal"})
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction", command_id)
+	transaction.add_do_method(source, "disconnect", [signal_name, found["callable"]])
+	transaction.add_undo_method(source, "connect", [signal_name, found["callable"], int(found.get("flags", 0))])
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	_finish_transaction(client_id, command_id, transaction, transaction_id, {
+		"source_path": _to_mcp_path(source), "signal_name": signal_name,
+		"target_path": _to_mcp_path(target), "method_name": method_name})
+
+
+# --- autoloads ------------------------------------------------------------------------------
+
+func _manage_autoloads(client_id: int, params: Dictionary, command_id: String) -> void:
+	var action := str(params.get("action", "list"))
+	var name := str(params.get("name", "")).strip_edges()
+	var plugin = Engine.get_meta("GodotMCPPlugin") if Engine.has_meta("GodotMCPPlugin") else null
+	if action == "add":
+		var requested := str(params.get("path", ""))
+		var path := _contained_res_path(requested)
+		if not name.is_valid_identifier():
+			return _send_error(client_id, "Autoload name must be a valid identifier: %s" % name, command_id)
+		if ClassDB.class_exists(name) or Engine.has_singleton(name):
+			return _send_error(client_id, "%s is already a Godot class or singleton name" % name, command_id)
+		if path.is_empty() or not (path.ends_with(".gd") or path.ends_with(".tscn") or path.ends_with(".scn")) or not FileAccess.file_exists(path):
+			return _send_error(client_id, "path must be an existing .gd or .tscn file in the project: %s" % requested, command_id)
+		if ProjectSettings.has_setting("autoload/" + name) and not params.get("overwrite", false):
+			return _send_error(client_id, "Autoload %s already exists (pass overwrite=true to replace it)" % name, command_id)
+		if not plugin:
+			return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
+		plugin.add_autoload_singleton(name, path)
+		ProjectSettings.save()
+	elif action == "remove":
+		if name == "MCPAutoload":
+			return _send_error(client_id, "MCPAutoload belongs to the MCP addon and cannot be removed", command_id)
+		if not ProjectSettings.has_setting("autoload/" + name):
+			return _send_error(client_id, "No autoload named %s" % name, command_id)
+		if not plugin:
+			return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
+		plugin.remove_autoload_singleton(name)
+		ProjectSettings.save()
+	elif action != "list":
+		return _send_error(client_id, "action must be list, add or remove", command_id)
+	var autoloads: Array = []
+	for info in ProjectSettings.get_property_list():
+		var setting := str(info["name"])
+		if setting.begins_with("autoload/"):
+			var value := str(ProjectSettings.get_setting(setting))
+			var target := value.trim_prefix("*")
+			if target.begins_with("uid://") and ResourceUID.has_id(ResourceUID.text_to_id(target)):
+				target = ResourceUID.get_id_path(ResourceUID.text_to_id(target))
+			autoloads.append({"name": setting.trim_prefix("autoload/"), "path": target, "global": value.begins_with("*")})
+	_send_success(client_id, {"action": action, "autoloads": autoloads}, command_id)
+
+
+# --- game settings --------------------------------------------------------------------------
+
+func _configure_game_settings(client_id: int, params: Dictionary, command_id: String) -> void:
+	var staged := {}
+	for key in params.keys():
+		if key == "layer_names":
+			continue
+		if not GAME_SETTINGS.has(key):
+			return _send_error(client_id, "Unknown setting %s; known: %s, layer_names" % [key, ", ".join(PackedStringArray(GAME_SETTINGS.keys()))], command_id)
+		var spec: Array = GAME_SETTINGS[key]
+		var value = params[key]
+		if spec[1] is Array or spec[1] is Dictionary:
+			var words: Array = spec[1] if spec[1] is Array else (spec[1] as Dictionary).keys()
+			if not str(value) in words:
+				return _send_error(client_id, "%s must be one of: %s" % [key, ", ".join(PackedStringArray(words))], command_id)
+			value = str(value) if spec[1] is Array else spec[1][str(value)]
+		elif spec[1] == TYPE_COLOR:
+			value = _coerce_value_to_type(value, TYPE_COLOR)
+			if not value is Color:
+				return _send_error(client_id, "%s must be a color (\"#87ceeb\" or {r,g,b})" % key, command_id)
+		elif spec[1] == TYPE_INT:
+			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]) or int(value) < 1 or int(value) > 16384:
+				return _send_error(client_id, "%s must be a whole number from 1 to 16384" % key, command_id)
+			value = int(value)
+		elif spec[1] == TYPE_FLOAT:
+			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]):
+				return _send_error(client_id, "%s must be a number" % key, command_id)
+			value = float(value)
+		elif key == "main_scene":
+			var scene := _contained_res_path(str(value))
+			if scene.is_empty() or not (scene.ends_with(".tscn") or scene.ends_with(".scn")) or not FileAccess.file_exists(scene):
+				return _send_error(client_id, "main_scene must be an existing scene in the project: %s" % value, command_id)
+			value = scene
+		else:
+			value = str(value)
+		staged[spec[0]] = value
+	var layer_names = params.get("layer_names", {})
+	if typeof(layer_names) != TYPE_DICTIONARY:
+		return _send_error(client_id, "layer_names must be {\"2d_physics\": {\"1\": \"world\"}, ...}", command_id)
+	for kind in layer_names:
+		if not str(kind) in LAYER_KINDS or typeof(layer_names[kind]) != TYPE_DICTIONARY:
+			return _send_error(client_id, "layer_names keys must be one of: %s, each mapping layer numbers to names" % ", ".join(PackedStringArray(LAYER_KINDS)), command_id)
+		for layer in layer_names[kind]:
+			var number := int(str(layer)) if str(layer).is_valid_int() else 0
+			if number < 1 or number > 32:
+				return _send_error(client_id, "Layer numbers run from 1 to 32 (got %s)" % layer, command_id)
+			staged["layer_names/%s/layer_%d" % [kind, number]] = str(layer_names[kind][layer])
+
+	var changes: Array = []
+	for setting in staged:
+		var previous = ProjectSettings.get_setting(setting) if ProjectSettings.has_setting(setting) else null
+		if previous != staged[setting]:
+			ProjectSettings.set_setting(setting, staged[setting])
+			changes.append({"setting": setting, "previous": var_to_str(previous), "value": var_to_str(staged[setting])})
+	if not changes.is_empty():
+		ProjectSettings.save()
+	var current := {}
+	for key in GAME_SETTINGS:
+		current[key] = ProjectSettings.get_setting(GAME_SETTINGS[key][0], null)
+		if GAME_SETTINGS[key][1] is Dictionary and current[key] != null:
+			current[key] = (GAME_SETTINGS[key][1] as Dictionary).find_key(int(current[key]))
+	_send_success(client_id, {"changes": changes, "current": current}, command_id)
+
+
+# --- UI layout ------------------------------------------------------------------------------
+
+func _set_control_layout(client_id: int, params: Dictionary, command_id: String) -> void:
+	var node_path := str(params.get("node_path", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
+	var control := _get_editor_node(node_path) as Control
+	if not control:
+		return _send_error(client_id, "Control node not found: %s" % node_path, command_id)
+	var preset_name := str(params.get("preset", ""))
+	if not preset_name.is_empty() and not LAYOUT_PRESETS.has(preset_name):
+		return _send_error(client_id, "preset must be one of: %s" % ", ".join(PackedStringArray(LAYOUT_PRESETS.keys())), command_id)
+	for flag_key in ["size_flags_horizontal", "size_flags_vertical"]:
+		if params.has(flag_key) and not SIZE_FLAGS.has(str(params[flag_key])):
+			return _send_error(client_id, "%s must be one of: %s" % [flag_key, ", ".join(PackedStringArray(SIZE_FLAGS.keys()))], command_id)
+
+	var before := {}
+	for property in LAYOUT_PROPERTIES:
+		before[property] = control.get(property)
+	if params.has("min_size"):
+		control.custom_minimum_size = _coerce_to_vector2(params["min_size"])
+	for flag_key in ["size_flags_horizontal", "size_flags_vertical"]:
+		if params.has(flag_key):
+			control.set(flag_key, SIZE_FLAGS[str(params[flag_key])])
+	if params.has("size"):
+		control.size = _coerce_to_vector2(params["size"])
+	if not preset_name.is_empty():
+		var keep := Control.PRESET_MODE_KEEP_SIZE if params.has("size") else Control.PRESET_MODE_MINSIZE
+		control.set_anchors_and_offsets_preset(LAYOUT_PRESETS[preset_name], keep, int(params.get("margin", 0)))
+	if params.has("position"):
+		control.position = _coerce_to_vector2(params["position"])
+	var after := {}
+	for property in LAYOUT_PROPERTIES:
+		after[property] = control.get(property)
+		control.set(property, before[property])  # the transaction applies the new layout, so undo restores it
+
+	var transaction = _transaction("Set Control Layout", transaction_id, {"command": "set_control_layout", "node_path": node_path})
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction", command_id)
+	var changed: Array = []
+	for property in LAYOUT_PROPERTIES:
+		if after[property] != before[property]:
+			transaction.add_do_property(control, property, after[property])
+			transaction.add_undo_property(control, property, before[property])
+			changed.append("%s: %s" % [property, var_to_str(after[property])])
+	if changed.is_empty():
+		return _send_success(client_id, {"node_path": node_path, "changes": [], "status": "no_change"}, command_id)
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	_finish_transaction(client_id, command_id, transaction, transaction_id, {"node_path": _to_mcp_path(control), "changes": changed})
+
+
+# --- scene files ----------------------------------------------------------------------------
+
+func _create_inherited_scene(client_id: int, params: Dictionary, command_id: String) -> void:
+	var base_path := _contained_res_path(str(params.get("base_scene", "")))
+	var path := _contained_res_path(str(params.get("path", "")))
+	if base_path.is_empty() or not FileAccess.file_exists(base_path):
+		return _send_error(client_id, "base_scene must be an existing scene in the project", command_id)
+	if path.is_empty() or not path.ends_with(".tscn"):
+		return _send_error(client_id, "path must be a .tscn file inside the project", command_id)
+	if FileAccess.file_exists(path) and not params.get("overwrite", false):
+		return _send_error(client_id, "%s already exists (pass overwrite=true to replace it)" % path, command_id)
+	var base := ResourceLoader.load(base_path, "PackedScene") as PackedScene
+	if base == null:
+		return _send_error(client_id, "Failed to load %s as a scene" % base_path, command_id)
+	# PackedScene.pack() cannot mark a root as inherited from scripts (it saved a full copy), so
+	# write the same text Godot writes for an inherited scene: one instanced root, no overrides.
+	var uid: int = ResourceLoader.get_resource_uid(base_path)
+	var uid_attribute := ' uid="%s"' % ResourceUID.id_to_text(uid) if uid != ResourceUID.INVALID_ID else ""
+	var text := '[gd_scene format=3]\n\n[ext_resource type="PackedScene"%s path="%s" id="1_base"]\n\n[node name="%s" instance=ExtResource("1_base")]\n' % [
+		uid_attribute, base_path, base.get_state().get_node_name(0)]
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return _send_error(client_id, "Failed to write %s" % path, command_id)
+	file.store_string(text)
+	file = null
+	EditorInterface.get_resource_filesystem().update_file(path)
+	if params.get("open", true):
+		EditorInterface.open_scene_from_path(path)
+	_send_success(client_id, {"path": path, "base_scene": base_path, "opened": params.get("open", true)}, command_id)
+
+
+# Godot's "Save Branch as Scene": writes a subtree to its own scene file and, by default, puts an
+# instance of that file where the subtree was (one undo step).
+func _save_branch_as_scene(client_id: int, params: Dictionary, command_id: String) -> void:
+	var node_path := str(params.get("node_path", ""))
+	var path := _contained_res_path(str(params.get("path", "")))
+	var replace: bool = params.get("replace", true)
+	var node := _get_editor_node(node_path)
+	var scene_root := EditorInterface.get_edited_scene_root()
+	if not node:
+		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+	if node == scene_root:
+		return _send_error(client_id, "%s is the scene root; use save_scene with a new path instead" % node_path, command_id)
+	if not node.scene_file_path.is_empty():
+		return _send_error(client_id, "%s is already an instance of %s" % [node_path, node.scene_file_path], command_id)
+	if path.is_empty() or not path.ends_with(".tscn"):
+		return _send_error(client_id, "path must be a .tscn file inside the project", command_id)
+	if FileAccess.file_exists(path) and not params.get("overwrite", false):
+		return _send_error(client_id, "%s already exists (pass overwrite=true to replace it)" % path, command_id)
+
+	var branch := node.duplicate(Node.DUPLICATE_SIGNALS | Node.DUPLICATE_GROUPS | Node.DUPLICATE_SCRIPTS | Node.DUPLICATE_USE_INSTANTIATION)
+	_own_branch(branch, branch)
+	var packed := PackedScene.new()
+	var err := packed.pack(branch)
+	branch.free()
+	if err == OK:
+		err = _save_resource_contained(packed, path)
+	if err != OK:
+		return _send_error(client_id, "Failed to save branch scene: %s" % error_string(err), command_id)
+	EditorInterface.get_resource_filesystem().update_file(path)
+	if not replace:
+		return _send_success(client_id, {"path": path, "node_path": node_path, "replaced": false}, command_id)
+
+	var saved := ResourceLoader.load(path, "PackedScene", ResourceLoader.CACHE_MODE_REPLACE) as PackedScene
+	var instance := saved.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	var parent := node.get_parent()
+	var index := node.get_index()
+	instance.name = node.name
+	var owners: Array = []
+	_collect_owners(node, owners)
+	var transaction = SceneTransactionManager.begin_inline("Save Branch as Scene", {"command": "save_branch_as_scene", "path": path})
+	if not transaction:
+		instance.free()
+		return _send_error(client_id, "Failed to obtain scene transaction", command_id)
+	transaction.add_do_method(parent, "remove_child", [node])
+	transaction.add_do_method(parent, "add_child", [instance, true])
+	transaction.add_do_method(parent, "move_child", [instance, index])
+	transaction.add_do_method(instance, "set_owner", [scene_root])
+	transaction.add_do_reference(instance)
+	transaction.add_undo_method(parent, "remove_child", [instance])
+	transaction.add_undo_method(parent, "add_child", [node, true])
+	transaction.add_undo_method(parent, "move_child", [node, index])
+	for pair in owners:
+		transaction.add_undo_method(pair[0], "set_owner", [pair[1]])
+	var moved := _move_external_connections(transaction, node, instance)
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	if not transaction.commit():
+		instance.free()
+		return _send_error(client_id, "Failed to replace %s with the new scene" % node_path, command_id)
+	_send_success(client_id, {"path": path, "node_path": _to_mcp_path(instance), "replaced": true,
+		"moved_connections": moved["moved"], "dropped_connections": moved["dropped"]}, command_id)
+
+
+# Like Godot's own replace: connections between the branch root and the rest of the scene move to
+# the instance. Connections from deeper branch nodes to the outside cannot be kept and are listed.
+func _move_external_connections(transaction, node: Node, instance: Node) -> Dictionary:
+	var outside := func(other) -> bool: return other is Node and other != node and not node.is_ancestor_of(other) and _in_edited_scene(other)
+	var moved: Array = []
+	var dropped: Array = []
+	for info in node.get_signal_list():
+		for connection in node.get_signal_connection_list(info["name"]):
+			var target = connection["callable"].get_object()
+			if outside.call(target):
+				transaction.add_do_method(instance, "connect", [info["name"], connection["callable"], int(connection["flags"])])
+				moved.append(_connection_line("%s ->" % info["name"], target, connection))
+	for connection in node.get_incoming_connections():
+		var source = connection["signal"].get_object()
+		if outside.call(source):
+			var signal_name: StringName = connection["signal"].get_name()
+			var old_callable: Callable = connection["callable"]
+			var new_callable := Callable(instance, old_callable.get_method()).bindv(old_callable.get_bound_arguments())
+			transaction.add_do_method(source, "disconnect", [signal_name, old_callable])
+			transaction.add_do_method(source, "connect", [signal_name, new_callable, int(connection["flags"])])
+			transaction.add_undo_method(source, "disconnect", [signal_name, new_callable])
+			transaction.add_undo_method(source, "connect", [signal_name, old_callable, int(connection["flags"])])
+			moved.append("%s.%s -> (instance).%s" % [_to_mcp_path(source), signal_name, old_callable.get_method()])
+	for descendant in node.find_children("*", "", true, false):
+		for info in descendant.get_signal_list():
+			for connection in descendant.get_signal_connection_list(info["name"]):
+				if outside.call(connection["callable"].get_object()):
+					dropped.append("%s.%s" % [_to_mcp_path(descendant), info["name"]])
+	return {"moved": moved, "dropped": dropped}
+
+
+# Nodes the edited scene owned now belong to the branch root; nodes inside nested instances keep
+# their own owner (duplicate() already re-pointed those).
+func _own_branch(node: Node, branch_root: Node) -> void:
+	for child in node.get_children():
+		if child.owner == null and not _is_editor_internal_node(child):
+			child.owner = branch_root
+		_own_branch(child, branch_root)
+
+
+func _collect_owners(node: Node, owners: Array) -> void:
+	owners.append([node, node.owner])
+	for child in node.get_children():
+		_collect_owners(child, owners)
+
+
+# --- capture_scene_image --------------------------------------------------------------------
+
+# Renders a copy of the edited scene into an off-screen viewport. The copy's scripts do not run
+# (only @tool scripts run in the editor), so this shows the scene as built, frozen.
+func _capture_scene_image(client_id: int, params: Dictionary, command_id: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		return _send_error(client_id, "capture_scene_image needs the Godot editor window; this editor runs with --headless", command_id)
+	var scene_root := EditorInterface.get_edited_scene_root()
+	if not scene_root:
+		return _send_error(client_id, "No scene is open", command_id)
+	var size := Vector2i(clampi(int(params.get("width", 960)), 64, 2048), clampi(int(params.get("height", 540)), 64, 2048))
+	var viewport := SubViewport.new()
+	viewport.size = size
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	var copy := scene_root.duplicate(Node.DUPLICATE_USE_INSTANTIATION)
+	# The editor draws collision shapes, rays and marker crosses that the game never shows; they
+	# covered the art (a vision-cone collider painted the cone red).
+	if not params.get("show_helpers", false):
+		for helper in copy.find_children("*", "", true, false):
+			if helper is CollisionShape2D or helper is CollisionPolygon2D or helper is CollisionShape3D \
+					or helper is CollisionPolygon3D or helper is RayCast2D or helper is RayCast3D:
+				helper.visible = false
+			elif helper is Marker2D or helper is Marker3D:
+				helper.gizmo_extents = 0.0
+	viewport.add_child(copy)
+	EditorInterface.get_base_control().add_child(viewport)
+
+	var camera_path := str(params.get("camera_path", ""))
+	var camera: Node = null
+	if not camera_path.is_empty():
+		var original := _get_editor_node(camera_path)
+		if not (original is Camera2D or original is Camera3D):
+			viewport.queue_free()
+			return _send_error(client_id, "camera_path must point to a Camera2D or Camera3D", command_id)
+		camera = copy.get_node_or_null(scene_root.get_path_to(original))
+	elif copy is Node3D or copy.find_children("*", "Node3D", true, false).size() > copy.find_children("*", "Node2D", true, false).size():
+		var cameras := copy.find_children("*", "Camera3D", true, false)
+		if cameras.is_empty():
+			viewport.queue_free()
+			return _send_error(client_id, "No Camera3D in the scene; add one or pass camera_path", command_id)
+		camera = cameras[0]
+	else:
+		var view := Camera2D.new()
+		view.position = _coerce_to_vector2(params.get("center", {"x": size.x / 2.0, "y": size.y / 2.0}))
+		view.zoom = Vector2.ONE * clampf(float(params.get("zoom", 1.0)), 0.05, 20.0)
+		viewport.add_child(view)
+		camera = view
+	if camera is Camera2D or camera is Camera3D:
+		camera.make_current()
+
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var image := viewport.get_texture().get_image()
+	viewport.queue_free()
+	if image == null or image.is_empty():
+		return _send_error(client_id, "The renderer returned no image", command_id)
+	_send_success(client_id, {"image_base64": Marshalls.raw_to_base64(image.save_png_to_buffer()), "width": size.x, "height": size.y}, command_id)
+
+
+# --- export ---------------------------------------------------------------------------------
+
+# Finds or creates an export preset and returns what the server needs to run the export in a
+# separate Godot process (an export inside the editor would block it).
+func _prepare_export(client_id: int, params: Dictionary, command_id: String) -> void:
+	var preset_name := str(params.get("preset", ""))
+	var platform_key := str(params.get("platform", "")).to_lower()
+	var presets := ConfigFile.new()
+	presets.load("res://export_presets.cfg")
+	var section := ""
+	var platform := ""
+	for candidate in presets.get_sections():
+		if candidate.count(".") != 1:
+			continue
+		var candidate_platform := str(presets.get_value(candidate, "platform", ""))
+		if (not preset_name.is_empty() and str(presets.get_value(candidate, "name", "")) == preset_name) \
+				or (preset_name.is_empty() and EXPORT_PLATFORMS.get(platform_key, "") == candidate_platform):
+			section = candidate
+			platform = candidate_platform
+			break
+	if section.is_empty():
+		if not EXPORT_PLATFORMS.has(platform_key):
+			return _send_error(client_id, "No preset %s; pass platform (one of: %s) to create one" % [preset_name, ", ".join(PackedStringArray(EXPORT_PLATFORMS.keys()))], command_id)
+		platform = EXPORT_PLATFORMS[platform_key]
+		var index := 0
+		while presets.has_section("preset.%d" % index):
+			index += 1
+		section = "preset.%d" % index
+		preset_name = preset_name if not preset_name.is_empty() else platform
+		var game_name := str(ProjectSettings.get_setting("application/config/name", "Game"))
+		# Godot reads these keys without defaults and logs an error for each one that is missing.
+		for key_value in [["name", preset_name], ["platform", platform], ["runnable", true], ["dedicated_server", false],
+				["custom_features", ""], ["export_filter", "all_resources"], ["include_filter", ""],
+				["exclude_filter", "builds/*, server/*"], ["export_path", ""], ["encryption_include_filters", ""],
+				["encryption_exclude_filters", ""], ["encrypt_pck", false], ["encrypt_directory", false], ["script_export_mode", 2]]:
+			presets.set_value(section, key_value[0], key_value[1])
+		if platform == "macOS":
+			var bundle := game_name.to_lower().validate_filename().replace(" ", "").replace("_", "")
+			presets.set_value(section + ".options", "application/bundle_identifier", "com.example." + (bundle if not bundle.is_empty() else "game"))
+		var err := presets.save("res://export_presets.cfg")
+		if err != OK:
+			return _send_error(client_id, "Failed to write export_presets.cfg: %s" % error_string(err), command_id)
+	preset_name = str(presets.get_value(section, "name"))
+	var notes: Array = []
+	# macOS builds are universal (arm64 + x86_64) and refuse to export without ETC2/ASTC textures.
+	if platform == "macOS" and not ProjectSettings.get_setting("rendering/textures/vram_compression/import_etc2_astc", false):
+		ProjectSettings.set_setting("rendering/textures/vram_compression/import_etc2_astc", true)
+		ProjectSettings.save()
+		notes.append("Enabled Rendering > Textures > VRAM Compression > Import ETC2 ASTC (required for macOS exports)")
+
+	var file_name := str(ProjectSettings.get_setting("application/config/name", "game")).validate_filename().replace(" ", "_")
+	var output := str(params.get("output_path", ""))
+	if output.is_empty():
+		output = "res://builds/%s/%s%s" % [platform.to_lower().replace(" ", "_"), file_name, EXPORT_EXTENSIONS.get(platform, "")]
+	var global_output := ProjectSettings.globalize_path(output) if output.begins_with("res://") else output
+	DirAccess.make_dir_recursive_absolute(global_output.get_base_dir())
+	# Godot would otherwise import the exported files as project assets.
+	var builds := ProjectSettings.globalize_path("res://builds")
+	if global_output.begins_with(builds) and not FileAccess.file_exists(builds + "/.gdignore"):
+		FileAccess.open(builds + "/.gdignore", FileAccess.WRITE)
+	_send_success(client_id, {
+		"preset": preset_name,
+		"platform": platform,
+		"executable": OS.get_executable_path(),
+		"project_dir": ProjectSettings.globalize_path("res://"),
+		"output_path": global_output,
+		"notes": notes,
+	}, command_id)
+
+
+# --- helpers --------------------------------------------------------------------------------
+
+func _transaction(action_name: String, transaction_id: String, metadata: Dictionary):
+	if transaction_id.is_empty():
+		return SceneTransactionManager.begin_inline(action_name, metadata)
+	var existing = SceneTransactionManager.get_transaction(transaction_id)
+	return existing if existing else SceneTransactionManager.begin_registered(transaction_id, action_name, metadata)
+
+
+func _finish_transaction(client_id: int, command_id: String, transaction, transaction_id: String, response: Dictionary) -> void:
+	response["transaction_id"] = transaction.transaction_id
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit the change", command_id)
+		response["status"] = "committed"
+	else:
+		response["status"] = "pending"
+	_send_success(client_id, response, command_id)

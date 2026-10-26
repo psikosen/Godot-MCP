@@ -201,38 +201,6 @@ func _list_project_files(client_id: int, params: Dictionary, command_id: String)
 		"files": files
 	}, command_id)
 
-# Folders Godot itself skips (.gdignore, hidden like .godot/.git) plus node_modules: walking the
-# server's ~12k dependency files made project resources time out.
-func _is_ignored_dir(relative_path: String, dir_name: String) -> bool:
-	if dir_name.begins_with(".") or dir_name == "node_modules":
-		return true
-	return FileAccess.file_exists("res://" + relative_path + "/.gdignore")
-
-func _scan_directory(dir: DirAccess, path: String, extensions: Array, files: Array) -> void:
-	dir.list_dir_begin()
-	var file_name = dir.get_next()
-	
-	while file_name != "":
-		if dir.current_is_dir():
-			var subdir = DirAccess.open("res://" + path + file_name)
-			if subdir and not _is_ignored_dir(path + file_name, file_name):
-				_scan_directory(subdir, path + file_name + "/", extensions, files)
-		else:
-			var file_path = path + file_name
-			var has_valid_extension = extensions.is_empty()
-			
-			for ext in extensions:
-				if file_name.ends_with(ext):
-					has_valid_extension = true
-					break
-			
-			if has_valid_extension:
-				files.append("res://" + file_path)
-		
-		file_name = dir.get_next()
-	
-	dir.list_dir_end()
-
 func _get_project_structure(client_id: int, params: Dictionary, command_id: String) -> void:
 	var structure = {
 		"directories": [],

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ContentResult } from 'fastmcp';
 
 /**
  * Interface for FastMCP tool definition
@@ -22,7 +23,8 @@ export interface MCPTool<T = any> {
   name: string;
   description: string;
   parameters: z.ZodType<T>;
-  execute: (args: T) => Promise<string>;
+  // A string becomes one text block; ContentResult carries images (capture_scene_image).
+  execute: (args: T) => Promise<string | ContentResult>;
   metadata?: ToolMetadata;
 }
 

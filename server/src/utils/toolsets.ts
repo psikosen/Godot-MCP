@@ -1,4 +1,4 @@
-// Tool groups for GODOT_MCP_TOOLSETS. Listing every tool costs about 54k tokens per session in
+// Tool groups for GODOT_MCP_TOOLSETS. Listing every tool costs about 58k tokens per session in
 // clients that load all tool schemas up front; a project can expose only the groups it uses.
 // The first matching rule wins; anything unmatched is core, and core is always on.
 const RULES: Array<[string, RegExp]> = [
@@ -9,7 +9,7 @@ const RULES: Array<[string, RegExp]> = [
   ['audio', /audio|music|waveform/],
   ['navigation', /navigation|navmesh|pathfollow|path[23]d_followers|chase_step/],
   ['physics', /physics|joint/],
-  ['ui', /hud_|menu_ui|theme|accessibility|layout_ui|minimap/],
+  ['ui', /hud_|menu_ui|theme|accessibility|layout_ui|minimap|control_layout/],
   ['assets', /texture|lightmap|mesh_lods|material|shader|environment|sun_settings/],
   ['2d', /_2d$|2d_|tilemap|parallax|sprite|camera2d/],
   ['3d', /_3d$|3d_|gridmap|csg|camera3d|springarm|light_node|particles/],
