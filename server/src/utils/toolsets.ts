@@ -1,4 +1,4 @@
-// Tool groups for GODOT_MCP_TOOLSETS. Listing every tool costs about 67k tokens per session in
+// Tool groups for GODOT_MCP_TOOLSETS. Listing every tool costs about 69k tokens per session in
 // clients that load all tool schemas up front; a project can expose only the groups it uses.
 // The first matching rule wins; anything unmatched is core, and core is always on.
 const RULES: Array<[string, RegExp]> = [
@@ -8,11 +8,11 @@ const RULES: Array<[string, RegExp]> = [
   ['animation', /animat|tween|skeleton|sprite_frames|ik_chain|bone_constraint|spring_bones/],
   ['audio', /audio|music|waveform|sfx/],
   ['navigation', /navigation|navmesh|pathfollow|path[23]d_followers|chase_step/],
-  ['physics', /physics|joint|collision/],
+  ['physics', /physics|joint|collision|ragdoll/],
   ['ui', /hud_|menu_ui|theme|accessibility|layout_ui|minimap|control_layout|touch_controls/],
-  ['assets', /texture|lightmap|mesh_lods|material|shader|stencil|model|environment|sun_settings|import_asset/],
+  ['assets', /texture|lightmap|mesh_lods|material|shader|stencil|model|screen_effect|placeholder|environment|sun_settings|import_asset/],
   ['2d', /_2d$|2d_|tilemap|parallax|sprite|camera2d/],
-  ['3d', /_3d$|3d_|gridmap|mesh_library|csg|camera3d|springarm|light_node|particles/],
+  ['3d', /_3d$|3d_|gridmap|mesh_library|multimesh|day_night|csg|camera3d|springarm|light_node|particles/],
 ];
 
 export const TOOLSETS = ['core', ...RULES.map(([name]) => name)];

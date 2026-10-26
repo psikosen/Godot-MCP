@@ -180,21 +180,6 @@ func _missing_class(cls: String) -> String:
 
 # --- skeletons ------------------------------------------------------------------------------
 
-# The Skeleton3D at node_path, or the first one under it (imported models nest it deep).
-func _find_skeleton(path: String) -> Skeleton3D:
-	var node := _get_editor_node(path)
-	if node == null:
-		return null
-	if node is Skeleton3D:
-		return node
-	var found := node.find_children("*", "Skeleton3D", true, true)
-	return found[0] as Skeleton3D if not found.is_empty() else null
-
-
-func _skeleton_error(path: String) -> String:
-	return "No Skeleton3D at or under %s" % path
-
-
 # "" if every named bone exists, else an error that lists some real bone names.
 func _bones_error(skeleton: Skeleton3D, names: Array) -> String:
 	for bone in names:

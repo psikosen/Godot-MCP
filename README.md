@@ -211,6 +211,15 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `generate_terrain_3d` - Noise terrain colored by height, HeightMapShape3D collision, optional island and water
 - `generate_ui_theme` - A full UI Theme (buttons, panels, fields, sliders, tabs...) from a primary and a background color
 
+#### Polish and Prototyping
+- `create_ragdoll` - PhysicalBoneSimulator3D with capsule PhysicalBone3Ds per bone (Create Physical Skeleton), mass by bone length
+- `add_screen_effect` - Full-screen vignette, damage flash, CRT, pixelate, chromatic aberration, grayscale, blur, color grade; effects stack
+- `setup_day_night_cycle` - Looping sun, light color and sky colors from sunrise to night, with no script
+- `convert_to_multimesh` - Many copies of one mesh merged into a MultiMeshInstance3D (one draw call)
+- `configure_texture_import` - Image import presets (pixel_art, ui, 3d, normal_map), compression, mipmaps, size limit
+- `create_audio_randomizer` - AudioStreamRandomizer from several sounds with pitch and volume variation
+- `generate_placeholder_art` - Antialiased PNG sprites for prototypes: shapes, coin, star, heart, crate, beveled tile, character with eyes
+
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
 - `edit_script` - Replace the contents of an existing `.gd` script file
@@ -330,7 +339,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 67k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 69k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.
