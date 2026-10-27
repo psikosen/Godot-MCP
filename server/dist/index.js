@@ -80,7 +80,8 @@ import { polishTools } from './tools/polish_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
-import { enabledToolsets, toolsetOf, TOOLSETS } from './utils/toolsets.js';
+import { enabledToolsets, groupsOf } from './utils/toolsets.js';
+import { loadToolsTool } from './tools/toolset_tools.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResourceTemplate, scriptListResource, scriptMetadataResourceTemplate } from './resources/script_resources.js';
@@ -98,13 +99,13 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var toolsets, hiddenToolsets, server, SCENE_STATE_RESOURCE_URIS, registerTool, cleanup, error_1;
+        var toolsets, server, SCENE_STATE_RESOURCE_URIS, fastMcpTool, allTools, connected_1, loadTools, cleanup, error_1;
+        var _this = this;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     console.error('Starting Godot MCP server...');
                     toolsets = enabledToolsets(process.env.GODOT_MCP_TOOLSETS);
-                    hiddenToolsets = toolsets ? TOOLSETS.filter(function (name) { return !toolsets.has(name); }) : [];
                     server = new FastMCP({
                         name: 'GodotMCP',
                         version: '1.0.0',
@@ -112,12 +113,12 @@ function main() {
                             'Read the godot/* resources or list/get tools before editing. ' +
                             'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
                             'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
-                            (hiddenToolsets.length > 0 ? " Hidden tool groups (GODOT_MCP_TOOLSETS): ".concat(hiddenToolsets.join(', '), ".") : ''),
+                            (toolsets ? ' Only some tool groups are on: call load_tools first to turn on the groups your task needs.' : ''),
                     });
                     SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
-                    registerTool = function (tool) {
+                    fastMcpTool = function (tool) {
                         var _a, _b;
-                        server.addTool(__assign(__assign({}, tool), { 
+                        return (__assign(__assign({}, tool), { 
                             // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
                             annotations: { readOnlyHint: ((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') === 'read' }, 
                             // The listed schema already says additionalProperties:false; enforce it so a wrong argument
@@ -148,10 +149,31 @@ function main() {
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true), builderTools, true), authoringTools, true), featureTools, true), assetTools, true), polishTools, true).filter(function (tool) { return toolsets === null || toolsets.has(toolsetOf(tool.name)); })
-                        .forEach(function (tool) {
-                        registerTool(tool);
-                    });
+                    allTools = __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true), builderTools, true), authoringTools, true), featureTools, true), assetTools, true), polishTools, true);
+                    if (toolsets === null) {
+                        server.addTools(allTools.map(fastMcpTool));
+                    }
+                    else {
+                        connected_1 = new Promise(function (resolve) { return server.on('connect', function () { return setImmediate(resolve); }); });
+                        loadTools = loadToolsTool(allTools, toolsets, function (tools) { return __awaiter(_this, void 0, void 0, function () { return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0: return [4 /*yield*/, connected_1];
+                                case 1:
+                                    _a.sent();
+                                    server.addTools(tools.map(fastMcpTool));
+                                    return [2 /*return*/];
+                            }
+                        }); }); }, function (names) { return __awaiter(_this, void 0, void 0, function () { return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0: return [4 /*yield*/, connected_1];
+                                case 1:
+                                    _a.sent();
+                                    server.removeTools(names);
+                                    return [2 /*return*/];
+                            }
+                        }); }); });
+                        server.addTools(__spreadArray(__spreadArray([], allTools.filter(function (tool) { return groupsOf(tool.name).some(function (group) { return toolsets.has(group); }); }), true), [loadTools], false).map(fastMcpTool));
+                    }
                     // Register all resources
                     // Static resources
                     server.addResource(sceneListResource);

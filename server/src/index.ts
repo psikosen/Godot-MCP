@@ -25,7 +25,8 @@ import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
-import { enabledToolsets, toolsetOf, TOOLSETS } from './utils/toolsets.js';
+import { enabledToolsets, groupsOf } from './utils/toolsets.js';
+import { loadToolsTool } from './tools/toolset_tools.js';
 
 // Import resources
 import { 
@@ -65,7 +66,6 @@ import { compressionSettingsResource } from './resources/compression_resources.j
 async function main() {
   console.error('Starting Godot MCP server...');
   const toolsets = enabledToolsets(process.env.GODOT_MCP_TOOLSETS);
-  const hiddenToolsets = toolsets ? TOOLSETS.filter(name => !toolsets.has(name)) : [];
 
   // Create FastMCP instance
   const server = new FastMCP({
@@ -76,37 +76,35 @@ async function main() {
       'Read the godot/* resources or list/get tools before editing. ' +
       'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
       'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
-      (hiddenToolsets.length > 0 ? ` Hidden tool groups (GODOT_MCP_TOOLSETS): ${hiddenToolsets.join(', ')}.` : ''),
+      (toolsets ? ' Only some tool groups are on: call load_tools first to turn on the groups your task needs.' : ''),
   });
 
   // Resources whose content follows the live editor scene (notified after edit/admin tools).
   const SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
 
-  // Register all tools
-  const registerTool = <T>(tool: MCPTool<T>) => {
-    server.addTool({
-      ...tool,
-      // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
-      annotations: { readOnlyHint: (tool.metadata?.requiredRole ?? 'read') === 'read' },
-      // The listed schema already says additionalProperties:false; enforce it so a wrong argument
-      // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
-      // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
-      parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
-      async execute(args: T): Promise<string | ContentResult> {
-        await commandGuard.assertAllowed(tool, args);
-        const output = await tool.execute(args);
-        // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
-        if ((tool.metadata?.requiredRole ?? 'read') !== 'read') {
-          for (const uri of SCENE_STATE_RESOURCE_URIS) {
-            server.sendResourceUpdated(uri).catch(() => undefined);
-          }
+  // Wraps a tool for FastMCP
+  const fastMcpTool = <T>(tool: MCPTool<T>) => ({
+    ...tool,
+    // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
+    annotations: { readOnlyHint: (tool.metadata?.requiredRole ?? 'read') === 'read' },
+    // The listed schema already says additionalProperties:false; enforce it so a wrong argument
+    // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
+    // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
+    parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
+    async execute(args: T): Promise<string | ContentResult> {
+      await commandGuard.assertAllowed(tool, args);
+      const output = await tool.execute(args);
+      // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
+      if ((tool.metadata?.requiredRole ?? 'read') !== 'read') {
+        for (const uri of SCENE_STATE_RESOURCE_URIS) {
+          server.sendResourceUpdated(uri).catch(() => undefined);
         }
-        return output;
-      },
-    });
-  };
+      }
+      return output;
+    },
+  });
 
-  [
+  const allTools: MCPTool[] = [
     ...nodeTools,
     ...scriptTools,
     ...sceneTools,
@@ -127,11 +125,19 @@ async function main() {
     ...featureTools,
     ...assetTools,
     ...polishTools,
-  ]
-    .filter(tool => toolsets === null || toolsets.has(toolsetOf(tool.name)))
-    .forEach(tool => {
-      registerTool(tool);
-    });
+  ];
+  if (toolsets === null) {
+    server.addTools(allTools.map(fastMcpTool));
+  } else {
+    // FastMCP sends tool changes only to sessions that finished connecting, up to ~100 ms after
+    // initialize; a load_tools call that comes sooner waits for that, or its tools never show up.
+    const connected = new Promise<void>(resolve => server.on('connect', () => setImmediate(resolve)));
+    // ponytail: groups are server-wide, so on HTTP every session sees what any session loaded.
+    const loadTools = loadToolsTool(allTools, toolsets,
+      async tools => { await connected; server.addTools(tools.map(fastMcpTool)); },
+      async names => { await connected; server.removeTools(names); });
+    server.addTools([...allTools.filter(tool => groupsOf(tool.name).some(group => toolsets.has(group))), loadTools].map(fastMcpTool));
+  }
 
   // Register all resources
   // Static resources
