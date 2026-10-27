@@ -77,6 +77,7 @@ import { authoringTools } from './tools/authoring_tools.js';
 import { featureTools } from './tools/feature_tools.js';
 import { assetTools } from './tools/asset_tools.js';
 import { polishTools } from './tools/polish_tools.js';
+import { vfxTools } from './tools/vfx_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
@@ -158,7 +159,7 @@ function main() {
                                 });
                             } }));
                     };
-                    allTools = __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true), builderTools, true), authoringTools, true), featureTools, true), assetTools, true), polishTools, true);
+                    allTools = __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true), builderTools, true), authoringTools, true), featureTools, true), assetTools, true), polishTools, true), vfxTools, true);
                     if (toolsets === null) {
                         server.addTools(allTools.map(fastMcpTool));
                     }

@@ -21,6 +21,7 @@ import { authoringTools } from './tools/authoring_tools.js';
 import { featureTools } from './tools/feature_tools.js';
 import { assetTools } from './tools/asset_tools.js';
 import { polishTools } from './tools/polish_tools.js';
+import { vfxTools } from './tools/vfx_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
@@ -136,6 +137,7 @@ async function main() {
     ...featureTools,
     ...assetTools,
     ...polishTools,
+    ...vfxTools,
   ];
   if (toolsets === null) {
     server.addTools(allTools.map(fastMcpTool));

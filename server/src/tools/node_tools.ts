@@ -1187,6 +1187,32 @@ interface ConfigureParticles3DParams {
   emission_shape?: number;
   emission_box_extents?: { x?: number; y?: number; z?: number } | [number, number, number];
   color_ramp_path?: string;
+  emission_sphere_radius?: number;
+  color_ramp?: unknown[];
+  scale_curve?: unknown[];
+  alpha_curve?: unknown[];
+  turbulence_enabled?: boolean;
+  turbulence_strength?: number;
+  turbulence_scale?: number;
+  turbulence_influence?: number;
+  sub_emitter_path?: string;
+  sub_emitter_mode?: 'disabled' | 'constant' | 'at_end' | 'at_collision' | 'at_start';
+  sub_emitter_amount?: number;
+  sub_emitter_frequency?: number;
+  sub_emitter_keep_velocity?: boolean;
+  collision_mode?: 'disabled' | 'rigid' | 'hide_on_contact';
+  collision_bounce?: number;
+  collision_friction?: number;
+  texture_path?: string;
+  mesh_shape?: 'quad' | 'sphere' | 'box' | 'prism';
+  particle_size?: number | { x: number; y: number } | [number, number];
+  blend_mode?: 'mix' | 'add';
+  align_to_velocity?: boolean;
+  flipbook_h_frames?: number;
+  flipbook_v_frames?: number;
+  flipbook_speed?: number;
+  flipbook_loop?: boolean;
+  flipbook_random_start?: boolean;
   profile_name?: string;
   transaction_id?: string;
 }
@@ -4769,7 +4795,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'configure_particles_3d',
-    description: 'Configure GPUParticles3D node playback and particle process material properties for gameplay VFX tuning',
+    description: 'Tune a GPUParticles3D in one undo step: playback, motion, over-life color/scale/alpha, turbulence, sub-emitter, collision, and the drawn particle (texture, flipbook sheet or solid shape).',
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the GPUParticles3D node'),
@@ -4815,6 +4841,34 @@ export const nodeTools: MCPTool[] = [
       emission_shape: z.number().int().optional(),
       emission_box_extents: vector3ParamSchema.optional(),
       color_ramp_path: z.string().optional(),
+      emission_sphere_radius: z.number().nonnegative().optional().describe('With emission_shape 1 (sphere)'),
+      color_ramp: z.array(z.any()).max(16).optional().describe('Colors over life, e.g. ["#ffffff", "#ff8000", "#40000000"]; [] clears'),
+      scale_curve: z.array(z.union([z.number().nonnegative(), z.array(z.number().nonnegative()).length(2)])).max(32).optional()
+        .describe('Scale over life: values spread evenly ([0.3, 1, 0]) or [life, value] pairs; [] clears'),
+      alpha_curve: z.array(z.union([z.number().nonnegative(), z.array(z.number().nonnegative()).length(2)])).max(32).optional()
+        .describe('Alpha over life, same form as scale_curve'),
+      turbulence_enabled: z.boolean().optional().describe('Implied by the other turbulence_ options'),
+      turbulence_strength: z.number().min(0).max(20).optional(),
+      turbulence_scale: z.number().min(0).max(10).optional(),
+      turbulence_influence: z.number().min(0).max(1).optional(),
+      sub_emitter_path: z.string().optional().describe('Another GPUParticles3D these particles spawn; "" clears'),
+      sub_emitter_mode: z.enum(['disabled', 'constant', 'at_end', 'at_collision', 'at_start']).optional(),
+      sub_emitter_amount: z.number().int().min(1).optional().describe('Per particle for at_end, at_collision, at_start'),
+      sub_emitter_frequency: z.number().positive().optional().describe('Per second for constant'),
+      sub_emitter_keep_velocity: z.boolean().optional(),
+      collision_mode: z.enum(['disabled', 'rigid', 'hide_on_contact']).optional().describe('Hits GPUParticlesCollision3D nodes'),
+      collision_bounce: z.number().min(0).max(1).optional(),
+      collision_friction: z.number().min(0).max(1).optional(),
+      texture_path: z.string().optional().describe('Texture on a camera-facing quad (a sprite sheet with flipbook_ frames)'),
+      mesh_shape: z.enum(['quad', 'sphere', 'box', 'prism']).optional().describe('Default quad; shapes for debris'),
+      particle_size: z.union([z.number().positive(), vector2ParamSchema]).optional().describe('Meters; {x: 0.05, y: 0.5} with align_to_velocity for spark streaks'),
+      blend_mode: z.enum(['mix', 'add']).optional().describe('add for glows, fire, sparks'),
+      align_to_velocity: z.boolean().optional().describe('Stretch the quad along its motion'),
+      flipbook_h_frames: z.number().int().min(1).max(64).optional(),
+      flipbook_v_frames: z.number().int().min(1).max(64).optional(),
+      flipbook_speed: z.number().min(0).optional().describe('Sheet plays per life (default 1)'),
+      flipbook_loop: z.boolean().optional(),
+      flipbook_random_start: z.boolean().optional(),
       profile_name: z.string().optional(),
       transaction_id: z.string().optional(),
     }),
@@ -4827,7 +4881,9 @@ export const nodeTools: MCPTool[] = [
         const amount = Number(result.amount ?? 0);
         const lifetime = Number(result.lifetime ?? 0);
         const emitting = Boolean(result.emitting ?? false);
-        return `Configured GPUParticles3D ${args.node_path} amount=${amount} lifetime=${lifetime.toFixed(2)} emitting=${emitting} [${status}]`;
+        const notes = (result.notes as string[] | undefined) ?? [];
+        return `Configured GPUParticles3D ${args.node_path} amount=${amount} lifetime=${lifetime.toFixed(2)} emitting=${emitting} [${status}]`
+          + notes.map(note => `\nNote: ${note}`).join('');
       } catch (error) {
         throw new Error(`Failed to configure particles 3D: ${(error as Error).message}`);
       }

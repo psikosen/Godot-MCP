@@ -292,6 +292,7 @@ export const workflowTools: MCPTool[] = [
       zoom: z.number().min(0.05).max(20).optional().describe('2D: above 1 zooms in'),
       camera_path: z.string().optional().describe('A Camera2D or Camera3D in the scene to look through'),
       show_helpers: z.boolean().optional().describe('Also draw editor-only helpers: collision shapes, rays, markers'),
+      particles_time: z.number().min(0).max(10).optional().describe('Restart particles and wait this many seconds first, to see a burst mid-effect'),
     }),
     execute: async (args: Record<string, unknown>) => {
       try {

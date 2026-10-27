@@ -4,6 +4,7 @@ extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
 const ScriptUtils := preload("res://addons/godot_mcp/utils/script_utils.gd")
+const ParticleUtils := preload("res://addons/godot_mcp/utils/particle_utils.gd")
 const LOG_FILENAME := "addons/godot_mcp/commands/node_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "node_commands"
 
@@ -8390,6 +8391,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 	var particles: GPUParticles3D = node
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
+	var notes: Array = []
 
 	var particles_float_map := {
 		"amount_ratio": "amount_ratio",
@@ -8466,6 +8468,51 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 				return _send_error(client_id, "draw_pass_1_path must point to a Mesh resource", command_id)
 			pending_property_changes.append_array(_capture_property_change(particles, "draw_pass_1", mesh_resource))
 
+	# A new draw mesh (textured or flipbook quad, or a solid shape); options not passed keep the old quad's.
+	if ["texture_path", "mesh_shape", "particle_size", "blend_mode", "align_to_velocity", "flipbook_h_frames", "flipbook_v_frames", "flipbook_loop"].any(func(key): return params.has(key)):
+		if params.has("draw_pass_1_path"):
+			return _send_error(client_id, "Pass draw_pass_1_path or the texture/mesh_shape options, not both", command_id)
+		var old_mesh = particles.draw_pass_1
+		var old_material = old_mesh.material if old_mesh is PrimitiveMesh else null
+		var shape := str(params.get("mesh_shape", "quad"))
+		if not shape in ParticleUtils.MESH_SHAPES:
+			return _send_error(client_id, "mesh_shape must be one of: %s" % ", ".join(ParticleUtils.MESH_SHAPES), command_id)
+		var blend := str(params.get("blend_mode", "add" if old_material is BaseMaterial3D and old_material.blend_mode == BaseMaterial3D.BLEND_MODE_ADD else "mix"))
+		if not blend in ["mix", "add"]:
+			return _send_error(client_id, "blend_mode must be mix or add", command_id)
+		var particle_texture = old_material.albedo_texture if old_material is BaseMaterial3D else null
+		var texture_path := str(params.get("texture_path", "")).strip_edges()
+		if not texture_path.is_empty():
+			particle_texture = ResourceLoader.load(texture_path)
+			if not particle_texture is Texture2D:
+				return _send_error(client_id, "texture_path must point to a Texture2D: %s" % texture_path, command_id)
+		var size = old_mesh.size if old_mesh is QuadMesh else Vector2.ONE
+		if params.has("particle_size"):
+			var size_value = params["particle_size"]
+			size = Vector2(float(size_value), float(size_value)) if size_value is float or size_value is int else _coerce_to_vector2(size_value)
+			if not size is Vector2 or size.x <= 0.0 or size.y <= 0.0:
+				return _send_error(client_id, "particle_size must be a positive number or {x, y}", command_id)
+		var align := bool(params.get("align_to_velocity", particles.transform_align == GPUParticles3D.TRANSFORM_ALIGN_Z_BILLBOARD_Y_TO_VELOCITY))
+		var old_flipbook: bool = old_material is BaseMaterial3D and old_material.billboard_mode == BaseMaterial3D.BILLBOARD_PARTICLES
+		var mesh := ParticleUtils.draw_mesh(shape, size, particle_texture, blend == "add",
+			int(params.get("flipbook_h_frames", old_material.particles_anim_h_frames if old_flipbook else 1)),
+			int(params.get("flipbook_v_frames", old_material.particles_anim_v_frames if old_flipbook else 1)),
+			bool(params.get("flipbook_loop", old_material.particles_anim_loop if old_flipbook else false)), align)
+		pending_property_changes.append_array(_capture_property_change(particles, "draw_pass_1", mesh))
+		pending_property_changes.append_array(_capture_property_change(particles, "transform_align",
+			GPUParticles3D.TRANSFORM_ALIGN_Z_BILLBOARD_Y_TO_VELOCITY if align else GPUParticles3D.TRANSFORM_ALIGN_DISABLED))
+
+	var sub_emitter: NodePath = particles.sub_emitter
+	if params.has("sub_emitter_path"):
+		var sub_path := str(params.get("sub_emitter_path", "")).strip_edges()
+		sub_emitter = NodePath()
+		if not sub_path.is_empty():
+			var sub_node = _get_editor_node(sub_path)
+			if not sub_node is GPUParticles3D or sub_node == particles:
+				return _send_error(client_id, "sub_emitter_path must point to another GPUParticles3D: %s" % sub_path, command_id)
+			sub_emitter = particles.get_path_to(sub_node)
+		pending_property_changes.append_array(_capture_property_change(particles, "sub_emitter", sub_emitter))
+
 	var ensure_process_material: bool = bool(params.get("ensure_process_material", true))
 	var has_process_override := false
 	for key_name in [
@@ -8483,7 +8530,26 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 		"color",
 		"emission_shape",
 		"emission_box_extents",
+		"emission_sphere_radius",
 		"color_ramp_path",
+		"color_ramp",
+		"scale_curve",
+		"alpha_curve",
+		"turbulence_enabled",
+		"turbulence_strength",
+		"turbulence_scale",
+		"turbulence_influence",
+		"sub_emitter_mode",
+		"sub_emitter_amount",
+		"sub_emitter_frequency",
+		"sub_emitter_keep_velocity",
+		"collision_mode",
+		"collision_bounce",
+		"collision_friction",
+		"flipbook_h_frames",
+		"flipbook_v_frames",
+		"flipbook_speed",
+		"flipbook_random_start",
 	]:
 		if params.has(key_name):
 			has_process_override = true
@@ -8537,6 +8603,94 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 				if ramp_resource == null or not (ramp_resource is Texture2D):
 					return _send_error(client_id, "color_ramp_path must point to a Texture2D resource", command_id)
 				pending_property_changes.append_array(_capture_property_change(particle_material, "color_ramp", ramp_resource))
+		if params.has("emission_sphere_radius"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "emission_sphere_radius", float(params.get("emission_sphere_radius"))))
+
+		# Over-life looks: color gradient, scale and alpha curves. [] clears one.
+		if params.has("color_ramp"):
+			if params.has("color_ramp_path"):
+				return _send_error(client_id, "Pass color_ramp or color_ramp_path, not both", command_id)
+			var ramp_value = params.get("color_ramp")
+			var ramp_texture = null
+			if not (ramp_value is Array and ramp_value.is_empty()):
+				var ramp_colors: Array = []
+				for entry in (ramp_value if ramp_value is Array else []):
+					var ramp_color = _coerce_color(entry)
+					if ramp_color == null:
+						return _send_error(client_id, "color_ramp entries must be colors: %s" % JSON.stringify(entry), command_id)
+					ramp_colors.append(ramp_color)
+				if ramp_colors.size() < 2:
+					return _send_error(client_id, "color_ramp needs 2 or more colors, spread over the particle's life", command_id)
+				ramp_texture = ParticleUtils.gradient_texture(ramp_colors)
+			pending_property_changes.append_array(_capture_property_change(particle_material, "color_ramp", ramp_texture))
+		for curve_key in ["scale_curve", "alpha_curve"]:
+			if params.has(curve_key):
+				var curve_value = params.get(curve_key)
+				var curve_texture = null
+				if not (curve_value is Array and curve_value.is_empty()):
+					curve_texture = ParticleUtils.curve_texture(curve_value)
+					if curve_texture == null:
+						return _send_error(client_id, "%s must be 2+ values spread over life ([1, 0]) or [life, value] pairs ([[0, 0.2], [0.3, 1], [1, 1.4]]), values 0 or more" % curve_key, command_id)
+				pending_property_changes.append_array(_capture_property_change(particle_material, curve_key, curve_texture))
+
+		if ["turbulence_enabled", "turbulence_strength", "turbulence_scale", "turbulence_influence"].any(func(key): return params.has(key)):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "turbulence_enabled", bool(params.get("turbulence_enabled", true))))
+		if params.has("turbulence_strength"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "turbulence_noise_strength", float(params.get("turbulence_strength"))))
+		if params.has("turbulence_scale"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "turbulence_noise_scale", float(params.get("turbulence_scale"))))
+		if params.has("turbulence_influence"):
+			for influence_property in ["turbulence_influence_min", "turbulence_influence_max"]:
+				pending_property_changes.append_array(_capture_property_change(particle_material, influence_property, float(params.get("turbulence_influence"))))
+
+		var sub_mode: int = particle_material.sub_emitter_mode
+		if params.has("sub_emitter_mode"):
+			var mode_name := str(params.get("sub_emitter_mode"))
+			if not ParticleUtils.SUB_EMITTER_MODES.has(mode_name):
+				return _send_error(client_id, "sub_emitter_mode must be one of: %s" % ", ".join(PackedStringArray(ParticleUtils.SUB_EMITTER_MODES.keys())), command_id)
+			sub_mode = ParticleUtils.SUB_EMITTER_MODES[mode_name]
+			pending_property_changes.append_array(_capture_property_change(particle_material, "sub_emitter_mode", sub_mode))
+		if params.has("sub_emitter_mode") or params.has("sub_emitter_path"):
+			if sub_mode != ParticleProcessMaterial.SUB_EMITTER_DISABLED and sub_emitter.is_empty():
+				return _send_error(client_id, "A sub-emitter mode needs sub_emitter_path: another GPUParticles3D that the particles spawn", command_id)
+			if sub_mode == ParticleProcessMaterial.SUB_EMITTER_DISABLED and not sub_emitter.is_empty():
+				notes.append("The sub-emitter spawns nothing until sub_emitter_mode is constant, at_end, at_collision or at_start")
+			if sub_mode != ParticleProcessMaterial.SUB_EMITTER_DISABLED and ParticleUtils.is_compatibility_renderer():
+				notes.append("The Compatibility renderer draws no sub-emitters; Forward+ and Mobile do")
+		if params.has("sub_emitter_amount"):
+			var amount_property: String = {
+				ParticleProcessMaterial.SUB_EMITTER_AT_END: "sub_emitter_amount_at_end",
+				ParticleProcessMaterial.SUB_EMITTER_AT_COLLISION: "sub_emitter_amount_at_collision",
+				ParticleProcessMaterial.SUB_EMITTER_AT_START: "sub_emitter_amount_at_start",
+			}.get(sub_mode, "")
+			if amount_property.is_empty():
+				return _send_error(client_id, "sub_emitter_amount needs sub_emitter_mode at_end, at_collision or at_start (constant uses sub_emitter_frequency)", command_id)
+			pending_property_changes.append_array(_capture_property_change(particle_material, amount_property, int(params.get("sub_emitter_amount"))))
+		if params.has("sub_emitter_frequency"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "sub_emitter_frequency", float(params.get("sub_emitter_frequency"))))
+		if params.has("sub_emitter_keep_velocity"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "sub_emitter_keep_velocity", bool(params.get("sub_emitter_keep_velocity"))))
+
+		var collision_mode: int = particle_material.collision_mode
+		if params.has("collision_mode"):
+			var collision_name := str(params.get("collision_mode"))
+			if not ParticleUtils.COLLISION_MODES.has(collision_name):
+				return _send_error(client_id, "collision_mode must be one of: %s" % ", ".join(PackedStringArray(ParticleUtils.COLLISION_MODES.keys())), command_id)
+			collision_mode = ParticleUtils.COLLISION_MODES[collision_name]
+			pending_property_changes.append_array(_capture_property_change(particle_material, "collision_mode", collision_mode))
+		if params.has("collision_bounce"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "collision_bounce", float(params.get("collision_bounce"))))
+		if params.has("collision_friction"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "collision_friction", float(params.get("collision_friction"))))
+		if sub_mode == ParticleProcessMaterial.SUB_EMITTER_AT_COLLISION and collision_mode == ParticleProcessMaterial.COLLISION_DISABLED:
+			notes.append("sub_emitter_mode at_collision fires only with a collision_mode and a GPUParticlesCollision3D node in the particles' path")
+
+		# Flipbook: speed 1 plays the sheet once over each particle's life.
+		if params.has("flipbook_speed") or int(params.get("flipbook_h_frames", 1)) * int(params.get("flipbook_v_frames", 1)) > 1:
+			for anim_property in ["anim_speed_min", "anim_speed_max"]:
+				pending_property_changes.append_array(_capture_property_change(particle_material, anim_property, float(params.get("flipbook_speed", 1.0))))
+		if params.has("flipbook_random_start"):
+			pending_property_changes.append_array(_capture_property_change(particle_material, "anim_offset_max", 1.0 if bool(params.get("flipbook_random_start")) else 0.0))
 
 	var profile_name: String = str(params.get("profile_name", "")).strip_edges()
 	if not profile_name.is_empty():
@@ -8617,6 +8771,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
+		"notes": notes,
 	}
 	if transaction_id.is_empty():
 		if not transaction.commit():

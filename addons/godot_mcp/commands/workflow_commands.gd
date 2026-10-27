@@ -699,7 +699,9 @@ func _capture_scene_image(client_id: int, params: Dictionary, command_id: String
 	viewport.size = size
 	viewport.own_world_3d = true
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	var copy := scene_root.duplicate(Node.DUPLICATE_USE_INSTANTIATION)
+	# No DUPLICATE_USE_INSTANTIATION: with it the root reloads from its saved file, so the picture
+	# left out every change since the last save.
+	var copy := scene_root.duplicate(0)
 	# The editor draws collision shapes, rays and marker crosses that the game never shows; they
 	# covered the art (a vision-cone collider painted the cone red).
 	if not params.get("show_helpers", false):
@@ -735,6 +737,13 @@ func _capture_scene_image(client_id: int, params: Dictionary, command_id: String
 	if camera is Camera2D or camera is Camera3D:
 		camera.make_current()
 
+	# Particles in the copy start over and run this long, so a one-shot burst shows mid-effect.
+	var particles_time := clampf(float(params.get("particles_time", 0.0)), 0.0, 10.0)
+	if particles_time > 0.0:
+		for particles in copy.find_children("*", "", true, false):
+			if particles is GPUParticles2D or particles is GPUParticles3D or particles is CPUParticles2D or particles is CPUParticles3D:
+				particles.restart()
+		await get_tree().create_timer(particles_time).timeout
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	var image := viewport.get_texture().get_image()

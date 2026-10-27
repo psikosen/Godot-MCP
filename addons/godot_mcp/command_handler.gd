@@ -80,6 +80,10 @@ const COMMAND_PROCESSOR_DEFINITIONS := [
 		"name": "MCPPolishCommands",
 		"path": "res://addons/godot_mcp/commands/polish_commands.gd",
 	},
+	{
+		"name": "MCPVfxCommands",
+		"path": "res://addons/godot_mcp/commands/vfx_commands.gd",
+	},
 ]
 
 var MCPNodeCommands
@@ -100,6 +104,7 @@ var MCPAuthoringCommands
 var MCPFeatureCommands
 var MCPAssetCommands
 var MCPPolishCommands
+var MCPVfxCommands
 
 var _websocket_server
 var _command_processors: Array = []
@@ -188,6 +193,7 @@ func _initialize_processors() -> void:
 		MCPFeatureCommands,
 		MCPAssetCommands,
 		MCPPolishCommands,
+		MCPVfxCommands,
 	]
 	print("[MCP] Processor classes array has ", processor_classes.size(), " entries")
 
