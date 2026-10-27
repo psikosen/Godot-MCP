@@ -74,6 +74,8 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 	match command_type:
 		"build_vfx_effect":
 			_build_vfx_effect(client_id, params, command_id)
+		"build_pixel_vfx":
+			_build_pixel_vfx(client_id, params, command_id)
 		_:
 			return false
 	return true
@@ -461,3 +463,279 @@ func _make_particles(layer: Dictionary, context: Dictionary) -> Node:
 func _basis_facing(up_axis: Vector3) -> Basis:
 	var side := up_axis.cross(Vector3.FORWARD if absf(up_axis.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT).normalized()
 	return Basis(side, up_axis, side.cross(up_axis).normalized())
+
+
+# --- pixel-art effects ----------------------------------------------------------------------
+
+const PIXEL_DIR := "res://addons/godot_mcp/vfx/"
+# canvas: art pixels; pivot: the canvas point (0..1) on the node's origin (the ground for ground
+# effects); slots: ramp uniforms and how each is coloured; preview: the clock the editor shows.
+const PIXEL_PRESETS := {
+	"tornado": {"canvas": Vector2i(64, 96), "fps": 12, "frames": 16, "loop": true, "pivot": Vector2(0.5, 0.93),
+		"element": "wind", "slots": {"main": "main", "debris": "debris", "dust": "dust"}, "preview": 0.5,
+		"light": [0.0, 0.0, 0.0], "shake": 0},
+	"explosion": {"canvas": Vector2i(64, 64), "fps": 15, "frames": 18, "loop": false, "pivot": Vector2(0.5, 0.5),
+		"element": "fire", "slots": {"main": "main", "smoke": "smoke", "spark": "main"}, "preview": 0.33,
+		"light": [4.5, 0.7, 0.15], "shake": 6},
+	"lightning": {"canvas": Vector2i(64, 96), "fps": 18, "frames": 16, "loop": false, "pivot": Vector2(0.5, 0.905),
+		"element": "lightning", "slots": {"main": "main", "smoke": "smoke", "spark": "main"}, "preview": 0.22,
+		"light": [5.0, 0.6, 0.6], "shake": 8},
+	"vortex": {"canvas": Vector2i(64, 64), "fps": 12, "frames": 16, "loop": true, "pivot": Vector2(0.5, 0.5),
+		"element": "dark", "slots": {"main": "main", "smoke": "shadow"}, "preview": 0.5,
+		"light": [2.5, 0.0, 0.2], "shake": 0},
+	"heal": {"canvas": Vector2i(48, 64), "fps": 15, "frames": 20, "loop": false, "pivot": Vector2(0.5, 0.95),
+		"element": "nature", "slots": {"main": "main"}, "preview": 0.6,
+		"light": [3.0, 1.3, 0.0], "shake": 0},
+}
+# Element colours: OK HSL hue, saturation, and how far highlights swing toward yellow (fire burns
+# from crimson to yellow-white); the ramps are built from them (see _pixel_ramp).
+const PIXEL_ELEMENTS := {
+	"fire": [0.09, 1.0, 1.1], "ice": [0.6, 0.7, 0.1], "lightning": [0.7, 1.0, 0.1], "wind": [0.5, 0.6, 0.2],
+	"dark": [0.8, 0.85, 0.05], "holy": [0.2, 0.9, 0.6], "nature": [0.38, 0.8, 0.3], "arcane": [0.9, 0.9, 0.15],
+	"poison": [0.33, 0.95, 0.3], "water": [0.64, 0.9, 0.1], "blood": [0.05, 0.85, 0.1], "earth": [0.15, 0.4, 0.3],
+	"plasma": [0.95, 1.0, 0.15], "steel": [0.68, 0.2, 0.1],
+}
+
+# Plays a pixel effect in the game: steps the shader clock, fades or flickers the light, shakes the
+# camera when a one-shot fires.
+const PIXEL_PLAYER_SCRIPT := """extends Node2D
+# Built by Godot MCP build_pixel_vfx. play() fires the effect again; seek(seconds) shows a moment.
+
+@export var autoplay := {autoplay}
+## Seconds between replays of a one-shot; 0 plays it once. Loops repeat by themselves.
+@export var replay_every := {replay_every}
+@export var light_energy := {light_energy}
+## Seconds the light takes to fade after play(); 0 keeps it on.
+@export var light_fade := {light_fade}
+@export var flicker := {flicker}
+## Camera shake in screen pixels, for shake_time seconds after play().
+@export var shake := {shake}
+@export var shake_time := 0.25
+
+@onready var _fx: CanvasItem = $FX
+@onready var _light: Light2D = get_node_or_null("Light")
+var _clock := -1.0
+var _camera: Camera2D
+
+
+func _ready() -> void:
+	if autoplay:
+		play()
+	else:
+		seek(1.0e6)
+		_clock = -1.0
+
+
+func play() -> void:
+	_clock = 0.0
+	_camera = get_viewport().get_camera_2d()
+
+
+func seek(seconds: float) -> void:
+	_clock = seconds
+	_fx.material.set_shader_parameter("clock", seconds)
+	if _light:
+		var energy := light_energy
+		if light_fade > 0.0:
+			energy *= clampf(1.0 - seconds / light_fade, 0.0, 1.0)
+		_light.energy = energy * (1.0 - flicker * randf())
+	if shake > 0.0 and is_instance_valid(_camera):
+		var k := shake * clampf(1.0 - seconds / shake_time, 0.0, 1.0)
+		_camera.offset = Vector2(randf_range(-k, k), randf_range(-k, k)).round()
+
+
+func _process(delta: float) -> void:
+	if _clock < 0.0:
+		return
+	seek(_clock)
+	_clock += delta
+	if replay_every > 0.0 and _clock >= replay_every:
+		play()
+"""
+
+# One Shader per preset for every effect this editor session builds, so a scene stores each once.
+var _pixel_shaders := {}
+
+
+# A pixel-art ramp, dark to light: shadows lean toward blue-violet, highlights toward yellow and the
+# top step is nearly white, the usual hue-shifting rule of hand-made palettes. Constant
+# interpolation, so the shader reads each band as one flat colour.
+func _pixel_ramp(hue: float, sat: float, steps: int, low: float, high: float, warm := 0.2) -> GradientTexture1D:
+	var gradient := Gradient.new()
+	gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+	var offsets := PackedFloat32Array()
+	var colors := PackedColorArray()
+	for i in steps:
+		var t := float(i) / float(steps - 1)
+		var h := _hue_toward(_hue_toward(hue, 0.75, (1.0 - t) * (1.0 - t) * 0.25), 0.27, t * t * warm)
+		offsets.append(float(i) / float(steps))
+		# Warm ramps keep their colour into the highlights (a yellow core); cool ones fade to white.
+		var fade := 0.7 - 0.45 * clampf(warm, 0.0, 1.0)
+		colors.append(Color.from_ok_hsl(h, sat * (1.0 - pow(t, 4.0) * fade), lerpf(low, high, pow(t, 0.9))))
+	gradient.offsets = offsets
+	gradient.colors = colors
+	var texture := GradientTexture1D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	return texture
+
+
+func _hue_toward(hue: float, target: float, amount: float) -> float:
+	var delta := fposmod(target - hue + 0.5, 1.0) - 0.5
+	return fposmod(hue + delta * amount, 1.0)
+
+
+func _pixel_shader(preset: String) -> Shader:
+	if _pixel_shaders.has(preset):
+		return _pixel_shaders[preset]
+	var library := FileAccess.get_file_as_string(PIXEL_DIR + "pixel_vfx.gdshaderinc")
+	var source := FileAccess.get_file_as_string(PIXEL_DIR + "pixel_%s.gdshader" % preset)
+	if library.is_empty() or source.is_empty():
+		return null
+	# Pasted in rather than included, so the scene keeps working without this addon.
+	var shader := Shader.new()
+	shader.code = source.replace('#include "%spixel_vfx.gdshaderinc"' % PIXEL_DIR, library)
+	_pixel_shaders[preset] = shader
+	return shader
+
+
+func _build_pixel_vfx(client_id: int, params: Dictionary, command_id: String) -> void:
+	var preset := str(params.get("preset", ""))
+	if not PIXEL_PRESETS.has(preset):
+		return _send_error(client_id, "preset must be one of: %s" % ", ".join(PackedStringArray(PIXEL_PRESETS.keys())), command_id)
+	var spec: Dictionary = PIXEL_PRESETS[preset]
+	var scene_root := EditorInterface.get_edited_scene_root()
+	if not scene_root:
+		return _send_error(client_id, "No scene is open", command_id)
+	var parent := _get_editor_node(str(params.get("parent_path", "/root")))
+	if not parent:
+		return _send_error(client_id, "Parent node not found: %s" % params.get("parent_path", "/root"), command_id)
+	if parent is Node3D:
+		return _send_error(client_id, "build_pixel_vfx makes 2D effects; %s is a %s (use a 2D parent, or build_vfx_effect for 3D)" % [_to_mcp_path(parent), parent.get_class()], command_id)
+	var element := str(params.get("element", spec["element"]))
+	var hue_sat: Array = PIXEL_ELEMENTS.get(element, [])
+	if params.has("color"):
+		var tint = _coerce_to_color(params["color"])
+		if not tint is Color:
+			return _send_error(client_id, "color must be a color, e.g. \"#40a0ff\"", command_id)
+		hue_sat = [tint.ok_hsl_h, clampf(tint.ok_hsl_s, 0.15, 1.0), 0.2]
+		element = "custom"
+	elif hue_sat.is_empty():
+		return _send_error(client_id, "element must be one of: %s (or pass color)" % ", ".join(PackedStringArray(PIXEL_ELEMENTS.keys())), command_id)
+	var position = _coerce_to_vector2(params.get("position", Vector2.ZERO))
+	if not position is Vector2:
+		return _send_error(client_id, "position must be a 2D vector", command_id)
+	var pixel_scale := clampi(int(params.get("pixel_scale", 4)), 1, 16)
+	var shader := _pixel_shader(preset)
+	if not shader:
+		return _send_error(client_id, "The pixel VFX shaders are missing from %s (addon install is incomplete)" % PIXEL_DIR, command_id)
+
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	var canvas: Vector2i = spec["canvas"]
+	material.set_shader_parameter("canvas", Vector2(canvas))
+	material.set_shader_parameter("fps", float(spec["fps"]))
+	material.set_shader_parameter("frames", int(spec["frames"]))
+	material.set_shader_parameter("looping", bool(spec["loop"]))
+	material.set_shader_parameter("seed", int(params.get("seed", 1)))
+	material.set_shader_parameter("clock", float(spec["preview"]))
+	var hue: float = hue_sat[0]
+	var sat: float = hue_sat[1]
+	var warm: float = hue_sat[2]
+	var slots: Dictionary = spec["slots"]
+	for slot in slots:
+		var style: String = slots[slot]
+		var steps := 6
+		var ramp: GradientTexture1D
+		match style:
+			"smoke":
+				ramp = _pixel_ramp(0.72, 0.06, steps, 0.08, 0.8)
+			"dust":
+				steps = 5
+				ramp = _pixel_ramp(hue, sat * 0.15, steps, 0.3, 0.85)
+			"debris":
+				steps = 4
+				ramp = _pixel_ramp(hue, sat * 0.25, steps, 0.45, 1.0)
+			"shadow":
+				steps = 5
+				ramp = _pixel_ramp(hue, sat * 0.4, steps, 0.02, 0.3)
+			_:
+				steps = 7 if preset in ["explosion", "vortex"] else 6
+				ramp = _pixel_ramp(hue, sat, steps, 0.1, 0.98, warm)
+		material.set_shader_parameter(slot + "_ramp", ramp)
+		material.set_shader_parameter(slot + "_bands", steps)
+
+	var root := Node2D.new()
+	var wanted_name := str(params.get("name", "")).strip_edges()
+	root.name = _unique_child_name(parent, wanted_name if not wanted_name.is_empty() else "Pixel" + preset.to_pascal_case())
+	root.position = position
+	var fx := ColorRect.new()
+	fx.name = "FX"
+	fx.material = material
+	fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pivot: Vector2 = spec["pivot"]
+	var size := Vector2(canvas * pixel_scale)
+	fx.position = -(pivot * size).round()
+	fx.size = size
+	root.add_child(fx)
+	var created: Array = [fx]
+
+	var light_spec: Array = spec["light"]
+	var light_on := bool(params.get("light", light_spec[0] > 0.0))
+	if light_on:
+		var light := PointLight2D.new()
+		light.name = "Light"
+		var glow := GradientTexture2D.new()
+		glow.gradient = Gradient.new()
+		glow.gradient.colors = PackedColorArray([Color.WHITE, Color(1, 1, 1, 0)])
+		glow.fill = GradientTexture2D.FILL_RADIAL
+		glow.fill_from = Vector2(0.5, 0.5)
+		glow.fill_to = Vector2(1.0, 0.5)
+		light.texture = glow
+		light.texture_scale = size.length() / 64.0
+		light.color = Color.from_ok_hsl(hue, sat * 0.8, 0.7)
+		# Saved at full strength so the editor shows it; the script fades it after each play().
+		light.energy = maxf(light_spec[0], 1.5)
+		light.position = fx.position + size * 0.5
+		root.add_child(light)
+		created.append(light)
+	var shake: float = float(spec["shake"]) if bool(params.get("camera_shake", spec["shake"] > 0)) else 0.0
+
+	var script := GDScript.new()
+	script.source_code = PIXEL_PLAYER_SCRIPT.format({
+		"autoplay": str(bool(params.get("autoplay", true))).to_lower(),
+		"replay_every": "%.3f" % maxf(float(params.get("replay_every", 0.0)), 0.0),
+		"light_energy": "%.3f" % maxf(light_spec[0], 1.5),
+		"light_fade": "%.3f" % light_spec[1],
+		"flicker": "%.3f" % light_spec[2],
+		"shake": "%.1f" % (shake * pixel_scale / 4.0),
+	})
+	if script.reload() != OK:
+		root.free()
+		return _send_error(client_id, "The effect's player script did not compile (addon bug)", command_id)
+	root.set_script(script)
+
+	var transaction = _transaction("Build Pixel VFX", str(params.get("transaction_id", "")), {"command": "build_pixel_vfx", "preset": preset})
+	if not transaction:
+		root.free()
+		return _send_error(client_id, "Failed to obtain a scene transaction", command_id)
+	transaction.add_do_method(parent, "add_child", [root, true])
+	transaction.add_do_method(root, "set_owner", [scene_root])
+	for node in created:
+		transaction.add_do_method(node, "set_owner", [scene_root])
+	transaction.add_do_reference(root)
+	transaction.add_undo_method(parent, "remove_child", [root])
+	_finish_transaction(client_id, command_id, transaction, str(params.get("transaction_id", "")), {
+		"node_path": _join_path(_to_mcp_path(parent), str(root.name)),
+		"preset": preset,
+		"element": element,
+		"canvas": [canvas.x, canvas.y],
+		"pixel_scale": pixel_scale,
+		"size": [size.x, size.y],
+		"fps": spec["fps"],
+		"frames": spec["frames"],
+		"loop": spec["loop"],
+		"light": light_on,
+		"camera_shake": shake > 0.0,
+		"ramps": PackedStringArray(slots.keys()),
+	})

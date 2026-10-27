@@ -694,7 +694,14 @@ func _capture_scene_image(client_id: int, params: Dictionary, command_id: String
 	var scene_root := EditorInterface.get_edited_scene_root()
 	if not scene_root:
 		return _send_error(client_id, "No scene is open", command_id)
-	var size := Vector2i(clampi(int(params.get("width", 960)), 64, 2048), clampi(int(params.get("height", 540)), 64, 2048))
+	var strip: Array = params.get("filmstrip", []) if params.get("filmstrip") is Array else []
+	if strip.size() > 8:
+		return _send_error(client_id, "filmstrip takes up to 8 moments", command_id)
+	# A filmstrip is side by side, so its default frames are narrower.
+	var default_width := 960 if strip.is_empty() else mini(960, 3840 / strip.size())
+	var size := Vector2i(clampi(int(params.get("width", default_width)), 64, 2048), clampi(int(params.get("height", default_width * 9 / 16)), 64, 2048))
+	if size.x * maxi(strip.size(), 1) > 8192:
+		return _send_error(client_id, "The filmstrip would be %d px wide; pass a smaller width" % (size.x * strip.size()), command_id)
 	var viewport := SubViewport.new()
 	viewport.size = size
 	viewport.own_world_3d = true
@@ -737,20 +744,55 @@ func _capture_scene_image(client_id: int, params: Dictionary, command_id: String
 	if camera is Camera2D or camera is Camera3D:
 		camera.make_current()
 
-	# Particles in the copy start over and run this long, so a one-shot burst shows mid-effect.
-	var particles_time := clampf(float(params.get("particles_time", 0.0)), 0.0, 10.0)
-	if particles_time > 0.0:
-		for particles in copy.find_children("*", "", true, false):
-			if particles is GPUParticles2D or particles is GPUParticles3D or particles is CPUParticles2D or particles is CPUParticles3D:
-				particles.restart()
-		await get_tree().create_timer(particles_time).timeout
-	await RenderingServer.frame_post_draw
-	await RenderingServer.frame_post_draw
-	var image := viewport.get_texture().get_image()
+	# Moments after a restart: particles in the copy start over, and shaders with a `clock` uniform
+	# (pixel VFX) jump to each moment, so a one-shot shows mid-effect. Several moments come back
+	# side by side, to judge motion in one picture.
+	var moments: Array = strip.map(func(value): return clampf(float(value), 0.0, 10.0))
+	if moments.is_empty() and params.has("particles_time"):
+		moments.append(clampf(float(params["particles_time"]), 0.0, 10.0))
+	moments.sort()
+	var clocked: Array = []
+	if not moments.is_empty():
+		for item in [copy] + copy.find_children("*", "", true, false):
+			if item is GPUParticles2D or item is GPUParticles3D or item is CPUParticles2D or item is CPUParticles3D:
+				item.restart()
+			var property := "material" if item is CanvasItem else ("material_override" if item is GeometryInstance3D else "")
+			var material = item.get(property) if not property.is_empty() else null
+			if material is ShaderMaterial and material.shader \
+					and material.shader.get_shader_uniform_list().any(func(uniform): return uniform.name == "clock"):
+				# The copy shares the scene's material; turning the copy's clock must not touch the scene.
+				material = material.duplicate()
+				item.set(property, material)
+				clocked.append(material)
+	var frames: Array = []
+	var elapsed := 0.0
+	# An unfocused editor draws only when something changes, so a wait with nothing moving (a shader
+	# effect, no particles) never got its frame. Draw every frame until the pictures are taken.
+	var low_processor := OS.low_processor_usage_mode
+	OS.low_processor_usage_mode = false
+	for moment in (moments if not moments.is_empty() else [0.0]):
+		if moment > elapsed:
+			await get_tree().create_timer(moment - elapsed).timeout
+			elapsed = moment
+		for material in clocked:
+			material.set_shader_parameter("clock", moment)
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var frame := viewport.get_texture().get_image()
+		if frame == null or frame.is_empty():
+			OS.low_processor_usage_mode = low_processor
+			viewport.queue_free()
+			return _send_error(client_id, "The renderer returned no image", command_id)
+		frames.append(frame)
+	OS.low_processor_usage_mode = low_processor
 	viewport.queue_free()
-	if image == null or image.is_empty():
-		return _send_error(client_id, "The renderer returned no image", command_id)
-	_send_success(client_id, {"image_base64": Marshalls.raw_to_base64(image.save_png_to_buffer()), "width": size.x, "height": size.y}, command_id)
+	var image: Image = frames[0]
+	if frames.size() > 1:
+		image = Image.create(size.x * frames.size(), size.y, false, image.get_format())
+		for i in frames.size():
+			image.blit_rect(frames[i], Rect2i(Vector2i.ZERO, size), Vector2i(size.x * i, 0))
+	_send_success(client_id, {"image_base64": Marshalls.raw_to_base64(image.save_png_to_buffer()),
+		"width": image.get_width(), "height": image.get_height(), "moments": moments}, command_id)
 
 
 # --- export ---------------------------------------------------------------------------------

@@ -422,7 +422,7 @@ export var workflowTools = [
     },
     {
         name: 'capture_scene_image',
-        description: 'Take a picture of the open scene (scripts do not run, so it shows the scene as built). 2D: centered on center at zoom; 3D: from camera_path or the first Camera3D. Needs the editor window (not --headless).',
+        description: 'Take a picture of the open scene (scripts do not run, so it shows the scene as built; filmstrip shows several moments). 2D: centered on center at zoom; 3D: from camera_path or the first Camera3D. Needs the editor window (not --headless).',
         parameters: z.object({
             width: z.number().int().min(64).max(2048).optional().describe('Default 960'),
             height: z.number().int().min(64).max(2048).optional().describe('Default 540'),
@@ -431,6 +431,8 @@ export var workflowTools = [
             camera_path: z.string().optional().describe('A Camera2D or Camera3D in the scene to look through'),
             show_helpers: z.boolean().optional().describe('Also draw editor-only helpers: collision shapes, rays, markers'),
             particles_time: z.number().min(0).max(10).optional().describe('Restart particles and wait this many seconds first, to see a burst mid-effect'),
+            filmstrip: z.array(z.number().min(0).max(10)).min(2).max(8).optional()
+                .describe('Seconds after a restart, e.g. [0.05, 0.2, 0.5]: one picture per moment, side by side, to see an effect move'),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
             var r, error_11;
@@ -444,7 +446,8 @@ export var workflowTools = [
                         return [2 /*return*/, {
                                 content: [
                                     { type: 'image', data: r.image_base64, mimeType: 'image/png' },
-                                    { type: 'text', text: "".concat(r.width, "x").concat(r.height, " picture of the open scene") },
+                                    { type: 'text', text: "".concat(r.width, "x").concat(r.height, " picture of the open scene")
+                                            + (Array.isArray(r.moments) && r.moments.length > 1 ? " at ".concat(r.moments.join(', '), " s, left to right") : '') },
                                 ],
                             }];
                     case 2:

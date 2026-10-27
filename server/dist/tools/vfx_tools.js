@@ -84,5 +84,47 @@ export var vfxTools = [
         }); },
         metadata: { requiredRole: 'edit' },
     },
+    {
+        name: 'build_pixel_vfx',
+        description: 'Pixel-art 2D effect drawn live by a shader: hard colour bands on a real pixel grid, stepped frames. Presets tornado, explosion, lightning, vortex, heal; element or color recolours it. Optional light and camera shake. Plays when the game runs; play() fires it again. Undo-aware.',
+        parameters: z.object({
+            preset: z.enum(['tornado', 'explosion', 'lightning', 'vortex', 'heal']),
+            element: z.enum(['fire', 'ice', 'lightning', 'wind', 'dark', 'holy', 'nature', 'arcane', 'poison', 'water', 'blood', 'earth', 'plasma', 'steel'])
+                .optional().describe('Colours (default per preset: wind tornado, fire explosion, ...); fire + tornado makes a firestorm'),
+            color: z.any().optional().describe('Any colour instead of an element, e.g. "#40a0ff"'),
+            parent_path: z.string().optional(),
+            name: z.string().optional(),
+            position: vector.optional().describe('Ground effects (tornado, lightning, heal) stand on this point'),
+            pixel_scale: z.number().int().min(1).max(16).optional().describe('Screen pixels per art pixel (default 4)'),
+            light: z.boolean().optional().describe('A PointLight2D that pops with the effect (default on, except tornado)'),
+            camera_shake: z.boolean().optional().describe('Default on for explosion and lightning'),
+            autoplay: z.boolean().optional().describe('Default true: plays when it enters the game'),
+            replay_every: z.number().min(0).optional().describe('Seconds between replays of a one-shot (0 plays once)'),
+            seed: z.number().int().optional(),
+            transaction_id: z.string().optional(),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, _a, w, h, extras, error_2;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        _b.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('build_pixel_vfx', args)];
+                    case 1:
+                        r = _b.sent();
+                        _a = r.canvas, w = _a[0], h = _a[1];
+                        extras = [r.light ? 'light' : '', r.camera_shake ? 'camera shake' : '', r.loop ? 'looping' : 'one-shot'].filter(Boolean);
+                        return [2 /*return*/, "".concat(r.element, " ").concat(r.preset, " at ").concat(r.node_path, " [").concat(r.status, "]: ").concat(w, "x").concat(h, " art pixels at ").concat(r.pixel_scale, "x, ").concat(r.frames, " frames at ").concat(r.fps, " fps; ").concat(extras.join(', '), ".")
+                                + " Plays when the game runs; play() fires it again. Colours: ".concat(r.ramps.map(function (slot) { return "FX material ".concat(slot, "_ramp"); }).join(', '), ".")
+                                + ' See it move: capture_scene_image with filmstrip.'];
+                    case 2:
+                        error_2 = _b.sent();
+                        return [2 /*return*/, fail('build pixel VFX', error_2)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'edit' },
+    },
 ];
 //# sourceMappingURL=vfx_tools.js.map
