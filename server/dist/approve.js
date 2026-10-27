@@ -50,7 +50,7 @@ import { APPROVAL_TTL_MS, escalationManager } from './utils/escalation_manager.j
 // millisecond can drop one change. Add a file lock if approvals ever race in practice.
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var _a, id, notes, pending_2, _i, pending_1, record_1, record;
+        var _a, id, notes, pending, _i, pending_1, record_1, record;
         var _b, _c, _d;
         return __generator(this, function (_e) {
             switch (_e.label) {
@@ -59,9 +59,9 @@ function main() {
                     if (!!id) return [3 /*break*/, 2];
                     return [4 /*yield*/, escalationManager.listEscalations({ status: 'pending' })];
                 case 1:
-                    pending_2 = _e.sent();
-                    console.log("".concat(pending_2.length, " pending escalation(s) in ").concat(escalationManager.filePath));
-                    for (_i = 0, pending_1 = pending_2; _i < pending_1.length; _i++) {
+                    pending = _e.sent();
+                    console.log("".concat(pending.length, " pending escalation(s) in ").concat(escalationManager.filePath));
+                    for (_i = 0, pending_1 = pending; _i < pending_1.length; _i++) {
                         record_1 = pending_1[_i];
                         console.log("\n".concat(record_1.id, "  ").concat(record_1.path, "  (").concat(record_1.mode, ", requested ").concat(record_1.requestedAt, ")"));
                         console.log("  args: ".concat(JSON.stringify((_d = (_c = (_b = record_1.metadata) === null || _b === void 0 ? void 0 : _b.args) !== null && _c !== void 0 ? _c : record_1.metadata) !== null && _d !== void 0 ? _d : {})));
