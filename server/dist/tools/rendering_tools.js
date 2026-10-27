@@ -495,9 +495,10 @@ var formatLodResponse = function (result) {
     return __spreadArray(['Generated LOD meshes:'], lines, true).join('\n');
 };
 var formatEnvironmentResponse = function (result) {
-    var _a, _b;
-    var envPath = (_a = result.environment_path) !== null && _a !== void 0 ? _a : 'Environment';
-    var status = (_b = result.status) !== null && _b !== void 0 ? _b : 'updated';
+    var _a;
+    // A built-in Environment has no file path; it came out as a blank before " committed".
+    var envPath = result.environment_path || 'Environment';
+    var status = (_a = result.status) !== null && _a !== void 0 ? _a : 'updated';
     var changes = Array.isArray(result.changes) ? result.changes : [];
     if (changes.length === 0) {
         return "".concat(envPath, " ").concat(status, " with no property changes.");

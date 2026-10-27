@@ -83,6 +83,13 @@ func _get_editor_node(path: String) -> Node:
 	var found: Node = edited_scene_root.get_node_or_null(path)
 	if found == null:
 		found = MCPSceneTransactionManager.find_pending_node("/root/" + path.trim_suffix("/"))
+	# In a running game the scene root sits under /root ("/root/Level/Player"), and AIs write paths
+	# that way; here /root is the scene root itself, so accept that form too.
+	var root_name := String(edited_scene_root.name)
+	if found == null and path == root_name:
+		return edited_scene_root
+	if found == null and path.begins_with(root_name + "/"):
+		return _get_editor_node("/root/" + path.substr(root_name.length() + 1))
 	return found
 
 
@@ -320,7 +327,7 @@ func _is_protected_path(path: String) -> bool:
 	return false
 
 
-# The recent-errors buffer (utils/error_log.gd), or null before Godot 4.5.
+# The recent-errors buffer (utils/godot45/error_log.gd), or null before Godot 4.5.
 func _error_log():
 	return Engine.get_meta("GodotMCPErrorLog") if Engine.has_meta("GodotMCPErrorLog") else null
 
@@ -477,6 +484,13 @@ func _assign_converted(target: Object, property_name: String, value) -> void:
 
 
 func _coerce_value_to_type(value, value_type: int, property_class_name: String = ""):
+	# AIs sometimes quote a value twice ("\"Vector3(1, 2, 3)\"") or write "null" for nothing.
+	if typeof(value) == TYPE_STRING and not (value_type in [TYPE_NIL, TYPE_STRING, TYPE_STRING_NAME]):
+		var text: String = value.strip_edges()
+		if text.length() >= 2 and text.begins_with("\"") and text.ends_with("\""):
+			value = text.substr(1, text.length() - 2)
+		if value_type == TYPE_OBJECT and text == "null":
+			return null
 	match value_type:
 		TYPE_NIL:
 			return value
@@ -563,6 +577,10 @@ func _coerce_value_to_type(value, value_type: int, property_class_name: String =
 				return resource if resource != null else value
 			# A new built-in resource: "BoxMesh", or {"type": "BoxMesh", "size": [2, 1, 2]}.
 			var spec = {"type": value} if typeof(value) == TYPE_STRING else value
+			# {"sky_material": {...}} for a Sky property: the property's own class is the type when it can be made.
+			if spec is Dictionary and not spec.has("type") and not spec.is_empty() and ClassDB.class_exists(property_class_name) and ClassDB.can_instantiate(property_class_name):
+				spec = spec.duplicate()
+				spec["type"] = property_class_name
 			if spec is Dictionary and spec.has("type"):
 				var built = _new_resource(spec, property_class_name)
 				return built if built != null else value
@@ -697,9 +715,16 @@ func _coerce_to_color(value):
 
 
 # [[x, y], {x, y}, ...] -> PackedVector2Array (or 3D), or null when any element is not a point.
+# A flat number list [x1, y1, x2, y2, ...] works too.
 func _points_to_packed(value, three_d: bool):
 	if not (value is Array):
 		return null
+	var width := 3 if three_d else 2
+	if not value.is_empty() and value.size() % width == 0 and value.all(func(n): return n is float or n is int):
+		var grouped: Array = []
+		for start in range(0, value.size(), width):
+			grouped.append(value.slice(start, start + width))
+		value = grouped
 	var points: Array = []
 	for item in value:
 		var point = _coerce_to_vector3(item) if three_d else _coerce_to_vector2(item)

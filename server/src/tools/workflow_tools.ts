@@ -114,13 +114,17 @@ export const workflowTools: MCPTool[] = [
   },
   {
     name: 'list_signal_connections',
-    description: 'List a node\'s signal connections in the open scene (outgoing and incoming) and its signal names.',
+    description: 'List signal connections in the open scene: every one, or one node\'s (outgoing, incoming and its signal names).',
     parameters: z.object({
-      node_path: z.string().describe('e.g. "/root/Player"'),
+      node_path: z.string().optional().describe('e.g. "/root/Player"; leave out for every connection in the scene'),
     }),
     execute: async (args: Record<string, unknown>): Promise<string> => {
       try {
         const r = await send('list_signal_connections', args);
+        if (r.connections) {
+          const lines = r.connections as string[];
+          return lines.length ? `Signal connections in the scene (${lines.length}):\n  ${lines.join('\n  ')}` : 'No signal connections in the scene.';
+        }
         const out = r.outgoing as string[];
         const inc = r.incoming as string[];
         return [

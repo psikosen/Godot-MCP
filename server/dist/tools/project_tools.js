@@ -46,8 +46,8 @@ var inputEventSchema = z.object({
     type: z.string()
         .describe('Input event type: key, mouse_button, joypad_button, joypad_motion, mouse_motion (or the InputEvent* class name).'),
     device: z.number().int().optional().describe('Device id (-1 = all devices).'),
-    keycode: z.number().int().optional().describe('key: Godot Key enum value (e.g. 65 for A, 32 for Space).'),
-    physical_keycode: z.number().int().optional().describe('key: physical key code.'),
+    keycode: z.union([z.number().int(), z.string()]).optional().describe('key: name ("Space", "A", "Left") or Godot Key value (32).'),
+    physical_keycode: z.union([z.number().int(), z.string()]).optional().describe('key: physical key, name or value.'),
     unicode: z.number().int().optional().describe('key: unicode code point.'),
     pressed: z.boolean().optional().describe('key/mouse_button/joypad_button: pressed state (default true).'),
     alt_pressed: z.boolean().optional(),
@@ -167,10 +167,12 @@ export var projectTools = [
     },
     {
         name: 'list_input_actions',
-        description: 'List all configured input actions from the Godot project settings.',
-        parameters: z.object({}),
-        execute: function () { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, error_2;
+        description: 'List the project\'s input actions and their keys/buttons, one line each. Godot\'s built-in ui_* actions are hidden unless include_builtin.',
+        parameters: z.object({
+            include_builtin: z.boolean().optional().describe('Also list the built-in ui_* and editor actions (about 90)'),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var godot, result, actions, builtin_1, shown, lines, hidden, error_2;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -181,7 +183,14 @@ export var projectTools = [
                         return [4 /*yield*/, godot.sendCommand('list_input_actions', {})];
                     case 2:
                         result = _a.sent();
-                        return [2 /*return*/, JSON.stringify(result)];
+                        actions = result.actions;
+                        builtin_1 = function (name) { return name.startsWith('ui_') || name.includes('/'); };
+                        shown = actions.filter(function (action) { return args.include_builtin || !builtin_1(action.name); });
+                        lines = shown.map(function (action) { return "- ".concat(action.name, ": ").concat(action.events.map(function (event) { var _a; return (_a = event.text) !== null && _a !== void 0 ? _a : event.type; }).join(', ') || 'no inputs') +
+                            (Math.abs(action.deadzone - 0.5) > 0.001 ? " (deadzone ".concat(Number(action.deadzone.toFixed(2)), ")") : ''); });
+                        hidden = actions.length - shown.length;
+                        return [2 /*return*/, (lines.length > 0 ? "Input actions (".concat(lines.length, "):\n").concat(lines.join('\n')) : 'No project input actions yet.') +
+                                (hidden > 0 ? "\n".concat(hidden, " built-in actions hidden; games can use ui_left, ui_right, ui_up, ui_down, ui_accept too (include_builtin lists them).") : '')];
                     case 3:
                         error_2 = _a.sent();
                         throw new Error("Failed to list input actions: ".concat(error_2.message));

@@ -14,8 +14,8 @@ const inputEventSchema = z.object({
   type: z.string()
     .describe('Input event type: key, mouse_button, joypad_button, joypad_motion, mouse_motion (or the InputEvent* class name).'),
   device: z.number().int().optional().describe('Device id (-1 = all devices).'),
-  keycode: z.number().int().optional().describe('key: Godot Key enum value (e.g. 65 for A, 32 for Space).'),
-  physical_keycode: z.number().int().optional().describe('key: physical key code.'),
+  keycode: z.union([z.number().int(), z.string()]).optional().describe('key: name ("Space", "A", "Left") or Godot Key value (32).'),
+  physical_keycode: z.union([z.number().int(), z.string()]).optional().describe('key: physical key, name or value.'),
   unicode: z.number().int().optional().describe('key: unicode code point.'),
   pressed: z.boolean().optional().describe('key/mouse_button/joypad_button: pressed state (default true).'),
   alt_pressed: z.boolean().optional(),
@@ -131,14 +131,24 @@ export const projectTools: MCPTool[] = [
   },
   {
     name: 'list_input_actions',
-    description: 'List all configured input actions from the Godot project settings.',
-    parameters: z.object({}),
-    execute: async (): Promise<string> => {
+    description: 'List the project\'s input actions and their keys/buttons, one line each. Godot\'s built-in ui_* actions are hidden unless include_builtin.',
+    parameters: z.object({
+      include_builtin: z.boolean().optional().describe('Also list the built-in ui_* and editor actions (about 90)'),
+    }),
+    execute: async (args: { include_builtin?: boolean }): Promise<string> => {
       const godot = getGodotConnection();
 
       try {
         const result = await godot.sendCommand<CommandResult>('list_input_actions', {});
-        return JSON.stringify(result);
+        // The raw list was ~7k tokens, nearly all built-in ui_* and editor actions with every key flag.
+        const actions = result.actions as Array<{ name: string; deadzone: number; events: Array<{ text?: string; type?: string }> }>;
+        const builtin = (name: string) => name.startsWith('ui_') || name.includes('/');
+        const shown = actions.filter(action => args.include_builtin || !builtin(action.name));
+        const lines = shown.map(action => `- ${action.name}: ${action.events.map(event => event.text ?? event.type).join(', ') || 'no inputs'}` +
+          (Math.abs(action.deadzone - 0.5) > 0.001 ? ` (deadzone ${Number(action.deadzone.toFixed(2))})` : ''));
+        const hidden = actions.length - shown.length;
+        return (lines.length > 0 ? `Input actions (${lines.length}):\n${lines.join('\n')}` : 'No project input actions yet.') +
+          (hidden > 0 ? `\n${hidden} built-in actions hidden; games can use ui_left, ui_right, ui_up, ui_down, ui_accept too (include_builtin lists them).` : '');
       } catch (error) {
         throw new Error(`Failed to list input actions: ${(error as Error).message}`);
       }

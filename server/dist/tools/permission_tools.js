@@ -34,31 +34,48 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
 import { z } from 'zod';
 import { escalationManager } from '../utils/escalation_manager.js';
 var statusEnum = z.enum(['pending', 'approved', 'denied']);
 export var permissionTools = [
     {
         name: 'list_permission_escalations',
-        description: 'List recorded permission escalation requests optionally filtered by status.',
+        description: 'List permission escalation requests, newest first, optionally filtered by status.',
         parameters: z.object({
             status: statusEnum
                 .optional()
                 .describe('Filter results to a specific status (pending, approved, denied).'),
+            limit: z.number().int().min(1).max(500).default(20).describe('Most requests to show (default 20).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var records;
-            var status = _b.status;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
+            var records, shown, lines, hidden;
+            var status = _b.status, _c = _b.limit, limit = _c === void 0 ? 20 : _c;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
                     case 0: return [4 /*yield*/, escalationManager.listEscalations({ status: status })];
                     case 1:
-                        records = _c.sent();
-                        return [2 /*return*/, JSON.stringify({
-                                status: status !== null && status !== void 0 ? status : 'all',
-                                count: records.length,
-                                records: records,
-                            }, null, 2)];
+                        records = _d.sent();
+                        if (records.length === 0)
+                            return [2 /*return*/, status ? "No ".concat(status, " escalation requests.") : 'No escalation requests.'];
+                        shown = records.slice(-limit).reverse();
+                        lines = shown.map(function (record) {
+                            var _a, _b;
+                            var args = JSON.stringify((_b = (_a = record.metadata) === null || _a === void 0 ? void 0 : _a.args) !== null && _b !== void 0 ? _b : {});
+                            return "- ".concat(record.id, " ").concat(record.status, " ").concat(record.path.replace(/^tool:/, ''), " ").concat(record.requestedAt, " ").concat(args.length > 80 ? "".concat(args.slice(0, 80), "\u2026") : args);
+                        });
+                        hidden = records.length - shown.length;
+                        return [2 /*return*/, __spreadArray(__spreadArray([
+                                "Escalation requests (".concat(records.length, ", newest first").concat(hidden ? "; ".concat(hidden, " older not shown, raise limit") : '', "):")
+                            ], lines, true), (shown.some(function (record) { return record.status === 'pending'; }) ? ['A human approves with: cd server && npm run approve -- <id>'] : []), true).join('\n')];
                 }
             });
         }); },

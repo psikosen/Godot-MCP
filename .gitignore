@@ -35,3 +35,6 @@ __pycache__/
 *.swp
 *~
 .~lock.*
+
+# Agent eval transcripts and reports (npm run eval:agents)
+server/eval/out/

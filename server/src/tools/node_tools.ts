@@ -25,7 +25,7 @@ interface UpdateNodePropertyParams {
 }
 
 interface GetNodePropertiesParams {
-  node_path: string;
+  node_path: string | string[];
   properties?: string[];
   changed_only?: boolean;
 }
@@ -98,7 +98,8 @@ interface BulkUpdateNodePropertiesParams {
 interface BatchCreateNodesParams {
   parent_path?: string;
   nodes: Array<{
-    node_type: string;
+    node_type?: string;
+    scene_path?: string;
     node_name?: string;
     properties?: Record<string, unknown>;
   }>;
@@ -111,7 +112,7 @@ interface BatchDeleteNodesParams {
 }
 
 interface SetNodeScriptParams {
-  node_path: string;
+  node_path: string | string[];
   script_path: string;
   create_script?: boolean;
   extends_type?: string;
@@ -1749,7 +1750,7 @@ export const nodeTools: MCPTool[] = [
 
   {
     name: 'update_node_property',
-    description: 'Update a property of a node in the Godot scene tree',
+    description: 'Set one property on one node (batch_update_nodes sets many).',
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to update (e.g. "/root/MainScene/Player")'),
@@ -1784,10 +1785,10 @@ export const nodeTools: MCPTool[] = [
 
   {
     name: 'get_node_properties',
-    description: 'Get properties of a node. Pass properties (names) or changed_only to keep the reply short; a full dump is 60-150 entries.',
+    description: 'Get properties of one node or several. Pass properties (names) or changed_only to keep the reply short; a full dump is 60-150 entries.',
     parameters: z.object({
-      node_path: z.string()
-        .describe('Path to the node to inspect (e.g. "/root/MainScene/Player")'),
+      node_path: z.union([z.string(), z.array(z.string()).min(1).max(50)])
+        .describe('Node (e.g. "/root/Player") or a list of nodes'),
       properties: z.array(z.string()).max(200).optional()
         .describe('Only these properties, e.g. ["position", "modulate", "position.x"]'),
       changed_only: z.boolean().optional()
@@ -1796,17 +1797,24 @@ export const nodeTools: MCPTool[] = [
     execute: async ({ node_path, properties, changed_only }: GetNodePropertiesParams): Promise<string> => {
       const godot = getGodotConnection();
       
-      try {
-        const result = await godot.sendCommand<CommandResult>('get_node_properties', { node_path, properties, changed_only });
-        
+      // The AI read nodes one call at a time (22 back-to-back reads in 45 eval runs); a list takes one call.
+      const read = async (path: string) => {
+        const result = await godot.sendCommand<CommandResult>('get_node_properties', { node_path: path, properties, changed_only });
         const lines = Object.entries(result.properties)
           .map(([key, value]) => `${key}: ${JSON.stringify(value)}`);
         const missing = (result.missing as string[] | undefined) ?? [];
         if (missing.length > 0) lines.push(`missing: ${missing.join(', ')}`);
-        return `Properties of node at ${node_path}:\n${lines.join('\n') || '(none differ from defaults)'}`;
-      } catch (error) {
-        throw new Error(`Failed to get node properties: ${(error as Error).message}`);
+        return `Properties of node at ${path}:\n${lines.join('\n') || '(none differ from defaults)'}`;
+      };
+      if (typeof node_path === 'string') {
+        try {
+          return await read(node_path);
+        } catch (error) {
+          throw new Error(`Failed to get node properties: ${(error as Error).message}`);
+        }
       }
+      const parts = await Promise.all(node_path.map(path => read(path).catch((error: Error) => `${path}: ${error.message}`)));
+      return parts.join('\n\n');
     },
     metadata: {
       requiredRole: 'read',
@@ -2074,7 +2082,7 @@ export const nodeTools: MCPTool[] = [
       include_internal: z.boolean().optional()
         .describe('Include internal children in traversal (default false)'),
       max_results: z.number().int().min(1).max(5000).optional()
-        .describe('Maximum number of matched nodes to return (default 500)'),
+        .describe('Maximum number of matched nodes to return (default 200)'),
     }),
     execute: async ({
       root_path,
@@ -2109,7 +2117,7 @@ export const nodeTools: MCPTool[] = [
           .map(node => `${node.name} (${node.type}) - ${node.path}`)
           .join('\n');
         const truncated = Boolean(result.truncated);
-        return `Query matched ${count} node(s) under ${target}${truncated ? ' (truncated)' : ''}:\n${lines}`;
+        return `Query matched ${count} node(s) under ${target}${truncated ? ' (more not shown; raise max_results or filter by name_contains, node_type or group_name)' : ''}:\n${lines}`;
       } catch (error) {
         throw new Error(`Failed to query nodes: ${(error as Error).message}`);
       }
@@ -2188,13 +2196,15 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'batch_create_nodes',
-    description: 'Create multiple child nodes in one undo-aware operation',
+    description: 'Create many child nodes, or copies of a scene (scene_path), in one undo-aware operation',
     parameters: z.object({
       parent_path: z.string().optional()
         .describe('Parent node path where all nodes should be created (defaults to "/root")'),
       nodes: z.array(z.object({
-        node_type: z.string()
+        node_type: z.string().optional()
           .describe('Godot node type such as Node2D, Node3D, Label, etc.'),
+        scene_path: z.string().optional()
+          .describe('Instead of node_type: a copy of this .tscn, e.g. 30 trees with their own positions'),
         node_name: z.string().optional()
           .describe('Optional preferred node name; the server will resolve conflicts.'),
         properties: z.record(z.any()).optional()
@@ -2261,10 +2271,10 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'set_node_script',
-    description: 'Assign a script resource to a node with undo support',
+    description: 'Assign a script resource to a node, or to several nodes (node_path as a list), with undo support',
     parameters: z.object({
-      node_path: z.string()
-        .describe('Node path to receive the script'),
+      node_path: z.union([z.string(), z.array(z.string()).min(1).max(100)])
+        .describe('Node, or a list of nodes'),
       script_path: z.string()
         .describe('Script resource path in the project (res://...)'),
       create_script: z.boolean().optional()
@@ -2283,23 +2293,33 @@ export const nodeTools: MCPTool[] = [
     }: SetNodeScriptParams): Promise<string> => {
       const godot = getGodotConnection();
 
-      try {
-        const result = await godot.sendCommand<CommandResult>('set_node_script', {
-          node_path,
-          script_path,
-          create_script,
-          extends_type,
-          transaction_id,
-        });
-
-        const status = (result.status as string) ?? 'committed';
-        if (status === 'no_change') {
-          return `Node ${node_path} already uses script ${script_path}.`;
+      // One script on many nodes (5 coins) took one call per node in the eval.
+      const paths = typeof node_path === 'string' ? [node_path] : node_path;
+      const assigned: string[] = [];
+      const unchanged: string[] = [];
+      let status = 'committed';
+      for (let index = 0; index < paths.length; index++) {
+        const path = paths[index];
+        try {
+          const result = await godot.sendCommand<CommandResult>('set_node_script', {
+            node_path: path,
+            script_path,
+            create_script: index === 0 ? create_script : false,
+            extends_type,
+            transaction_id,
+          });
+          const nodeStatus = (result.status as string) ?? 'committed';
+          if (nodeStatus === 'no_change') unchanged.push(path);
+          else { assigned.push(path); status = nodeStatus; }
+        } catch (error) {
+          const done = assigned.length ? ` (already assigned to ${assigned.join(', ')})` : '';
+          throw new Error(`Failed to set node script on ${path}${done}: ${(error as Error).message}`);
         }
-        return `Assigned script ${script_path} to ${node_path} [${status}]`;
-      } catch (error) {
-        throw new Error(`Failed to set node script: ${(error as Error).message}`);
       }
+      if (assigned.length === 0) {
+        return `${unchanged.length === 1 ? `Node ${unchanged[0]}` : `Nodes ${unchanged.join(', ')}`} already use${unchanged.length === 1 ? 's' : ''} script ${script_path}.`;
+      }
+      return `Assigned script ${script_path} to ${assigned.join(', ')} [${status}]` + (unchanged.length ? `; ${unchanged.join(', ')} already had it` : '');
     },
     metadata: {
       requiredRole: 'edit',

@@ -322,7 +322,7 @@ export var sceneTools = [
                         return [4 /*yield*/, godot.sendCommand('create_scene', { path: path, root_node_type: root_node_type })];
                     case 2:
                         result = _d.sent();
-                        return [2 /*return*/, "Created new scene at ".concat(result.scene_path, " with root node type ").concat(result.root_node_type, ". It is now the open scene; use open_scene to go back.")];
+                        return [2 /*return*/, "Created new scene at ".concat(result.scene_path, " with root node type ").concat(result.root_node_type, ". It is now the open scene; its root node is /root. Use open_scene to go back.")];
                     case 3:
                         error_1 = _d.sent();
                         throw new Error("Failed to create scene: ".concat(error_1.message));
@@ -386,7 +386,7 @@ export var sceneTools = [
                         return [4 /*yield*/, godot.sendCommand('open_scene', { path: path })];
                     case 2:
                         result = _c.sent();
-                        return [2 /*return*/, "Opened scene at ".concat(result.scene_path)];
+                        return [2 /*return*/, "Opened scene at ".concat(result.scene_path, "; its root node is /root")];
                     case 3:
                         error_3 = _c.sent();
                         throw new Error("Failed to open scene: ".concat(error_3.message));
@@ -414,7 +414,7 @@ export var sceneTools = [
                         return [4 /*yield*/, godot.sendCommand('get_current_scene', {})];
                     case 2:
                         result = _a.sent();
-                        return [2 /*return*/, "Current scene: ".concat(result.scene_path, "\nRoot node: ").concat(result.root_node_name, " (").concat(result.root_node_type, ")")];
+                        return [2 /*return*/, "Current scene: ".concat(result.scene_path, "\nRoot node: ").concat(result.root_node_name, " (").concat(result.root_node_type, "), path /root")];
                     case 3:
                         error_4 = _a.sent();
                         throw new Error("Failed to get current scene: ".concat(error_4.message));

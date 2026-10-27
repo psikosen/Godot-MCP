@@ -481,7 +481,8 @@ const formatLodResponse = (result: CommandResult): string => {
 };
 
 const formatEnvironmentResponse = (result: CommandResult): string => {
-  const envPath = (result.environment_path as string) ?? 'Environment';
+  // A built-in Environment has no file path; it came out as a blank before " committed".
+  const envPath = (result.environment_path as string) || 'Environment';
   const status = (result.status as string) ?? 'updated';
   const changes = Array.isArray(result.changes) ? (result.changes as any[]) : [];
 

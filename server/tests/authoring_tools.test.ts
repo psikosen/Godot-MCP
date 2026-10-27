@@ -93,6 +93,6 @@ describe('authoring tools', () => {
     expect(toolsetOf('create_tileset_2d')).toBe('2d');
     expect(toolsetOf('create_sprite_frames')).toBe('animation');
     expect(toolsetOf('undo_redo')).toBe('core');
-    expect(toolsetOf('get_resource_properties')).toBe('core');
+    expect(toolsetOf('get_resource_properties')).toBe('scene');
   });
 });

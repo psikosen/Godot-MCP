@@ -1,7 +1,8 @@
 extends Logger
 ## Keeps the most recent errors and warnings Godot reports (engine, script and shader errors), so
 ## MCP tools can show an agent what the editor's Output panel shows a person. Needs Godot 4.5+
-## (the Logger class); mcp_server.gd installs it with OS.add_logger.
+## (the Logger class). It sits in a .gdignore folder, which Godot 4.4 does not scan (it would report a
+## parse error); mcp_server.gd compiles it from text and installs it with OS.add_logger.
 
 const MAX_ENTRIES := 200
 const TYPE_NAMES: Array[String] = ["error", "warning", "script", "shader"]

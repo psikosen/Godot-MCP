@@ -145,6 +145,8 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 	match command_type:
 		"describe_skeleton":
 			_describe_skeleton(client_id, params, command_id)
+		"add_skeleton_bones":
+			_add_skeleton_bones(client_id, params, command_id)
 		"setup_ik_chain":
 			_setup_ik_chain(client_id, params, command_id)
 		"add_bone_constraint":
@@ -254,6 +256,80 @@ func _add_marker(markers: Array, holder: Node3D, wanted: String, world_position:
 		suffix += 1
 	markers.append(marker)
 	return marker
+
+
+# Builds a rig from scratch: the rigging tools before this only worked on skeletons from imported models.
+func _add_skeleton_bones(client_id: int, params: Dictionary, command_id: String) -> void:
+	var path := str(params.get("skeleton_path", ""))
+	var skeleton := _find_skeleton(path)
+	if not skeleton:
+		return _send_error(client_id, _skeleton_error(path), command_id)
+	var bones: Array = params.get("bones", [])
+	if bones.is_empty() or bones.size() > 256:
+		return _send_error(client_id, "bones must hold 1 to 256 bones", command_id)
+	var before := _skeleton_bones(skeleton)
+	var after := before.duplicate(true)
+	var index_of := {}
+	for index in after.size():
+		index_of[after[index]["name"]] = index
+	var previous := ""
+	for i in bones.size():
+		var bone = bones[i]
+		if typeof(bone) != TYPE_DICTIONARY or str(bone.get("name", "")).is_empty():
+			return _send_error(client_id, "bones[%d] needs a name" % i, command_id)
+		var bone_name := str(bone["name"])
+		if index_of.has(bone_name):
+			return _send_error(client_id, "bones[%d]: %s is already a bone in %s" % [i, bone_name, skeleton.name], command_id)
+		var parent_name := str(bone.get("parent", previous))
+		if not parent_name.is_empty() and not index_of.has(parent_name):
+			return _send_error(client_id, "bones[%d].parent %s is not a bone; list parents before their children" % [i, parent_name], command_id)
+		var parent: int = index_of.get(parent_name, -1)
+		var origin = _coerce_to_vector3(bone.get("position", Vector3(0, 1, 0) if parent != -1 else Vector3.ZERO))
+		if not origin is Vector3:
+			return _send_error(client_id, "bones[%d].position must be {x, y, z} or [x, y, z]" % i, command_id)
+		index_of[bone_name] = after.size()
+		var rest := Transform3D(Basis(), origin)
+		after.append({"name": bone_name, "parent": parent, "rest": rest, "pose": rest})
+		previous = bone_name
+	var transaction_id := str(params.get("transaction_id", ""))
+	var transaction = _transaction("Add Skeleton Bones", transaction_id, {"command": "add_skeleton_bones"})
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction", command_id)
+	transaction.add_do_method(self, "_set_skeleton_bones", [skeleton, after])
+	transaction.add_undo_method(self, "_set_skeleton_bones", [skeleton, before])
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	var lines: Array = []
+	var depth := {-1: -1}
+	for index in mini(after.size(), 64):
+		depth[index] = depth.get(after[index]["parent"], -1) + 1
+		lines.append("  ".repeat(depth[index]) + after[index]["name"])
+	if after.size() > 64:
+		lines.append("(%d more)" % (after.size() - 64))
+	_finish_transaction(client_id, command_id, transaction, transaction_id, {
+		"skeleton_path": _to_mcp_path(skeleton), "bone_count": after.size(), "outline": "\n".join(PackedStringArray(lines))})
+
+
+func _skeleton_bones(skeleton: Skeleton3D) -> Array:
+	var data: Array = []
+	for index in skeleton.get_bone_count():
+		data.append({"name": skeleton.get_bone_name(index), "parent": skeleton.get_bone_parent(index),
+			"rest": skeleton.get_bone_rest(index), "pose": skeleton.get_bone_pose(index)})
+	return data
+
+
+# Skeleton3D cannot remove one bone, so do and undo both rebuild the whole bone list.
+func _set_skeleton_bones(skeleton: Skeleton3D, data: Array) -> void:
+	skeleton.clear_bones()
+	for bone in data:
+		skeleton.add_bone(bone["name"])
+		var index := skeleton.get_bone_count() - 1
+		skeleton.set_bone_rest(index, bone["rest"])
+		var pose: Transform3D = bone["pose"]
+		skeleton.set_bone_pose_position(index, pose.origin)
+		skeleton.set_bone_pose_rotation(index, pose.basis.get_rotation_quaternion())
+		skeleton.set_bone_pose_scale(index, pose.basis.get_scale())
+	for index in data.size():
+		skeleton.set_bone_parent(index, data[index]["parent"])
 
 
 func _describe_skeleton(client_id: int, params: Dictionary, command_id: String) -> void:
