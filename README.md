@@ -347,14 +347,19 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 71k for all 260 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `load_tools` with `unload` turns groups off again. `load_tools` with no arguments shows what is on.
-  - **Task groups** hold just what one job needs, across areas, so they cost less than whole areas. A tool can be in several; it stays on while any loaded group has it: `player_2d`, `player_3d`, `enemies`, `tilemap_level`, `world_3d`, `rigging`, `lighting`, `vfx`, `release`, `refactor`, `inspect` (read-only tools).
-  - **Feature groups** hold every tool for one area: `scene`, `scripting`, `project`, `testing`, `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `assets`, `levelgen`, `effects`, `space`, `xr`, `multiplayer`. The largest is about 7.6k tokens.
+- Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 68k for all 260 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `unload` turns groups or tools off again. `load_tools` with no arguments shows what is on.
+  - **Task groups** hold just what one job needs, across areas, so they cost less than whole areas. A tool can be in several; it stays on while any loaded group has it: `player_2d`, `player_3d`, `enemies`, `tilemap_level`, `gameplay` (pickups, signals, groups, score HUD, sounds), `art` (import or make art), `procgen_2d`, `procgen_3d`, `water`, `paths` (splines and followers), `world_3d`, `rigging`, `lighting`, `vfx`, `release`, `refactor`, `inspect` (read-only tools).
+  - **Feature groups** hold every tool for one area: `scene`, `scripting`, `project`, `testing`, `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `assets`, `levelgen`, `effects`, `space`, `xr`, `multiplayer`. The largest is about 7.3k tokens.
+  - For a need no group covers, `load_tools` with `find` (e.g. `"ragdoll"`) lists matching tools and their groups, and `tools` turns on single tools by name.
   - `GODOT_MCP_TOOLSETS` picks the groups that are on at start, for example `player_2d,tilemap_level`. Set it to `all` for every tool at start, which you need for clients that ignore `tools/list_changed`.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - Resource properties take a new built-in resource inline, so no file is needed: `"mesh": "BoxMesh"` or `"shape": {"type": "CapsuleShape3D", "radius": 0.4}`, nested too (`"material": {"type": "StandardMaterial3D", "albedo_color": "#ff0000"}`).
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
-- `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.
+- `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`. `batch_create_nodes` also places many copies of a scene at once (`scene_path` instead of `node_type`), e.g. 30 trees in one call.
+- Node paths start at `/root`, the open scene's root. The running-game form with the root's name (`/root/Level/Player`) works too.
+- `update_node_property` reaches into sub-resources with Godot's property paths: `"environment:sky:sky_material:sky_horizon_color"`.
+- `list_input_actions` lists the project's own actions, one line each; input events take key names (`"keycode": "Space"`).
+- `list_signal_connections` without `node_path` lists every connection saved in the scene.
 - `get_godot_errors` reads Godot's recent errors and warnings (Godot 4.5+). `create_script` and `edit_script` report compile errors with line numbers.
 
 ### Command Roles & Escalations
@@ -419,6 +424,11 @@ If you want to use the MCP plugin in your own Godot project:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Tests
+
+- `cd server && npm test` builds the server and runs the unit tests, including the real server over stdio for tool groups and `load_tools`.
+- `cd server && npm run eval:agents` has a real Claude (the `claude` CLI) do plain-language Godot tasks (a 2D player, an enemy, a tile level, lighting, an island, a moving platform, effects, coins, inspecting signals) in headless Godot editors. It reports which tool groups the AI loaded, errors, turns, peak context and cost, and checks each scene. It costs real API money, about $0.05–0.60 per run on Sonnet. Pick runs with `task:mode`, for example `player2d:default player2d:all` to compare the small start with every tool; the tasks are in `server/eval/tasks.mjs`.
 
 ## Documentation
 

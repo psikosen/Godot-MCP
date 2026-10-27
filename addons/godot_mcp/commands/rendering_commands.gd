@@ -2501,15 +2501,30 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 	var sky := params.get("sky", {})
 	if typeof(sky) == TYPE_DICTIONARY:
 		if sky.has("path") and typeof(sky["path"]) == TYPE_STRING:
-			var sky_resource = ResourceUtils.safe_load(sky["path"])
-			if sky_resource is Sky:
-				var previous_sky = environment.sky
-				if previous_sky != sky_resource:
-					changes.append({
-						"property": "sky",
-						"previous": previous_sky,
-						"value": sky_resource,
-					})
+			var sky_path: String = sky["path"]
+			var sky_resource = null
+			# A Sky file, a sky material file, or a sky material class such as "ProceduralSkyMaterial".
+			# Anything else was ignored without a word before.
+			if sky_path.begins_with("res://"):
+				sky_resource = ResourceUtils.safe_load(sky_path)
+			elif ClassDB.class_exists(sky_path) and ClassDB.is_parent_class(sky_path, "Material") and ClassDB.can_instantiate(sky_path):
+				sky_resource = ClassDB.instantiate(sky_path)
+			if sky_resource is Material:
+				var wrapped := Sky.new()
+				wrapped.sky_material = sky_resource
+				sky_resource = wrapped
+			if not sky_resource is Sky:
+				_refused_values.append("sky.path must be a Sky or sky material file, or a sky material class like ProceduralSkyMaterial (got %s)" % sky_path)
+			elif environment.sky != sky_resource:
+				changes.append({
+					"property": "sky",
+					"previous": environment.sky,
+					"value": sky_resource,
+				})
+				# A sky only shows with the sky background.
+				var sets_background := changes.any(func(change): return str(change.get("property", "")) == "background_mode")
+				if environment.background_mode != Environment.BG_SKY and not sets_background:
+					_append_environment_change(environment, "background_mode", Environment.BG_SKY, changes)
 		var sky_map := {
 			"custom_fov": "sky_custom_fov",
 			"rotation": "sky_rotation",

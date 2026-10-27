@@ -27,6 +27,7 @@ import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
 import { enabledToolsets, groupsOf } from './utils/toolsets.js';
 import { loadToolsTool } from './tools/toolset_tools.js';
+import { listedSchema } from './utils/listed_schema.js';
 
 // Import resources
 import { 
@@ -82,6 +83,9 @@ async function main() {
   // Resources whose content follows the live editor scene (notified after edit/admin tools).
   const SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
 
+  // Adds to a tool's text result; load_tools sets it to point at tools that are not on yet.
+  let resultHint = (_text: string) => '';
+
   // Wraps a tool for FastMCP
   const fastMcpTool = <T>(tool: MCPTool<T>) => ({
     ...tool,
@@ -90,7 +94,7 @@ async function main() {
     // The listed schema already says additionalProperties:false; enforce it so a wrong argument
     // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
     // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
-    parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
+    parameters: listedSchema((tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>),
     async execute(args: T): Promise<string | ContentResult> {
       await commandGuard.assertAllowed(tool, args);
       const output = await tool.execute(args);
@@ -100,7 +104,7 @@ async function main() {
           server.sendResourceUpdated(uri).catch(() => undefined);
         }
       }
-      return output;
+      return typeof output === 'string' && tool.name !== 'load_tools' ? output + resultHint(output) : output;
     },
   });
 
@@ -136,7 +140,8 @@ async function main() {
     const loadTools = loadToolsTool(allTools, toolsets,
       async tools => { await connected; server.addTools(tools.map(fastMcpTool)); },
       async names => { await connected; server.removeTools(names); });
-    server.addTools([...allTools.filter(tool => groupsOf(tool.name).some(group => toolsets.has(group))), loadTools].map(fastMcpTool));
+    resultHint = text => loadTools.offToolsHint(text);
+    server.addTools([...allTools.filter(tool => groupsOf(tool.name).some(group => toolsets.has(group))), loadTools.tool].map(fastMcpTool));
   }
 
   // Register all resources

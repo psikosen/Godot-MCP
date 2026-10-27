@@ -25,9 +25,12 @@ describe('toolsets', () => {
   });
 
   it('puts a tool in its main group and every task group that lists it', () => {
-    expect(groupsOf('set_collision_layers')).toEqual(['physics', 'player_2d', 'player_3d', 'enemies']);
+    expect(groupsOf('set_collision_layers')).toEqual(['physics', 'player_2d', 'player_3d', 'enemies', 'gameplay']);
     expect(groupsOf('capture_scene_image')).toEqual(['testing', 'world_3d', 'lighting', 'vfx', 'inspect']);
     expect(groupsOf('list_audio_buses')).toEqual(['audio', 'inspect']);
+    expect(groupsOf('build_water_body_2d')).toEqual(['effects', 'water']);
+    expect(groupsOf('create_path')).toEqual(['scene', 'world_3d', 'procgen_3d', 'paths']);
+    expect(groupsOf('generate_topdown_dungeon_2d')).toEqual(['levelgen', 'tilemap_level', 'procgen_2d']);
     // Core tools are always on, so task groups never need them.
     expect(groupsOf('get_scene_tree')).toEqual(['core']);
   });

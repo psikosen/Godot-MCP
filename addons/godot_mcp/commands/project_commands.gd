@@ -509,7 +509,9 @@ func _list_input_actions(client_id: int, _params: Dictionary, command_id: String
 	for action_name in InputMap.get_actions():
 		var events := []
 		for event in InputMap.action_get_events(action_name):
-			events.append(_serialize_input_event(event))
+			var serialized: Dictionary = _serialize_input_event(event)
+			serialized["text"] = event.as_text()
+			events.append(serialized)
 
 		actions.append({
 			"name": action_name,
@@ -783,6 +785,13 @@ func _persist_input_action(action_name: String, save: bool = true) -> void:
 	if save:
 		ProjectSettings.save()
 
+# A Key value from a number or a key name ("Space", "A", "Left", "Escape").
+func _keycode_from(value) -> int:
+	if typeof(value) == TYPE_STRING:
+		return OS.find_keycode_from_string(value)
+	return int(value)
+
+
 func _deserialize_input_event(data: Dictionary) -> InputEvent:
 	var type_name: String = data.get("type", "")
 	type_name = type_name.strip_edges()
@@ -791,8 +800,8 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 		"inputeventkey", "key":
 			var key_event := InputEventKey.new()
 			key_event.device = data.get("device", -1)
-			key_event.keycode = data.get("keycode", 0)
-			key_event.physical_keycode = data.get("physical_keycode", 0)
+			key_event.keycode = _keycode_from(data.get("keycode", 0))
+			key_event.physical_keycode = _keycode_from(data.get("physical_keycode", 0))
 			key_event.unicode = data.get("unicode", 0)
 			key_event.pressed = data.get("pressed", true)
 			key_event.alt_pressed = data.get("alt_pressed", false)

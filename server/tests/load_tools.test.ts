@@ -96,12 +96,43 @@ describe('load_tools', () => {
     expect(loaded).toEqual(expect.arrayContaining(['configure_camera2d_follow', 'add_input_action', 'set_collision_layers', 'create_ragdoll']));
 
     const unloaded = await server.loadTools({ unload: ['player_2d'] });
-    expect(unloaded.result.content[0].text).toMatch(/^Turned off player_2d \(13 tools; /);
+    expect(unloaded.result.content[0].text).toMatch(/^Turned off player_2d \(14 tools; /);
     const left = (await server.listTools()).map(tool => tool.name);
     // set_collision_layers and fit_collision_shape are physics tools too, so they stay.
     expect(left).toEqual(expect.arrayContaining(['set_collision_layers', 'fit_collision_shape', 'create_ragdoll']));
     expect(left).not.toContain('configure_camera2d_follow');
     expect(left).not.toContain('add_input_action');
+  });
+
+  it('finds tools by what they do, and loads single tools by name', async () => {
+    const server = await startServer();
+    const found = (await server.loadTools({ find: 'ragdoll' })).result.content[0].text;
+    expect(found).toMatch(/- create_ragdoll \[physics, rigging\]: Make a 3D character fall like a ragdoll/);
+    // find only lists; nothing turns on.
+    expect((await server.listTools()).map(tool => tool.name)).not.toContain('create_ragdoll');
+
+    const loaded = (await server.loadTools({ tools: ['create_ragdoll'] })).result.content[0].text;
+    expect(loaded).toMatch(/^Turned on create_ragdoll\.\nOn: core, create_ragdoll\./);
+    const names = (await server.listTools()).map(tool => tool.name);
+    expect(names).toContain('create_ragdoll');
+    expect(names).not.toContain('configure_physics_body');
+    expect(names).toHaveLength(26);
+
+    await server.loadTools({ unload: ['create_ragdoll'] });
+    expect((await server.listTools()).map(tool => tool.name)).not.toContain('create_ragdoll');
+    expect((await server.loadTools({ tools: ['make_coffee'] })).result.content[0].text).toMatch(/^Unknown: make_coffee\./);
+  });
+
+  it('points at tools a result names that are not on yet', async () => {
+    const { loadToolsTool } = await import('../dist/tools/toolset_tools.js');
+    const fake = (name: string) => ({ name, description: '', parameters: null as any, execute: async () => '' });
+    const enabled = new Set(['core']);
+    const { tool, offToolsHint } = loadToolsTool([fake('create_tileset_2d'), fake('paint_tilemap_ascii'), fake('get_scene_tree')],
+      enabled, async () => undefined, async () => undefined);
+    const result = 'Saved TileSet. Then paint with paint_tilemap_ascii; check with get_scene_tree. my_var stays.';
+    expect(offToolsHint(result)).toBe('\n(Not on yet: paint_tilemap_ascii [2d, tilemap_level]. Turn on with load_tools.)');
+    await tool.execute({ groups: ['2d'] });
+    expect(offToolsHint(result)).toBe('');
   });
 
   it('starts with the groups GODOT_MCP_TOOLSETS names, and rejects unknown groups', async () => {
@@ -110,5 +141,19 @@ describe('load_tools', () => {
     expect((await server.loadTools({})).result.content[0].text).toMatch(/^On: core, 2d\. Off: scene, /);
     // Bad arguments are a JSON-RPC error (invalid params), not a tool result.
     expect((await server.loadTools({ groups: ['procedural'] })).error.message).toMatch(/groups/);
+  });
+});
+
+describe('listed schemas', () => {
+  it('lists tuples as arrays Claude Code accepts, without $schema', async () => {
+    const { withoutTuples } = await import('../dist/utils/listed_schema.js');
+    expect(withoutTuples({ type: 'array', minItems: 2, maxItems: 2, items: [{ type: 'number' }, { type: 'number' }], additionalItems: false }))
+      .toEqual({ type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' } });
+    expect(withoutTuples({ items: [{ type: 'string' }, { type: 'number' }] }))
+      .toEqual({ items: { anyOf: [{ type: 'string' }, { type: 'number' }] }, minItems: 2, maxItems: 2 });
+    const tools = await (await startServer('all')).listTools();
+    const listed = JSON.stringify(tools);
+    expect(listed).not.toMatch(/"items":\[/);
+    expect(listed).not.toContain('$schema');
   });
 });

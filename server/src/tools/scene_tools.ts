@@ -457,7 +457,7 @@ export const sceneTools: MCPTool[] = [
       
       try {
         const result = await godot.sendCommand<CommandResult>('create_scene', { path, root_node_type });
-        return `Created new scene at ${result.scene_path} with root node type ${result.root_node_type}. It is now the open scene; use open_scene to go back.`;
+        return `Created new scene at ${result.scene_path} with root node type ${result.root_node_type}. It is now the open scene; its root node is /root. Use open_scene to go back.`;
       } catch (error) {
         throw new Error(`Failed to create scene: ${(error as Error).message}`);
       }
@@ -501,7 +501,7 @@ export const sceneTools: MCPTool[] = [
       
       try {
         const result = await godot.sendCommand<CommandResult>('open_scene', { path });
-        return `Opened scene at ${result.scene_path}`;
+        return `Opened scene at ${result.scene_path}; its root node is /root`;
       } catch (error) {
         throw new Error(`Failed to open scene: ${(error as Error).message}`);
       }
@@ -521,7 +521,7 @@ export const sceneTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('get_current_scene', {});
         
-        return `Current scene: ${result.scene_path}\nRoot node: ${result.root_node_name} (${result.root_node_type})`;
+        return `Current scene: ${result.scene_path}\nRoot node: ${result.root_node_name} (${result.root_node_type}), path /root`;
       } catch (error) {
         throw new Error(`Failed to get current scene: ${(error as Error).message}`);
       }

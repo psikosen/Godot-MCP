@@ -275,6 +275,8 @@ func _replace_in_script(client_id: int, params: Dictionary, command_id: String) 
 # --- signal connections ---------------------------------------------------------------------
 
 func _list_signal_connections(client_id: int, params: Dictionary, command_id: String) -> void:
+	if str(params.get("node_path", "")).is_empty():
+		return _list_scene_connections(client_id, command_id)
 	var node_path := str(params.get("node_path", ""))
 	var node := _get_editor_node(node_path)
 	if not node:
@@ -296,6 +298,28 @@ func _list_signal_connections(client_id: int, params: Dictionary, command_id: St
 			incoming.append("%s.%s -> %s%s" % [_to_mcp_path(source), connection["signal"].get_name(),
 				connection["callable"].get_method(), _connection_flags(connection)])
 	_send_success(client_id, {"node_path": _to_mcp_path(node), "outgoing": outgoing, "incoming": incoming, "signals": signal_names}, command_id)
+
+
+# Every connection between nodes of the open scene, one line each ("/root/Button.pressed -> /root/Game._on_start").
+func _list_scene_connections(client_id: int, command_id: String) -> void:
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null:
+		return _send_error(client_id, "No scene is open", command_id)
+	var lines: Array = []
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		for info in node.get_signal_list():
+			for connection in node.get_signal_connection_list(info["name"]):
+				var target = connection["callable"].get_object()
+				# Only connections saved in the scene; the engine makes its own at runtime (Control::_size_changed).
+				if _in_edited_scene(target) and connection["flags"] & Object.CONNECT_PERSIST:
+					lines.append(_connection_line("%s.%s ->" % [_to_mcp_path(node), info["name"]], target, connection))
+		for child in node.get_children():
+			if child.owner == root or child == root:
+				stack.append(child)
+	lines.sort()
+	_send_success(client_id, {"connections": lines}, command_id)
 
 
 func _connection_line(prefix: String, target: Object, connection: Dictionary) -> String:

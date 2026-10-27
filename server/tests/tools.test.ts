@@ -1655,7 +1655,13 @@ const godotCommandCases: Array<{
     command: 'clear_gridmap_cells',
     args: { node_path: '/root/Grid', cells: [{ position: { x: 0, y: 0, z: 0 } }], transaction_id: 'txn' },
   },
-  { collection: projectTools, name: 'list_input_actions', command: 'list_input_actions', args: {} },
+  {
+    collection: projectTools,
+    name: 'list_input_actions',
+    command: 'list_input_actions',
+    args: {},
+    response: { actions: [{ name: 'ui_left', deadzone: 0.5, events: [{ text: 'Left' }] }] },
+  },
   { collection: projectTools, name: 'list_audio_buses', command: 'list_audio_buses', args: {} },
   {
     collection: projectTools,
@@ -2186,6 +2192,18 @@ describe('Godot MCP tool command wiring', () => {
       expect(mockSendCommand).toHaveBeenCalledWith(testCase.command, expect.anything());
     });
   }
+
+  it('lists project input actions one line each and hides built-in ones', async () => {
+    mockSendCommand.mockResolvedValueOnce({ actions: [
+      { name: 'ui_left', deadzone: 0.5, events: [{ text: 'Left' }] },
+      { name: 'spatial_editor/freelook_left', deadzone: 0.5, events: [{ text: 'A' }] },
+      { name: 'jump', deadzone: 0.200000002980232, events: [{ text: 'Space' }, { text: 'Joypad Button 0' }] },
+      { name: 'dash', deadzone: 0.5, events: [] },
+    ] });
+    const output = await getTool(projectTools, 'list_input_actions').execute({} as never);
+    expect(output).toBe('Input actions (2):\n- jump: Space, Joypad Button 0 (deadzone 0.2)\n- dash: no inputs\n' +
+      '2 built-in actions hidden; games can use ui_left, ui_right, ui_up, ui_down, ui_accept too (include_builtin lists them).');
+  });
 
   it('generates script templates locally without Godot access', async () => {
     const tool = getTool(scriptTools, 'create_script_template');

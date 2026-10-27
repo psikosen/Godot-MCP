@@ -82,6 +82,7 @@ import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 import { enabledToolsets, groupsOf } from './utils/toolsets.js';
 import { loadToolsTool } from './tools/toolset_tools.js';
+import { listedSchema } from './utils/listed_schema.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResourceTemplate, scriptListResource, scriptMetadataResourceTemplate } from './resources/script_resources.js';
@@ -99,7 +100,7 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var toolsets, server, SCENE_STATE_RESOURCE_URIS, fastMcpTool, allTools, connected_1, loadTools, cleanup, error_1;
+        var toolsets, server, SCENE_STATE_RESOURCE_URIS, resultHint, fastMcpTool, allTools, connected_1, loadTools_1, cleanup, error_1;
         var _this = this;
         return __generator(this, function (_a) {
             switch (_a.label) {
@@ -116,6 +117,7 @@ function main() {
                             (toolsets ? ' Only some tool groups are on: call load_tools first to turn on the groups your task needs.' : ''),
                     });
                     SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
+                    resultHint = function (_text) { return ''; };
                     fastMcpTool = function (tool) {
                         var _a, _b;
                         return (__assign(__assign({}, tool), { 
@@ -124,7 +126,7 @@ function main() {
                             // The listed schema already says additionalProperties:false; enforce it so a wrong argument
                             // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
                             // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
-                            parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters), execute: function (args) {
+                            parameters: listedSchema((tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters)), execute: function (args) {
                                 return __awaiter(this, void 0, void 0, function () {
                                     var output, _i, SCENE_STATE_RESOURCE_URIS_1, uri;
                                     var _a, _b;
@@ -143,7 +145,7 @@ function main() {
                                                         server.sendResourceUpdated(uri).catch(function () { return undefined; });
                                                     }
                                                 }
-                                                return [2 /*return*/, output];
+                                                return [2 /*return*/, typeof output === 'string' && tool.name !== 'load_tools' ? output + resultHint(output) : output];
                                         }
                                     });
                                 });
@@ -155,7 +157,7 @@ function main() {
                     }
                     else {
                         connected_1 = new Promise(function (resolve) { return server.on('connect', function () { return setImmediate(resolve); }); });
-                        loadTools = loadToolsTool(allTools, toolsets, function (tools) { return __awaiter(_this, void 0, void 0, function () { return __generator(this, function (_a) {
+                        loadTools_1 = loadToolsTool(allTools, toolsets, function (tools) { return __awaiter(_this, void 0, void 0, function () { return __generator(this, function (_a) {
                             switch (_a.label) {
                                 case 0: return [4 /*yield*/, connected_1];
                                 case 1:
@@ -172,7 +174,8 @@ function main() {
                                     return [2 /*return*/];
                             }
                         }); }); });
-                        server.addTools(__spreadArray(__spreadArray([], allTools.filter(function (tool) { return groupsOf(tool.name).some(function (group) { return toolsets.has(group); }); }), true), [loadTools], false).map(fastMcpTool));
+                        resultHint = function (text) { return loadTools_1.offToolsHint(text); };
+                        server.addTools(__spreadArray(__spreadArray([], allTools.filter(function (tool) { return groupsOf(tool.name).some(function (group) { return toolsets.has(group); }); }), true), [loadTools_1.tool], false).map(fastMcpTool));
                     }
                     // Register all resources
                     // Static resources

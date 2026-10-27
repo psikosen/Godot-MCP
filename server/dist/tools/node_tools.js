@@ -698,13 +698,15 @@ export var nodeTools = [
     },
     {
         name: 'batch_create_nodes',
-        description: 'Create multiple child nodes in one undo-aware operation',
+        description: 'Create many child nodes, or copies of a scene (scene_path), in one undo-aware operation',
         parameters: z.object({
             parent_path: z.string().optional()
                 .describe('Parent node path where all nodes should be created (defaults to "/root")'),
             nodes: z.array(z.object({
-                node_type: z.string()
+                node_type: z.string().optional()
                     .describe('Godot node type such as Node2D, Node3D, Label, etc.'),
+                scene_path: z.string().optional()
+                    .describe('Instead of node_type: a copy of this .tscn, e.g. 30 trees with their own positions'),
                 node_name: z.string().optional()
                     .describe('Optional preferred node name; the server will resolve conflicts.'),
                 properties: z.record(z.any()).optional()

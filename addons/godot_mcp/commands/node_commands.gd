@@ -1100,6 +1100,7 @@ func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String)
 	var reserved_names := _collect_child_name_set(parent)
 	var pending_nodes: Array = []
 	var created_nodes: Array = []
+	var packed_scenes := {}
 
 	for index in range(node_entries.size()):
 		var entry_raw = node_entries[index]
@@ -1108,17 +1109,31 @@ func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String)
 
 		var entry: Dictionary = entry_raw
 		var node_type: String = str(entry.get("node_type", "")).strip_edges()
+		var scene_path: String = str(entry.get("scene_path", "")).strip_edges()
 		var requested_name: String = str(entry.get("node_name", "")).strip_edges()
 		var properties_param = entry.get("properties", {})
 
-		if node_type.is_empty():
-			return _send_error(client_id, "nodes[%d].node_type is required" % index, command_id)
-		if not ClassDB.class_exists(node_type):
-			return _send_error(client_id, "Invalid node type at nodes[%d]: %s" % [index, node_type], command_id)
-		if not ClassDB.can_instantiate(node_type):
-			return _send_error(client_id, "Cannot instantiate node type at nodes[%d]: %s" % [index, node_type], command_id)
-
-		var new_node = ClassDB.instantiate(node_type)
+		var new_node = null
+		if not scene_path.is_empty():
+			# Copies of a scene (trees, coins, enemies) in one call; one instantiate_scene each took a turn per copy.
+			if not packed_scenes.has(scene_path):
+				packed_scenes[scene_path] = ResourceLoader.load(scene_path, "PackedScene")
+			if not packed_scenes[scene_path] is PackedScene:
+				return _send_error(client_id, "nodes[%d]: no scene at %s" % [index, scene_path], command_id)
+			new_node = packed_scenes[scene_path].instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+			if new_node == null:
+				return _send_error(client_id, "nodes[%d]: could not instantiate %s" % [index, scene_path], command_id)
+			node_type = new_node.get_class()
+			if requested_name.is_empty():
+				requested_name = scene_path.get_file().get_basename().to_pascal_case()
+		else:
+			if node_type.is_empty():
+				return _send_error(client_id, "nodes[%d] needs node_type or scene_path" % index, command_id)
+			if not ClassDB.class_exists(node_type):
+				return _send_error(client_id, "Invalid node type at nodes[%d]: %s" % [index, node_type], command_id)
+			if not ClassDB.can_instantiate(node_type):
+				return _send_error(client_id, "Cannot instantiate node type at nodes[%d]: %s" % [index, node_type], command_id)
+			new_node = ClassDB.instantiate(node_type)
 		if not new_node or not (new_node is Node):
 			return _send_error(client_id, "Failed to instantiate node type at nodes[%d]: %s" % [index, node_type], command_id)
 
@@ -16869,6 +16884,34 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 		response["status"] = "pending"
 		_send_success(client_id, response, command_id)
 
+func _update_sub_resource_property(client_id: int, node: Node, node_path: String, property_path: String, value, transaction_id: String, command_id: String) -> void:
+	var names := property_path.split(":")
+	var owner_object: Object = node
+	for index in range(names.size() - 1):
+		if not names[index] in owner_object:
+			return _send_error(client_id, "%s has no property %s (in %s)" % [owner_object.get_class(), names[index], property_path], command_id)
+		owner_object = owner_object.get(names[index])
+		if not owner_object is Resource:
+			return _send_error(client_id, "%s is empty or not a resource (in %s); set it first" % [names[index], property_path], command_id)
+	var leaf: String = names[names.size() - 1]
+	if not leaf in owner_object:
+		return _send_error(client_id, "%s has no property %s (in %s)" % [owner_object.get_class(), leaf, property_path], command_id)
+	var parsed = _convert_property_value(owner_object, leaf, value)
+	var value_error := _property_value_error(owner_object, leaf, parsed)
+	if not value_error.is_empty():
+		return _send_error(client_id, value_error, command_id)
+	var previous = owner_object.get(leaf)
+	var transaction = _transaction("Update Node Property", transaction_id, {"command": "update_node_property", "node_path": node_path, "property": property_path})
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction for property update", command_id)
+	transaction.add_do_method(owner_object, "set", [leaf, parsed])
+	transaction.add_undo_method(owner_object, "set", [leaf, previous])
+	transaction.register_on_commit(func(): _mark_scene_modified())
+	_finish_transaction(client_id, command_id, transaction, transaction_id, {
+		"node_path": node_path, "property_path": property_path, "new_value": var_to_str(parsed), "previous_value": var_to_str(previous),
+	})
+
+
 func _update_node_property(client_id: int, params: Dictionary, command_id: String) -> void:
 		var node_path = params.get("node_path", "")
 		var property_name: String = params.get("property", "")
@@ -16891,6 +16934,11 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 		var node = _get_editor_node(node_path)
 		if not node:
 				return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+
+		# "environment:sky:sky_material:sky_horizon_color": a property of a sub-resource, in Godot's own
+		# property path form (Object.get_indexed). AIs reach for it; it was refused before.
+		if ":" in property_name:
+				return _update_sub_resource_property(client_id, node, node_path, property_name, property_value, transaction_id, command_id)
 
 		var property_segments: PackedStringArray = property_name.split(".")
 		var base_property_name: String = property_segments[0]

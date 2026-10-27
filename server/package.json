@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --exec \"tsc && node dist/index.js\"",
     "test": "npm run build && vitest run",
-    "approve": "node dist/approve.js"
+    "approve": "node dist/approve.js",
+    "eval:agents": "npm run build && node eval/agent_eval.mjs"
   },
   "keywords": [
     "godot",
@@ -26,7 +27,8 @@
     "fastmcp": "^4.23.7",
     "websocket": "^1.0.35",
     "ws": "^8.13.0",
-    "zod": "^3.21.4"
+    "zod": "^3.21.4",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@types/diff": "^5.2.3",

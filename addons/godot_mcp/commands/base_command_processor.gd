@@ -83,6 +83,13 @@ func _get_editor_node(path: String) -> Node:
 	var found: Node = edited_scene_root.get_node_or_null(path)
 	if found == null:
 		found = MCPSceneTransactionManager.find_pending_node("/root/" + path.trim_suffix("/"))
+	# In a running game the scene root sits under /root ("/root/Level/Player"), and AIs write paths
+	# that way; here /root is the scene root itself, so accept that form too.
+	var root_name := String(edited_scene_root.name)
+	if found == null and path == root_name:
+		return edited_scene_root
+	if found == null and path.begins_with(root_name + "/"):
+		return _get_editor_node("/root/" + path.substr(root_name.length() + 1))
 	return found
 
 

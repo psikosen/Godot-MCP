@@ -185,12 +185,12 @@ export var workflowTools = [
     },
     {
         name: 'list_signal_connections',
-        description: 'List a node\'s signal connections in the open scene (outgoing and incoming) and its signal names.',
+        description: 'List signal connections in the open scene: every one, or one node\'s (outgoing, incoming and its signal names).',
         parameters: z.object({
-            node_path: z.string().describe('e.g. "/root/Player"'),
+            node_path: z.string().optional().describe('e.g. "/root/Player"; leave out for every connection in the scene'),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, out, inc, error_4;
+            var r, lines, out, inc, error_4;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -198,6 +198,10 @@ export var workflowTools = [
                         return [4 /*yield*/, send('list_signal_connections', args)];
                     case 1:
                         r = _a.sent();
+                        if (r.connections) {
+                            lines = r.connections;
+                            return [2 /*return*/, lines.length ? "Signal connections in the scene (".concat(lines.length, "):\n  ").concat(lines.join('\n  ')) : 'No signal connections in the scene.'];
+                        }
                         out = r.outgoing;
                         inc = r.incoming;
                         return [2 /*return*/, [
