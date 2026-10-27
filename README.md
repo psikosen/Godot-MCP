@@ -165,7 +165,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `set_control_layout` - UI anchor presets (full_rect, center, top_right, ...), margin, size, size flags (undo-aware)
 - `create_inherited_scene` - New scene inheriting another (Godot's "New Inherited Scene")
 - `save_branch_as_scene` - Godot's "Save Branch as Scene": the branch becomes its own scene and an instance takes its place, keeping its connections
-- `capture_scene_image` - PNG picture of the open scene (needs the editor window, not `--headless`)
+- `capture_scene_image` - PNG picture of the open scene, unsaved changes included (needs the editor window, not `--headless`); `particles_time` restarts particles and waits, to catch a burst mid-effect
 - `export_project` - Export for macOS, Windows, Linux or Web with the installed export templates (admin; creates a preset if needed)
 - `get_script_outline` - A script's extends, signals, exports, vars, consts, enums and funcs with line numbers
 - `move_project_file` - Move or rename a file with its `.import`/`.uid` and rewrite references to it
@@ -228,6 +228,10 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `configure_texture_import` - Image import presets (pixel_art, ui, 3d, normal_map), compression, mipmaps, size limit
 - `create_audio_randomizer` - AudioStreamRandomizer from several sounds with pitch and volume variation
 - `generate_placeholder_art` - Antialiased PNG sprites for prototypes: shapes, coin, star, heart, crate, beveled tile, character with eyes
+
+#### VFX
+- `build_vfx_effect` - One-call layered effect: explosion, hit_impact, muzzle_flash, magic_burst, fire or sparks. Each is a hot core flash, sparks (sub-emitters where they fit), smoke, a short light pop and optional camera shake, in 3D or 2D, tinted by `color`, sized by `scale` and aimed by `direction` (a surface normal or gun barrel). A small built-in script plays it when the game runs; `play()` fires it again. Godot's Compatibility renderer draws no sub-emitters, so there the tool leaves them out and says so (undo-aware)
+- `configure_particles_3d` - Tune a GPUParticles3D in one undo step: playback and motion, color/scale/alpha over life, turbulence, a sub-emitter (constant, at_end, at_collision, at_start), collision, and the drawn particle: a texture or flipbook sprite sheet on a camera-facing quad, streaks stretched along the motion, or sphere/box/prism chunks
 
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
@@ -348,9 +352,9 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 68k for all 261 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `unload` turns groups or tools off again. `load_tools` with no arguments shows what is on.
+- Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 69k for all 262 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `unload` turns groups or tools off again. `load_tools` with no arguments shows what is on.
   - This saves the most in clients that load every tool schema up front: in tests, a 2D player cost $0.14 instead of $0.59. Claude Code's own tool search already hides MCP tools until the AI looks for them, so there both starts cost about the same (four tasks: $0.35 small start, $0.38 every tool).
-  - **Task groups** hold just what one job needs, across areas, so they cost less than whole areas. A tool can be in several; it stays on while any loaded group has it: `player_2d`, `player_3d`, `enemies`, `tilemap_level`, `gameplay` (pickups, signals, groups, score HUD, sounds), `art` (import or make art), `procgen_2d`, `procgen_3d`, `water`, `paths` (splines and followers), `world_3d`, `rigging`, `lighting`, `vfx`, `release`, `refactor`, `inspect` (read-only tools).
+  - **Task groups** hold just what one job needs, across areas, so they cost less than whole areas. A tool can be in several; it stays on while any loaded group has it: `player_2d`, `player_3d`, `enemies`, `tilemap_level`, `gameplay` (pickups, signals, groups, score HUD, sounds), `art` (import or make art), `procgen_2d`, `procgen_3d`, `water`, `paths` (splines and followers), `world_3d`, `rigging`, `lighting`, `vfx` (one-call explosions, fire, hits and magic; particles; shaders; shake), `release`, `refactor`, `inspect` (read-only tools).
   - **Feature groups** hold every tool for one area: `scene`, `scripting`, `project`, `testing`, `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `assets`, `levelgen`, `effects`, `space`, `xr`, `multiplayer`. The largest is about 7.3k tokens.
   - For a need no group covers, `load_tools` with `find` (e.g. `"ragdoll"`) lists matching tools and their groups, and `tools` turns on single tools by name.
   - `GODOT_MCP_TOOLSETS` picks the groups that are on at start, for example `player_2d,tilemap_level`. Set it to `all` for every tool at start, which you need for clients that ignore `tools/list_changed`.

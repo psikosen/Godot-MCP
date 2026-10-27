@@ -3926,7 +3926,7 @@ export var nodeTools = [
     },
     {
         name: 'configure_particles_3d',
-        description: 'Configure GPUParticles3D node playback and particle process material properties for gameplay VFX tuning',
+        description: 'Tune a GPUParticles3D in one undo step: playback, motion, over-life color/scale/alpha, turbulence, sub-emitter, collision, and the drawn particle (texture, flipbook sheet or solid shape).',
         parameters: z.object({
             node_path: z.string()
                 .describe('Path to the GPUParticles3D node'),
@@ -3972,29 +3972,59 @@ export var nodeTools = [
             emission_shape: z.number().int().optional(),
             emission_box_extents: vector3ParamSchema.optional(),
             color_ramp_path: z.string().optional(),
+            emission_sphere_radius: z.number().nonnegative().optional().describe('With emission_shape 1 (sphere)'),
+            color_ramp: z.array(z.any()).max(16).optional().describe('Colors over life, e.g. ["#ffffff", "#ff8000", "#40000000"]; [] clears'),
+            scale_curve: z.array(z.union([z.number().nonnegative(), z.array(z.number().nonnegative()).length(2)])).max(32).optional()
+                .describe('Scale over life: values spread evenly ([0.3, 1, 0]) or [life, value] pairs; [] clears'),
+            alpha_curve: z.array(z.union([z.number().nonnegative(), z.array(z.number().nonnegative()).length(2)])).max(32).optional()
+                .describe('Alpha over life, same form as scale_curve'),
+            turbulence_enabled: z.boolean().optional().describe('Implied by the other turbulence_ options'),
+            turbulence_strength: z.number().min(0).max(20).optional(),
+            turbulence_scale: z.number().min(0).max(10).optional(),
+            turbulence_influence: z.number().min(0).max(1).optional(),
+            sub_emitter_path: z.string().optional().describe('Another GPUParticles3D these particles spawn; "" clears'),
+            sub_emitter_mode: z.enum(['disabled', 'constant', 'at_end', 'at_collision', 'at_start']).optional(),
+            sub_emitter_amount: z.number().int().min(1).optional().describe('Per particle for at_end, at_collision, at_start'),
+            sub_emitter_frequency: z.number().positive().optional().describe('Per second for constant'),
+            sub_emitter_keep_velocity: z.boolean().optional(),
+            collision_mode: z.enum(['disabled', 'rigid', 'hide_on_contact']).optional().describe('Hits GPUParticlesCollision3D nodes'),
+            collision_bounce: z.number().min(0).max(1).optional(),
+            collision_friction: z.number().min(0).max(1).optional(),
+            texture_path: z.string().optional().describe('Texture on a camera-facing quad (a sprite sheet with flipbook_ frames)'),
+            mesh_shape: z.enum(['quad', 'sphere', 'box', 'prism']).optional().describe('Default quad; shapes for debris'),
+            particle_size: z.union([z.number().positive(), vector2ParamSchema]).optional().describe('Meters; {x: 0.05, y: 0.5} with align_to_velocity for spark streaks'),
+            blend_mode: z.enum(['mix', 'add']).optional().describe('add for glows, fire, sparks'),
+            align_to_velocity: z.boolean().optional().describe('Stretch the quad along its motion'),
+            flipbook_h_frames: z.number().int().min(1).max(64).optional(),
+            flipbook_v_frames: z.number().int().min(1).max(64).optional(),
+            flipbook_speed: z.number().min(0).optional().describe('Sheet plays per life (default 1)'),
+            flipbook_loop: z.boolean().optional(),
+            flipbook_random_start: z.boolean().optional(),
             profile_name: z.string().optional(),
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var godot, result, status_68, amount, lifetime, emitting, error_73;
-            var _a, _b, _c, _d;
-            return __generator(this, function (_e) {
-                switch (_e.label) {
+            var godot, result, status_68, amount, lifetime, emitting, notes, error_73;
+            var _a, _b, _c, _d, _e;
+            return __generator(this, function (_f) {
+                switch (_f.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _e.label = 1;
+                        _f.label = 1;
                     case 1:
-                        _e.trys.push([1, 3, , 4]);
+                        _f.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('configure_particles_3d', args)];
                     case 2:
-                        result = _e.sent();
+                        result = _f.sent();
                         status_68 = (_a = result.status) !== null && _a !== void 0 ? _a : 'committed';
                         amount = Number((_b = result.amount) !== null && _b !== void 0 ? _b : 0);
                         lifetime = Number((_c = result.lifetime) !== null && _c !== void 0 ? _c : 0);
                         emitting = Boolean((_d = result.emitting) !== null && _d !== void 0 ? _d : false);
-                        return [2 /*return*/, "Configured GPUParticles3D ".concat(args.node_path, " amount=").concat(amount, " lifetime=").concat(lifetime.toFixed(2), " emitting=").concat(emitting, " [").concat(status_68, "]")];
+                        notes = (_e = result.notes) !== null && _e !== void 0 ? _e : [];
+                        return [2 /*return*/, "Configured GPUParticles3D ".concat(args.node_path, " amount=").concat(amount, " lifetime=").concat(lifetime.toFixed(2), " emitting=").concat(emitting, " [").concat(status_68, "]")
+                                + notes.map(function (note) { return "\nNote: ".concat(note); }).join('')];
                     case 3:
-                        error_73 = _e.sent();
+                        error_73 = _f.sent();
                         throw new Error("Failed to configure particles 3D: ".concat(error_73.message));
                     case 4: return [2 /*return*/];
                 }
