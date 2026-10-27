@@ -108,26 +108,51 @@ export function listedSchema(schema) {
             // AIs call a tool they only know by name with {} (most eval errors were these); the error then
             // lists the parameters, so the retry is right without first loading the tool's schema.
             validate: function (value) { return __awaiter(_this, void 0, void 0, function () {
-                var result;
+                var named, result, retry;
                 var _a, _b;
                 return __generator(this, function (_c) {
                     switch (_c.label) {
-                        case 0: return [4 /*yield*/, standard.validate(withShortNames(value, Object.keys(((_a = json.properties) !== null && _a !== void 0 ? _a : {})), (_b = json.required) !== null && _b !== void 0 ? _b : []))];
+                        case 0:
+                            named = withShortNames(value, Object.keys(((_a = json.properties) !== null && _a !== void 0 ? _a : {})), (_b = json.required) !== null && _b !== void 0 ? _b : []);
+                            return [4 /*yield*/, standard.validate(named)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, result.issues && usage
-                                    ? { issues: __spreadArray(__spreadArray([], result.issues, true), [{ message: "this tool takes ".concat(usage, " (* = required)"), path: ['usage'] }], false) }
-                                    : result];
+                            if (!result.issues) return [3 /*break*/, 3];
+                            return [4 /*yield*/, standard.validate(withoutNulls(named))];
+                        case 2:
+                            retry = _c.sent();
+                            if (!retry.issues)
+                                result = retry;
+                            _c.label = 3;
+                        case 3: return [2 /*return*/, result.issues && usage
+                                ? { issues: __spreadArray(__spreadArray([], result.issues, true), [{ message: "this tool takes ".concat(usage, " (* = required)"), path: ['usage'] }], false) }
+                                : result];
                     }
                 });
             }); } }),
     };
 }
+/** Object keys whose value is null, removed at every depth (array items are kept as they are). */
+export function withoutNulls(value) {
+    if (Array.isArray(value))
+        return value.map(withoutNulls);
+    if (!value || typeof value !== 'object')
+        return value;
+    return Object.fromEntries(Object.entries(value).filter(function (_a) {
+        var item = _a[1];
+        return item !== null;
+    }).map(function (_a) {
+        var key = _a[0], item = _a[1];
+        return [key, withoutNulls(item)];
+    }));
+}
+// Other words AIs use for a parameter: edit_script and replace_in_script take find, not search.
+var SYNONYMS = { search: 'find' };
 /**
  * Renames short parameter names AIs often use to the one parameter they can mean: path -> script_path,
- * type -> node_type, name -> node_name, group -> group_name, property_name -> property. Only when one parameter that is not
- * given fits, or one required one among several; longer names (node_path for path) are left alone, as
- * their prefix may mean something else.
+ * type -> node_type, name -> node_name, group -> group_name, property_name -> property, search -> find.
+ * Only when one parameter that is not given fits, or one required one among several; longer names
+ * (node_path for path) are left alone, as their prefix may mean something else.
  */
 export function withShortNames(value, keys, required) {
     if (required === void 0) { required = []; }
@@ -137,7 +162,7 @@ export function withShortNames(value, keys, required) {
     var _loop_1 = function (given) {
         if (keys.includes(given))
             return "continue";
-        var fits = keys.filter(function (key) { return !(key in out) && (key.endsWith("_".concat(given)) || given === "".concat(key, "_name") || key === "".concat(given, "_name")); });
+        var fits = keys.filter(function (key) { return !(key in out) && (key.endsWith("_".concat(given)) || given === "".concat(key, "_name") || key === "".concat(given, "_name") || SYNONYMS[given] === key); });
         if (fits.length > 1)
             fits = fits.filter(function (key) { return required.includes(key); });
         if (fits.length !== 1)

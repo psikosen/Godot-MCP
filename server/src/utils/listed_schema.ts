@@ -39,7 +39,14 @@ export function listedSchema<T>(schema: z.ZodType<T>): z.ZodType<T> {
       // AIs call a tool they only know by name with {} (most eval errors were these); the error then
       // lists the parameters, so the retry is right without first loading the tool's schema.
       validate: async (value: unknown) => {
-        const result = await standard.validate(withShortNames(value, Object.keys((json.properties ?? {}) as object), (json.required as string[] | undefined) ?? []));
+        const named = withShortNames(value, Object.keys((json.properties ?? {}) as object), (json.required as string[] | undefined) ?? []);
+        let result = await standard.validate(named);
+        // AIs send null for a parameter they mean to leave out ({target_path: null}); when that fails,
+        // the call is tried again without its nulls. Nulls a schema accepts are kept.
+        if (result.issues) {
+          const retry = await standard.validate(withoutNulls(named));
+          if (!retry.issues) result = retry;
+        }
         return result.issues && usage
           ? { issues: [...result.issues, { message: `this tool takes ${usage} (* = required)`, path: ['usage'] }] }
           : result;
@@ -50,18 +57,28 @@ export function listedSchema<T>(schema: z.ZodType<T>): z.ZodType<T> {
 
 type JsonSchema = Record<string, unknown>;
 
+/** Object keys whose value is null, removed at every depth (array items are kept as they are). */
+export function withoutNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutNulls);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null).map(([key, item]) => [key, withoutNulls(item)]));
+}
+
+// Other words AIs use for a parameter: edit_script and replace_in_script take find, not search.
+const SYNONYMS: Record<string, string> = { search: 'find' };
+
 /**
  * Renames short parameter names AIs often use to the one parameter they can mean: path -> script_path,
- * type -> node_type, name -> node_name, group -> group_name, property_name -> property. Only when one parameter that is not
- * given fits, or one required one among several; longer names (node_path for path) are left alone, as
- * their prefix may mean something else.
+ * type -> node_type, name -> node_name, group -> group_name, property_name -> property, search -> find.
+ * Only when one parameter that is not given fits, or one required one among several; longer names
+ * (node_path for path) are left alone, as their prefix may mean something else.
  */
 export function withShortNames(value: unknown, keys: string[], required: string[] = []): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
   const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
   for (const given of Object.keys(out)) {
     if (keys.includes(given)) continue;
-    let fits = keys.filter(key => !(key in out) && (key.endsWith(`_${given}`) || given === `${key}_name` || key === `${given}_name`));
+    let fits = keys.filter(key => !(key in out) && (key.endsWith(`_${given}`) || given === `${key}_name` || key === `${given}_name` || SYNONYMS[given] === key));
     if (fits.length > 1) fits = fits.filter(key => required.includes(key));
     if (fits.length !== 1) continue;
     out[fits[0]] = out[given];

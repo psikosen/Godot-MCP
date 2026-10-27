@@ -13,11 +13,13 @@ export declare function withoutTuples(node: unknown): unknown;
  */
 export declare function listedSchema<T>(schema: z.ZodType<T>): z.ZodType<T>;
 type JsonSchema = Record<string, unknown>;
+/** Object keys whose value is null, removed at every depth (array items are kept as they are). */
+export declare function withoutNulls(value: unknown): unknown;
 /**
  * Renames short parameter names AIs often use to the one parameter they can mean: path -> script_path,
- * type -> node_type, name -> node_name, group -> group_name, property_name -> property. Only when one parameter that is not
- * given fits, or one required one among several; longer names (node_path for path) are left alone, as
- * their prefix may mean something else.
+ * type -> node_type, name -> node_name, group -> group_name, property_name -> property, search -> find.
+ * Only when one parameter that is not given fits, or one required one among several; longer names
+ * (node_path for path) are left alone, as their prefix may mean something else.
  */
 export declare function withShortNames(value: unknown, keys: string[], required?: string[]): unknown;
 /** "a* string, mode on|off, size {x,y}|number[2]" from an object schema's properties. */
