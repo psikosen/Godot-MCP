@@ -336,6 +336,9 @@ func _undo_redo(client_id: int, params: Dictionary, command_id: String) -> void:
 	var steps := int(params.get("steps", 1))
 	if steps < 1 or steps > MAX_UNDO_STEPS:
 		return _send_error(client_id, "steps must be 1 to %d" % MAX_UNDO_STEPS, command_id)
+	# Godot 4.4 has no EditorSettings.get_shortcut, so the menu entry cannot be found there.
+	if not EditorInterface.get_editor_settings().has_method("get_shortcut"):
+		return _send_error(client_id, "undo_redo needs a newer Godot than %s" % _godot_version(), command_id)
 	var item := _main_menu_item("ui_" + action)
 	if item.is_empty():
 		return _send_error(client_id, "Could not find the editor's %s menu entry" % action.capitalize(), command_id)
@@ -372,7 +375,7 @@ func _main_menu_item(shortcut_name: String) -> Dictionary:
 	var cached: Dictionary = _menu_cache.get(shortcut_name, {})
 	if not cached.is_empty() and is_instance_valid(cached["popup"]):
 		return cached
-	var shortcut := EditorInterface.get_editor_settings().get_shortcut(shortcut_name)
+	var shortcut: Shortcut = EditorInterface.get_editor_settings().call("get_shortcut", shortcut_name)
 	if shortcut == null:
 		return {}
 	var stack: Array = [EditorInterface.get_base_control()]
