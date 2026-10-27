@@ -2328,6 +2328,18 @@ describe('Godot MCP tool command wiring', () => {
     mockSendCommand.mockImplementation(async () => ({}));
   });
 
+  it('edit_script with find + replace changes one piece instead of the whole file', async () => {
+    const tool = getTool(scriptTools, 'edit_script');
+    mockSendCommand.mockClear();
+    mockSendCommand.mockImplementation(async () => ({ replacements: 1, script_path: 'res://p.gd' }));
+    const output = await tool.execute({ script_path: 'res://p.gd', find: 'speed = 100', replace: 'speed = 200' });
+
+    expect(mockSendCommand).toHaveBeenCalledWith('replace_in_script', { script_path: 'res://p.gd', find: 'speed = 100', replace: 'speed = 200', replace_all: undefined });
+    expect(output).toBe('Replaced 1 occurrence(s) in res://p.gd');
+    await expect(tool.execute({ script_path: 'res://p.gd' })).rejects.toThrow('pass content (the whole file) or find + replace');
+    mockSendCommand.mockImplementation(async () => ({}));
+  });
+
   it('sends overwrite=false for create_script unless asked to overwrite', async () => {
     const tool = getTool(scriptTools, 'create_script');
     const base = { script_path: 'res://scripts/example.gd', content: 'extends Node' };

@@ -577,6 +577,10 @@ func _coerce_value_to_type(value, value_type: int, property_class_name: String =
 				return resource if resource != null else value
 			# A new built-in resource: "BoxMesh", or {"type": "BoxMesh", "size": [2, 1, 2]}.
 			var spec = {"type": value} if typeof(value) == TYPE_STRING else value
+			# {"sky_material": {...}} for a Sky property: the property's own class is the type when it can be made.
+			if spec is Dictionary and not spec.has("type") and not spec.is_empty() and ClassDB.class_exists(property_class_name) and ClassDB.can_instantiate(property_class_name):
+				spec = spec.duplicate()
+				spec["type"] = property_class_name
 			if spec is Dictionary and spec.has("type"):
 				var built = _new_resource(spec, property_class_name)
 				return built if built != null else value

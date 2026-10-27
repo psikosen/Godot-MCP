@@ -169,6 +169,7 @@ describe('listed schemas', () => {
     expect(withShortNames({ path: 'res://a.gd', content: '' }, ['script_path', 'content'])).toEqual({ script_path: 'res://a.gd', content: '' });
     expect(withShortNames({ type: 'Node', name: 'A' }, ['node_type', 'node_name'])).toEqual({ node_type: 'Node', node_name: 'A' });
     expect(withShortNames({ property_name: 'x' }, ['property'])).toEqual({ property: 'x' });
+    expect(withShortNames({ node_path: '/root/A', group: 'coins' }, ['node_path', 'group_name', 'persistent'])).toEqual({ node_path: '/root/A', group_name: 'coins' });
     expect(withShortNames({ path: 'x' }, ['script_path', 'scene_path'])).toEqual({ path: 'x' }); // two fit: left alone
     expect(withShortNames({ path: 'x' }, ['script_path', 'node_path'], ['script_path'])).toEqual({ script_path: 'x' }); // the required one
     expect(withShortNames({ node_path: 'x' }, ['path'])).toEqual({ node_path: 'x' }); // longer names are not shortened

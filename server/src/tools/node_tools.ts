@@ -1750,7 +1750,7 @@ export const nodeTools: MCPTool[] = [
 
   {
     name: 'update_node_property',
-    description: 'Set one property on one node. For several nodes or properties in one call use batch_update_nodes.',
+    description: 'Set one property on one node (batch_update_nodes sets many).',
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to update (e.g. "/root/MainScene/Player")'),
@@ -1785,10 +1785,10 @@ export const nodeTools: MCPTool[] = [
 
   {
     name: 'get_node_properties',
-    description: 'Get properties of one node or several (node_path as a list). Pass properties (names) or changed_only to keep the reply short; a full dump is 60-150 entries.',
+    description: 'Get properties of one node or several. Pass properties (names) or changed_only to keep the reply short; a full dump is 60-150 entries.',
     parameters: z.object({
       node_path: z.union([z.string(), z.array(z.string()).min(1).max(50)])
-        .describe('Node to inspect (e.g. "/root/Player"), or a list of nodes to read in one call'),
+        .describe('Node (e.g. "/root/Player") or a list of nodes'),
       properties: z.array(z.string()).max(200).optional()
         .describe('Only these properties, e.g. ["position", "modulate", "position.x"]'),
       changed_only: z.boolean().optional()
@@ -2274,7 +2274,7 @@ export const nodeTools: MCPTool[] = [
     description: 'Assign a script resource to a node, or to several nodes (node_path as a list), with undo support',
     parameters: z.object({
       node_path: z.union([z.string(), z.array(z.string()).min(1).max(100)])
-        .describe('Node to receive the script, or a list of nodes that share it'),
+        .describe('Node, or a list of nodes'),
       script_path: z.string()
         .describe('Script resource path in the project (res://...)'),
       create_script: z.boolean().optional()

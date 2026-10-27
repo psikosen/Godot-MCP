@@ -231,7 +231,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
-- `edit_script` - Replace the contents of an existing `.gd` script file
+- `edit_script` - Replace the contents of an existing `.gd` script file, or change one exact piece with `find` + `replace`
 - `get_script` - Fetch a script by file path or by attached node
 - `create_script_template` - Generate a GDScript skeleton with common callbacks
 
@@ -359,8 +359,8 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 - `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults), and a list of nodes in `node_path` to read them all in one call. `set_node_script` also takes a list, to put one script on many nodes.
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`. `batch_create_nodes` also places many copies of a scene at once (`scene_path` instead of `node_type`), e.g. 30 trees in one call.
 - Node paths start at `/root`, the open scene's root. The running-game form with the root's name (`/root/Level/Player`) works too.
-- A call with missing or wrong parameters gets the tool's parameter list back in the error, so the AI can retry without loading the schema. Short names AIs often use are read as the one parameter they fit: `path` for `script_path`, `type` and `name` for `node_type` and `node_name`, `property_name` for `property`.
-- Property values also take Godot text (`"Vector3(1, 2, 3)"`, even quoted twice), `"null"` to clear a resource or script, and polygons as a flat number list (`[x1, y1, x2, y2, ...]`).
+- A call with missing or wrong parameters gets the tool's parameter list back in the error, so the AI can retry without loading the schema. Short names AIs often use are read as the one parameter they fit: `path` for `script_path`, `type` and `name` for `node_type` and `node_name`, `group` for `group_name`, `property_name` for `property`.
+- Property values also take Godot text (`"Vector3(1, 2, 3)"`, even quoted twice), `"null"` to clear a resource or script, a resource as its properties alone when the property's type can be made (`"sky": {"sky_material": {...}}`), and polygons as a flat number list (`[x1, y1, x2, y2, ...]`).
 - `update_node_property` reaches into sub-resources with Godot's property paths: `"environment:sky:sky_material:sky_horizon_color"`.
 - `list_input_actions` lists the project's own actions, one line each; input events take key names (`"keycode": "Space"`).
 - `list_signal_connections` without `node_path` lists every connection saved in the scene.
