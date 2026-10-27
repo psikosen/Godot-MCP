@@ -160,8 +160,8 @@ export var workflowTools = [
         description: 'Replace an exact piece of text in a .gd or .gdshader file (much cheaper than rewriting the file with edit_script). Reports compile errors.',
         parameters: z.object({
             script_path: z.string().describe('res:// path'),
-            old_text: z.string().min(1).describe('Exact text to replace, including indentation; must be unique unless replace_all'),
-            new_text: z.string().describe('Replacement text'),
+            find: z.string().min(1).describe('Exact text to replace, including indentation; must be unique unless replace_all'),
+            replace: z.string().describe('Replacement text'),
             replace_all: z.boolean().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
@@ -277,10 +277,11 @@ export var workflowTools = [
     },
     {
         name: 'configure_game_settings',
-        description: 'Set common project settings: game name, main scene, window size, stretch, background color, texture filter, gravity, layer names. With no arguments, shows the current values.',
+        description: 'Set common project settings: game name, main scene, icon, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names. With no arguments, shows the current values.',
         parameters: z.object({
             game_name: z.string().optional(),
             main_scene: z.string().optional().describe('res:// scene the game starts with'),
+            icon: z.string().optional().describe('res:// image for the window and app icon'),
             window_width: z.number().int().optional(),
             window_height: z.number().int().optional(),
             stretch_mode: z.enum(['disabled', 'canvas_items', 'viewport']).optional(),
@@ -289,6 +290,13 @@ export var workflowTools = [
             texture_filter: z.enum(['nearest', 'linear']).optional().describe('"nearest" for pixel art'),
             gravity_2d: z.number().optional(),
             gravity_3d: z.number().optional(),
+            physics_engine_3d: z.enum(['default', 'jolt', 'godot']).optional().describe('jolt is faster and steadier for most 3D games'),
+            physics_ticks_per_second: z.number().int().min(1).max(1000).optional(),
+            max_physics_steps_per_frame: z.number().int().min(1).max(100).optional(),
+            physics_interpolation: z.boolean().optional().describe('Smooth motion between physics steps on high refresh screens'),
+            renderer: z.enum(['forward_plus', 'mobile', 'gl_compatibility']).optional().describe('Takes effect after an editor restart'),
+            vsync: z.enum(['disabled', 'enabled', 'adaptive', 'mailbox']).optional(),
+            hdr_output: z.boolean().optional().describe('Request HDR output on HDR screens (Godot 4.7+)'),
             layer_names: z.record(z.record(z.string())).optional()
                 .describe('e.g. {"2d_physics": {"1": "world", "2": "player"}}; kinds: 2d_physics, 3d_physics, 2d_render, 3d_render, 2d_navigation, 3d_navigation, avoidance'),
         }),
@@ -660,7 +668,7 @@ export var workflowTools = [
             timeout_seconds: z.number().int().min(5).max(1800).optional().describe('Per script, default 120'),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var paths, error_18, tests, lines, failed, _i, tests_1, test_1, started, _a, code, output, passes, problems, ok;
+            var paths, error_18, tests, lines, failed, _i, tests_1, test, started, _a, code, output, passes, problems, ok;
             var _b, _c, _d, _e;
             return __generator(this, function (_f) {
                 switch (_f.label) {
@@ -683,9 +691,9 @@ export var workflowTools = [
                         _f.label = 4;
                     case 4:
                         if (!(_i < tests_1.length)) return [3 /*break*/, 7];
-                        test_1 = tests_1[_i];
+                        test = tests_1[_i];
                         started = Date.now();
-                        return [4 /*yield*/, runGodot(paths.executable, ['--headless', '--path', paths.project_dir, '--fixed-fps', '60', '--script', test_1], ((_e = args.timeout_seconds) !== null && _e !== void 0 ? _e : 120) * 1000)];
+                        return [4 /*yield*/, runGodot(paths.executable, ['--headless', '--path', paths.project_dir, '--fixed-fps', '60', '--script', test], ((_e = args.timeout_seconds) !== null && _e !== void 0 ? _e : 120) * 1000)];
                     case 5:
                         _a = _f.sent(), code = _a.code, output = _a.output;
                         passes = output.split('\n').filter(function (line) { return /^(PASS|ok)\b/.test(line); }).length;
@@ -693,7 +701,7 @@ export var workflowTools = [
                         ok = code === 0 && !problems.some(function (line) { return /SCRIPT ERROR|^FAIL|not ok|Parse Error/.test(line); });
                         if (!ok)
                             failed += 1;
-                        lines.push("".concat(ok ? 'PASS' : 'FAIL', " ").concat(test_1, ": ").concat(passes, " passed, ").concat(problems.length, " problem(s), ").concat(typeof code === 'string' ? code : "exit ".concat(code), ", ").concat(((Date.now() - started) / 1000).toFixed(1), "s"));
+                        lines.push("".concat(ok ? 'PASS' : 'FAIL', " ").concat(test, ": ").concat(passes, " passed, ").concat(problems.length, " problem(s), ").concat(typeof code === 'string' ? code : "exit ".concat(code), ", ").concat(((Date.now() - started) / 1000).toFixed(1), "s"));
                         lines.push.apply(lines, problems.map(function (line) { return "  ".concat(line.trim().slice(0, 200)); }));
                         _f.label = 6;
                     case 6:

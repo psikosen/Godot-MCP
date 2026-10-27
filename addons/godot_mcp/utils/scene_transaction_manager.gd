@@ -20,6 +20,7 @@ class SceneTransaction extends RefCounted:
 	var _do_properties: Array = []
 	var _undo_properties: Array = []
 	var _do_references: Array = []
+	var _undo_references: Array = []
 	var _commit_callbacks: Array = []
 	var _rollback_callbacks: Array = []
 	var _is_active: bool = false
@@ -69,6 +70,11 @@ class SceneTransaction extends RefCounted:
 	func add_undo_method(target: Object, method: StringName, args: Array = []) -> void:
 		if not is_ready():
 			return
+		# Freeing a created node on undo left redo nothing to put back (about 40 tools did this).
+		# Hold it as a do-reference instead: UndoRedo frees it once that redo is dropped.
+		if method in [&"queue_free", &"free"] and target is Node:
+			add_do_reference(target)
+			return
 		_undo_methods.append({"target": target, "method": method, "args": args})
 
 	func add_do_property(target: Object, property: StringName, value) -> void:
@@ -86,6 +92,13 @@ class SceneTransaction extends RefCounted:
 			return
 		if target and not _do_references.has(target):
 			_do_references.append(target)
+
+	# For a node the do step removes and undo puts back: freed only when that undo is dropped.
+	func add_undo_reference(target: Object) -> void:
+		if not is_ready():
+			return
+		if target and not _undo_references.has(target):
+			_undo_references.append(target)
 
 	func register_on_commit(callback: Callable) -> void:
 		_commit_callbacks.append(callback)
@@ -175,6 +188,8 @@ class SceneTransaction extends RefCounted:
 			_undo_redo.add_undo_property(entry.target, entry.property, entry.value)
 		for reference in _do_references:
 			_undo_redo.add_do_reference(reference)
+		for reference in _undo_references:
+			_undo_redo.add_undo_reference(reference)
 
 		_undo_redo.commit_action()
 		_is_active = false

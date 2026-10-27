@@ -98,8 +98,8 @@ export const workflowTools: MCPTool[] = [
     description: 'Replace an exact piece of text in a .gd or .gdshader file (much cheaper than rewriting the file with edit_script). Reports compile errors.',
     parameters: z.object({
       script_path: z.string().describe('res:// path'),
-      old_text: z.string().min(1).describe('Exact text to replace, including indentation; must be unique unless replace_all'),
-      new_text: z.string().describe('Replacement text'),
+      find: z.string().min(1).describe('Exact text to replace, including indentation; must be unique unless replace_all'),
+      replace: z.string().describe('Replacement text'),
       replace_all: z.boolean().optional(),
     }),
     execute: async (args: Record<string, unknown>): Promise<string> => {
@@ -179,10 +179,11 @@ export const workflowTools: MCPTool[] = [
   },
   {
     name: 'configure_game_settings',
-    description: 'Set common project settings: game name, main scene, window size, stretch, background color, texture filter, gravity, layer names. With no arguments, shows the current values.',
+    description: 'Set common project settings: game name, main scene, icon, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names. With no arguments, shows the current values.',
     parameters: z.object({
       game_name: z.string().optional(),
       main_scene: z.string().optional().describe('res:// scene the game starts with'),
+      icon: z.string().optional().describe('res:// image for the window and app icon'),
       window_width: z.number().int().optional(),
       window_height: z.number().int().optional(),
       stretch_mode: z.enum(['disabled', 'canvas_items', 'viewport']).optional(),
@@ -191,6 +192,13 @@ export const workflowTools: MCPTool[] = [
       texture_filter: z.enum(['nearest', 'linear']).optional().describe('"nearest" for pixel art'),
       gravity_2d: z.number().optional(),
       gravity_3d: z.number().optional(),
+      physics_engine_3d: z.enum(['default', 'jolt', 'godot']).optional().describe('jolt is faster and steadier for most 3D games'),
+      physics_ticks_per_second: z.number().int().min(1).max(1000).optional(),
+      max_physics_steps_per_frame: z.number().int().min(1).max(100).optional(),
+      physics_interpolation: z.boolean().optional().describe('Smooth motion between physics steps on high refresh screens'),
+      renderer: z.enum(['forward_plus', 'mobile', 'gl_compatibility']).optional().describe('Takes effect after an editor restart'),
+      vsync: z.enum(['disabled', 'enabled', 'adaptive', 'mailbox']).optional(),
+      hdr_output: z.boolean().optional().describe('Request HDR output on HDR screens (Godot 4.7+)'),
       layer_names: z.record(z.record(z.string())).optional()
         .describe('e.g. {"2d_physics": {"1": "world", "2": "player"}}; kinds: 2d_physics, 3d_physics, 2d_render, 3d_render, 2d_navigation, 3d_navigation, avoidance'),
     }),

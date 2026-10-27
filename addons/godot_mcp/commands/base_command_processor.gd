@@ -181,6 +181,89 @@ func _join_path(parent_path: String, child: String) -> String:
 	return parent_path.trim_suffix("/") + "/" + child
 
 
+func _godot_version() -> String:
+	var version: Dictionary = Engine.get_version_info()
+	return "%d.%d.%d" % [version["major"], version["minor"], version["patch"]]
+
+
+# A change to a node inside an instanced scene (an imported model, say) saves only with Editable
+# Children on for that instance; turns it on where needed. Returns the instances it opened.
+func _open_instances(transaction, nodes: Array) -> Array:
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var seen: Array = []
+	var opened: Array = []
+	for node in nodes:
+		var instance: Node = node.owner
+		while instance and instance != scene_root and not instance in seen:
+			seen.append(instance)
+			if not scene_root.is_editable_instance(instance):
+				transaction.add_do_method(scene_root, "set_editable_instance", [instance, true])
+				transaction.add_undo_method(scene_root, "set_editable_instance", [instance, false])
+				opened.append(_to_mcp_path(instance))
+			instance = instance.owner
+	return opened
+
+
+# The Skeleton3D at node_path, or the first one under it (imported models nest it deep).
+func _find_skeleton(path: String) -> Skeleton3D:
+	var node := _get_editor_node(path)
+	if node == null:
+		return null
+	if node is Skeleton3D:
+		return node
+	var found := node.find_children("*", "Skeleton3D", true, true)
+	return found[0] as Skeleton3D if not found.is_empty() else null
+
+
+func _skeleton_error(path: String) -> String:
+	return "No Skeleton3D at or under %s" % path
+
+
+# Waits (a coroutine: call it with await) until Godot has imported newly written files, so the next
+# command can load them. A file in a folder the editor has not seen yet needs a full scan, which
+# runs in the background; replying before it ends made the next tool fail. False on timeout.
+func _await_imports(paths: Array, timeout_ms := 10000) -> bool:
+	var filesystem := EditorInterface.get_resource_filesystem()
+	for path in paths:
+		filesystem.update_file(path)
+	var deadline := Time.get_ticks_msec() + timeout_ms
+	var scanned := false
+	while true:
+		var pending := paths.filter(func(path): return not FileAccess.file_exists(path + ".import") or not ResourceLoader.exists(path))
+		if pending.is_empty():
+			return true
+		if Time.get_ticks_msec() > deadline:
+			return false
+		if not scanned and not filesystem.is_scanning():
+			filesystem.scan()
+			scanned = true
+		await Engine.get_main_loop().process_frame
+	return false
+
+
+# Removes node on commit; undo puts it back at its index with its owners. The node stays in memory
+# while that undo exists (freeing it at once left undo nothing to put back).
+func _remove_with_undo(transaction, node: Node) -> void:
+	var parent := node.get_parent()
+	transaction.add_do_method(parent, "remove_child", [node])
+	transaction.add_undo_method(parent, "add_child", [node, true])
+	transaction.add_undo_method(parent, "move_child", [node, node.get_index()])
+	var owned: Array = [node]
+	owned.append_array(node.find_children("*", "", true, false))
+	for item in owned:
+		if item.owner:
+			transaction.add_undo_method(item, "set_owner", [item.owner])
+	transaction.add_undo_reference(node)
+
+
+# Adds a new node (and its own new children) on commit, owned by the scene so it saves; undo removes it.
+func _add_owned(transaction, parent: Node, node: Node, owner: Node) -> void:
+	transaction.add_do_method(parent, "add_child", [node, true])
+	transaction.add_do_method(node, "set_owner", [owner])
+	transaction.add_do_reference(node)
+	transaction.add_undo_method(parent, "remove_child", [node])
+
+
 func _transaction(action_name: String, transaction_id: String, metadata: Dictionary):
 	if transaction_id.is_empty():
 		return MCPSceneTransactionManager.begin_inline(action_name, metadata)
@@ -478,9 +561,42 @@ func _coerce_value_to_type(value, value_type: int, property_class_name: String =
 			if typeof(value) == TYPE_STRING and value.begins_with("res://"):
 				var resource = ResourceLoader.load(value)
 				return resource if resource != null else value
+			# A new built-in resource: "BoxMesh", or {"type": "BoxMesh", "size": [2, 1, 2]}.
+			var spec = {"type": value} if typeof(value) == TYPE_STRING else value
+			if spec is Dictionary and spec.has("type"):
+				var built = _new_resource(spec, property_class_name)
+				return built if built != null else value
 			return value
 		_:
 			return _parse_property_value(value)
+
+
+func _example_class(base_class: String) -> String:
+	for candidate in ["BoxMesh", "BoxShape3D", "RectangleShape2D", "StandardMaterial3D", "Gradient", "Curve"]:
+		if not base_class.is_empty() and ClassDB.is_parent_class(candidate, base_class):
+			return candidate
+	return "BoxMesh"
+
+
+# Resource of spec.type (a subclass of base_class when given) with spec's other keys as its
+# properties, converted like node properties and nested the same way. Null when spec does not fit.
+func _new_resource(spec: Dictionary, base_class: String):
+	var resource_class := str(spec["type"])
+	if not ClassDB.class_exists(resource_class) or not ClassDB.can_instantiate(resource_class) or not ClassDB.is_parent_class(resource_class, "Resource"):
+		return null
+	if not base_class.is_empty() and ClassDB.class_exists(base_class) and not ClassDB.is_parent_class(resource_class, base_class):
+		return null
+	var resource: Resource = ClassDB.instantiate(resource_class)
+	for key in spec:
+		if key == "type":
+			continue
+		if _get_property_info(resource, str(key)).is_empty():
+			return null
+		var converted = _convert_property_value(resource, str(key), spec[key])
+		if not _property_value_error(resource, str(key), converted).is_empty():
+			return null
+		resource.set(str(key), converted)
+	return resource
 
 
 func _coerce_to_vector2(value):
@@ -620,10 +736,13 @@ func _property_value_error(target: Object, property_name: String, value) -> Stri
 	if expected == TYPE_NIL:
 		return ""
 	if expected == TYPE_OBJECT:
-		if value == null or value is Object:
+		var wanted := str(info.get("class_name", ""))
+		if value == null or (value is Object and (wanted.is_empty() or not ClassDB.class_exists(wanted) or value.is_class(wanted))):
 			return ""
-		return "Property %s expects a %s (for a resource, a res:// path to an existing file), got %s" % [
-			property_name, str(info.get("class_name", "Object")), JSON.stringify(value)]
+		if value is Object:
+			return "Property %s expects a %s, got a %s" % [property_name, wanted, value.get_class()]
+		return "Property %s expects a %s: a res:// file, a class name like \"%s\", or {\"type\": class, other properties...}, got %s" % [
+			property_name, wanted if not wanted.is_empty() else "Object", _example_class(wanted), JSON.stringify(value)]
 	var numeric := [TYPE_INT, TYPE_FLOAT]
 	# Packed vector and color arrays are left out on purpose: an Array that _points_to_packed could not convert
 	# would otherwise be stored as zeros.

@@ -1324,13 +1324,7 @@ func _batch_delete_nodes(client_id: int, params: Dictionary, command_id: String)
 	for node in nodes_to_delete:
 		var parent = node.get_parent()
 		var child_index = parent.get_children().find(node)
-		var previous_owner = node.owner
-		transaction.add_do_method(parent, "remove_child", [node])
-		transaction.add_do_method(node, "queue_free")
-		transaction.add_undo_method(parent, "add_child", [node])
-		transaction.add_undo_method(parent, "move_child", [node, child_index])
-		transaction.add_undo_property(node, "owner", previous_owner)
-		transaction.add_do_reference(node)
+		_remove_with_undo(transaction, node)
 		deleted_entries.append({
 			"node_path": _to_mcp_path(node),
 			"parent_path": _to_mcp_path(parent),
@@ -15009,6 +15003,9 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 	var vision_radius: float = max(1.0, float(params.get("vision_radius", 160.0)))
 	var detection_group: String = str(params.get("detection_group", "player")).strip_edges()
 	var signal_flags: int = _build_signal_flags_from_params(params)
+	# With no script on the enemy, a behavior script is written so the new nodes do something.
+	var will_write_script := bool(params.get("write_script", enemy.get_script() == null))
+	var notes: Array = []
 
 	var attach_plans: Array = []
 	var created_nodes: Array = []
@@ -15085,6 +15082,12 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 			property_changes.append_array(
 				_capture_property_change(vision_area, "collision_mask", int(params.get("vision_collision_mask")))
 			)
+		else:
+			# A vision mask that misses the target's layer leaves the enemy blind.
+			var group_layers := _group_collision_layers(str(params.get("detection_group", "player")).strip_edges(), false)
+			if group_layers != 0 and (vision_area.collision_mask & group_layers) == 0:
+				property_changes.append_array(_capture_property_change(vision_area, "collision_mask", group_layers))
+				notes.append("Vision mask set to %d, the layers of the \"%s\" nodes" % [group_layers, str(params.get("detection_group", "player"))])
 		if params.has("vision_offset"):
 			property_changes.append_array(
 				_capture_property_change(vision_area, "position", _parse_vector2_param(params.get("vision_offset")))
@@ -15185,30 +15188,36 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		var signal_target = _get_editor_node(signal_target_path)
 		if not signal_target:
 			return _send_error(client_id, "Signal target node not found: %s" % signal_target_path, command_id)
+		var methods_written: bool = will_write_script and signal_target == enemy
 
 		if vision_area:
 			var entered_method: String = str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
 			var exited_method: String = str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
-			if _signal_method_exists(signal_target, entered_method, signal_warnings):
+			if methods_written or _signal_method_exists(signal_target, entered_method, signal_warnings):
 				signal_changes.append_array(
 					_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
 				)
-			if _signal_method_exists(signal_target, exited_method, signal_warnings):
+			if methods_written or _signal_method_exists(signal_target, exited_method, signal_warnings):
 				signal_changes.append_array(
 					_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
 				)
 		if attack_timer:
 			var timeout_method: String = str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
-			if _signal_method_exists(signal_target, timeout_method, signal_warnings):
+			if methods_written or _signal_method_exists(signal_target, timeout_method, signal_warnings):
 				signal_changes.append_array(
 					_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
 				)
 
-	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty():
+	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty() and not will_write_script:
 		return _send_success(client_id, {
 			"enemy_path": enemy_mcp_path,
 			"status": "no_change",
 		}, command_id)
+
+	var script_plan := _write_enemy_ai_script(enemy, params, false,
+		str(navigation_agent.name) if navigation_agent else navigation_name, str(attack_timer.name) if attack_timer else timer_name)
+	if script_plan.has("error"):
+		return _send_error(client_id, script_plan["error"], command_id)
 
 	var transaction_metadata := {
 		"command": "author_enemy_ai_2d",
@@ -15244,11 +15253,18 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		var created_node: Node = created
 		transaction.add_do_method(created_node, "set_owner", [edited_scene_root])
 
+	# Before the signal connections below, which need the script's handler methods.
+	if script_plan.has("script"):
+		transaction.add_do_method(enemy, "set_script", [script_plan["script"]])
+		transaction.add_undo_method(enemy, "set_script", [null])
+
 	var serialized_property_changes: Array = []
 	for change in property_changes:
 		var target_object: Object = change.get("target", enemy)
 		transaction.add_do_property(target_object, change.property, change.value)
-		transaction.add_undo_property(target_object, change.property, change.previous)
+		# Nodes this call creates leave on undo; restoring their old values only printed errors.
+		if not created_nodes.has(target_object):
+			transaction.add_undo_property(target_object, change.property, change.previous)
 		if change.value is Resource:
 			transaction.add_do_reference(change.value)
 		serialized_property_changes.append({
@@ -15322,6 +15338,8 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		"meta_changes": serialized_meta_changes,
 		"signal_changes": serialized_signal_changes,
 		"warnings": signal_warnings,
+		"script_path": script_plan.get("path", ""),
+		"notes": notes,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -15372,6 +15390,9 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 	var vision_radius: float = max(0.1, float(params.get("vision_radius", 6.0)))
 	var detection_group: String = str(params.get("detection_group", "player")).strip_edges()
 	var signal_flags: int = _build_signal_flags_from_params(params)
+	# With no script on the enemy, a behavior script is written so the new nodes do something.
+	var will_write_script := bool(params.get("write_script", enemy.get_script() == null))
+	var notes: Array = []
 
 	var attach_plans: Array = []
 	var created_nodes: Array = []
@@ -15445,6 +15466,12 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 			property_changes.append_array(
 				_capture_property_change(vision_area, "collision_mask", int(params.get("vision_collision_mask")))
 			)
+		else:
+			# A vision mask that misses the target's layer leaves the enemy blind.
+			var group_layers := _group_collision_layers(str(params.get("detection_group", "player")).strip_edges(), true)
+			if group_layers != 0 and (vision_area.collision_mask & group_layers) == 0:
+				property_changes.append_array(_capture_property_change(vision_area, "collision_mask", group_layers))
+				notes.append("Vision mask set to %d, the layers of the \"%s\" nodes" % [group_layers, str(params.get("detection_group", "player"))])
 		if params.has("vision_offset"):
 			property_changes.append_array(
 				_capture_property_change(vision_area, "position", _parse_vector3_param(params.get("vision_offset")))
@@ -15545,30 +15572,36 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		var signal_target = _get_editor_node(signal_target_path)
 		if not signal_target:
 			return _send_error(client_id, "Signal target node not found: %s" % signal_target_path, command_id)
+		var methods_written: bool = will_write_script and signal_target == enemy
 
 		if vision_area:
 			var entered_method: String = str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
 			var exited_method: String = str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
-			if _signal_method_exists(signal_target, entered_method, signal_warnings):
+			if methods_written or _signal_method_exists(signal_target, entered_method, signal_warnings):
 				signal_changes.append_array(
 					_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
 				)
-			if _signal_method_exists(signal_target, exited_method, signal_warnings):
+			if methods_written or _signal_method_exists(signal_target, exited_method, signal_warnings):
 				signal_changes.append_array(
 					_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
 				)
 		if attack_timer:
 			var timeout_method: String = str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
-			if _signal_method_exists(signal_target, timeout_method, signal_warnings):
+			if methods_written or _signal_method_exists(signal_target, timeout_method, signal_warnings):
 				signal_changes.append_array(
 					_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
 				)
 
-	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty():
+	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty() and not will_write_script:
 		return _send_success(client_id, {
 			"enemy_path": enemy_mcp_path,
 			"status": "no_change",
 		}, command_id)
+
+	var script_plan := _write_enemy_ai_script(enemy, params, true,
+		str(navigation_agent.name) if navigation_agent else navigation_name, str(attack_timer.name) if attack_timer else timer_name)
+	if script_plan.has("error"):
+		return _send_error(client_id, script_plan["error"], command_id)
 
 	var transaction_metadata := {
 		"command": "author_enemy_ai_3d",
@@ -15604,11 +15637,18 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		var created_node: Node = created
 		transaction.add_do_method(created_node, "set_owner", [edited_scene_root])
 
+	# Before the signal connections below, which need the script's handler methods.
+	if script_plan.has("script"):
+		transaction.add_do_method(enemy, "set_script", [script_plan["script"]])
+		transaction.add_undo_method(enemy, "set_script", [null])
+
 	var serialized_property_changes: Array = []
 	for change in property_changes:
 		var target_object: Object = change.get("target", enemy)
 		transaction.add_do_property(target_object, change.property, change.value)
-		transaction.add_undo_property(target_object, change.property, change.previous)
+		# Nodes this call creates leave on undo; restoring their old values only printed errors.
+		if not created_nodes.has(target_object):
+			transaction.add_undo_property(target_object, change.property, change.previous)
 		if change.value is Resource:
 			transaction.add_do_reference(change.value)
 		serialized_property_changes.append({
@@ -15682,6 +15722,8 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		"meta_changes": serialized_meta_changes,
 		"signal_changes": serialized_signal_changes,
 		"warnings": signal_warnings,
+		"script_path": script_plan.get("path", ""),
+		"notes": notes,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -16777,8 +16819,6 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not parent:
 		return _send_error(client_id, "Node has no parent: %s" % node_path, command_id)
 	
-	var child_index = parent.get_children().find(node)
-
 	var transaction_metadata := {
 		"command": "delete_node",
 		"node_path": node_path,
@@ -16797,12 +16837,7 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for node deletion", command_id)
 
-	transaction.add_do_method(parent, "remove_child", [node])
-	transaction.add_do_method(node, "queue_free")
-	transaction.add_undo_method(parent, "add_child", [node])
-	transaction.add_undo_method(parent, "move_child", [node, child_index])
-	transaction.add_undo_method(node, "set_owner", [edited_scene_root])
-	transaction.add_do_reference(node)
+	_remove_with_undo(transaction, node)
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
 		var selection: EditorSelection = editor_interface.get_selection()
@@ -17243,6 +17278,15 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 	if method_name.is_empty():
 		return _send_error(client_id, "Method name cannot be empty", command_id)
 
+	# The method name and argument names are written into a script, so only plain names pass.
+	if not method_name.is_valid_ascii_identifier():
+		return _send_error(client_id, "method_name must be a plain name (letters, digits, _): %s" % method_name, command_id)
+	var argument_pattern := RegEx.create_from_string("^[A-Za-z_][A-Za-z0-9_]*(\\s*:\\s*[A-Za-z_][A-Za-z0-9_.]*)?$")
+	if arguments_param is Array:
+		for argument in arguments_param:
+			if typeof(argument) == TYPE_STRING and not str(argument).strip_edges().is_empty() and not argument_pattern.search(str(argument).strip_edges()):
+				return _send_error(client_id, "Each argument must be a name or \"name: Type\": %s" % argument, command_id)
+
 	var source_node = _get_editor_node(source_path)
 	if not source_node:
 		return _send_error(client_id, "Source node not found: %s" % source_path, command_id)
@@ -17283,6 +17327,8 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 
 	if not script_resource_path.begins_with("res://"):
 		return _send_error(client_id, "Script path must be within the project (res://)", command_id)
+	if _is_protected_path(script_resource_path) or not script_resource_path.get_extension().to_lower() == "gd":
+		return _send_error(client_id, "Script path must be a .gd file outside protected folders: %s" % script_resource_path, command_id)
 
 	if create_script and not FileAccess.file_exists(script_resource_path):
 		var extends_type := target_node.get_class()
@@ -18184,6 +18230,237 @@ func _build_signal_flags_from_params(params: Dictionary) -> int:
 	return signal_flags
 
 
+# Behavior script author_enemy_ai_2d/3d write when the enemy has none, so the nodes they add do
+# something: patrol mcp_enemy_patrol_points, chase a member of mcp_enemy_detection_group that the
+# vision area sees or that comes within mcp_enemy_vision_radius, emit attacked(target) in range,
+# then wait out the attack cooldown. Settings are read from the enemy's mcp_enemy_* metadata.
+const ENEMY_AI_SCRIPT_3D := """extends CharacterBody3D
+## Enemy behavior written by author_enemy_ai_3d: patrol, chase what comes into view, attack in range.
+## Speed, detection group, vision radius, cooldown and patrol points are the mcp_enemy_* metadata.
+
+signal attacked(target: Node3D)
+
+@export var attack_range := 1.5
+
+var target: Node3D
+var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+var _patrol_index := 0
+var _can_attack := true
+
+@onready var _agent: NavigationAgent3D = get_node_or_null(^"{nav}")
+@onready var _cooldown: Timer = get_node_or_null(^"{timer}")
+
+
+func _physics_process(delta: float) -> void:
+	_look_for_target()
+	var speed: float = get_meta("mcp_enemy_movement_speed", 4.5)
+	var direction := Vector3.ZERO
+	var goal = _goal()
+	if goal != null:
+		var next: Vector3 = goal
+		# Follow the navigation mesh when the level has one; otherwise head straight there.
+		if _agent and not NavigationServer3D.map_get_regions(_agent.get_navigation_map()).is_empty():
+			_agent.target_position = goal
+			next = _agent.get_next_path_position()
+		var flat := (next - global_position) * Vector3(1, 0, 1)
+		if flat.length() > 0.2:
+			direction = flat.normalized()
+	var accel: float = get_meta("mcp_enemy_acceleration", speed * 6.0)
+	var horizontal := Vector3(velocity.x, 0, velocity.z).move_toward(direction * speed, accel * delta)
+	velocity = Vector3(horizontal.x, 0.0 if is_on_floor() else velocity.y - gravity * delta, horizontal.z)
+	move_and_slide()
+	if is_instance_valid(target) and _can_attack and global_position.distance_to(target.global_position) <= attack_range:
+		_can_attack = false
+		attacked.emit(target)
+		if _cooldown:
+			_cooldown.start(float(get_meta("mcp_enemy_attack_cooldown", 1.0)))
+		else:
+			get_tree().create_timer(float(get_meta("mcp_enemy_attack_cooldown", 1.0))).timeout.connect({timeout})
+
+
+# Notice targets by distance too, so a vision area whose mask misses the target still works.
+func _look_for_target() -> void:
+	var radius: float = get_meta("mcp_enemy_vision_radius", 6.0)
+	if is_instance_valid(target):
+		if global_position.distance_to(target.global_position) > radius * 1.5:
+			target = null
+		return
+	for candidate in get_tree().get_nodes_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		if candidate is Node3D and candidate != self and global_position.distance_to(candidate.global_position) <= radius:
+			target = candidate
+			return
+
+
+func _goal():
+	if is_instance_valid(target):
+		return target.global_position
+	var points: Array = get_meta("mcp_enemy_patrol_points", [])
+	if points.is_empty():
+		return null
+	var point: Dictionary = points[_patrol_index % points.size()]
+	var spot := Vector3(point.get("x", 0.0), point.get("y", 0.0), point.get("z", 0.0))
+	if ((spot - global_position) * Vector3(1, 0, 1)).length() < 0.6:
+		_patrol_index += 1
+	return spot
+
+
+func {entered}(body: Node3D) -> void:
+	if body.is_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		target = body
+
+
+func {exited}(body: Node3D) -> void:
+	if body == target:
+		target = null
+
+
+func {timeout}() -> void:
+	_can_attack = true
+"""
+const ENEMY_AI_SCRIPT_2D := """extends CharacterBody2D
+## Enemy behavior written by author_enemy_ai_2d: patrol, chase what comes into view, attack in range.
+## Grounded bodies (platformers) walk left and right under gravity; floating ones (top-down) move
+## freely. Speed, detection group, vision radius, cooldown and patrol points are the mcp_enemy_* metadata.
+
+signal attacked(target: Node2D)
+
+@export var attack_range := 28.0
+
+var target: Node2D
+var gravity: float = ProjectSettings.get_setting("physics/2d/default_gravity")
+var _patrol_index := 0
+var _can_attack := true
+
+@onready var _agent: NavigationAgent2D = get_node_or_null(^"{nav}")
+@onready var _cooldown: Timer = get_node_or_null(^"{timer}")
+
+
+func _physics_process(delta: float) -> void:
+	_look_for_target()
+	var speed: float = get_meta("mcp_enemy_movement_speed", 120.0)
+	var grounded := motion_mode == MOTION_MODE_GROUNDED
+	var direction := Vector2.ZERO
+	var goal = _goal()
+	if goal != null:
+		var next: Vector2 = goal
+		# Follow the navigation mesh when the level has one; otherwise head straight there.
+		if _agent and not NavigationServer2D.map_get_regions(_agent.get_navigation_map()).is_empty():
+			_agent.target_position = goal
+			next = _agent.get_next_path_position()
+		var offset := next - global_position
+		if grounded:
+			offset.y = 0.0
+		if offset.length() > 4.0:
+			direction = offset.normalized()
+	var accel: float = float(get_meta("mcp_enemy_acceleration", speed * 6.0)) * delta
+	if grounded:
+		velocity.x = move_toward(velocity.x, direction.x * speed, accel)
+		velocity.y = 0.0 if is_on_floor() else velocity.y + gravity * delta
+	else:
+		velocity = velocity.move_toward(direction * speed, accel)
+	move_and_slide()
+	if is_instance_valid(target) and _can_attack and global_position.distance_to(target.global_position) <= attack_range:
+		_can_attack = false
+		attacked.emit(target)
+		if _cooldown:
+			_cooldown.start(float(get_meta("mcp_enemy_attack_cooldown", 1.0)))
+		else:
+			get_tree().create_timer(float(get_meta("mcp_enemy_attack_cooldown", 1.0))).timeout.connect({timeout})
+
+
+# Notice targets by distance too, so a vision area whose mask misses the target still works.
+func _look_for_target() -> void:
+	var radius: float = get_meta("mcp_enemy_vision_radius", 160.0)
+	if is_instance_valid(target):
+		if global_position.distance_to(target.global_position) > radius * 1.5:
+			target = null
+		return
+	for candidate in get_tree().get_nodes_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		if candidate is Node2D and candidate != self and global_position.distance_to(candidate.global_position) <= radius:
+			target = candidate
+			return
+
+
+func _goal():
+	if is_instance_valid(target):
+		return target.global_position
+	var points: Array = get_meta("mcp_enemy_patrol_points", [])
+	if points.is_empty():
+		return null
+	var point: Dictionary = points[_patrol_index % points.size()]
+	var spot := Vector2(point.get("x", 0.0), point.get("y", 0.0))
+	if absf(spot.x - global_position.x) < 8.0 and (motion_mode == MOTION_MODE_GROUNDED or absf(spot.y - global_position.y) < 8.0):
+		_patrol_index += 1
+	return spot
+
+
+func {entered}(body: Node2D) -> void:
+	if body.is_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		target = body
+
+
+func {exited}(body: Node2D) -> void:
+	if body == target:
+		target = null
+
+
+func {timeout}() -> void:
+	_can_attack = true
+"""
+
+
+# Writes the behavior script for author_enemy_ai_2d/3d when write_script is on (default: the enemy
+# has no script). Returns {"script": Script, "path": String} or {"error": String}; {} when not asked.
+func _write_enemy_ai_script(enemy: Node, params: Dictionary, is_3d: bool, navigation_name: String, timer_name: String) -> Dictionary:
+	if not bool(params.get("write_script", enemy.get_script() == null)):
+		return {}
+	if enemy.get_script() != null:
+		return {"error": "%s already has a script (%s); write_script would replace it. Add the handler methods to it instead, or pass write_script false" % [enemy.name, enemy.get_script().resource_path]}
+	var methods := {
+		"entered": str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges(),
+		"exited": str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges(),
+		"timeout": str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges(),
+	}
+	# These names are written into the script, so only plain names pass.
+	for key in methods:
+		if not methods[key].is_valid_ascii_identifier():
+			return {"error": "Handler method names must be plain names (letters, digits, _): %s" % methods[key]}
+	var script_path := str(params.get("script_path", "res://scripts/%s_ai.gd" % str(enemy.name).to_snake_case()))
+	var contained := _contained_res_path(script_path)
+	if contained.is_empty() or not contained.ends_with(".gd") or _is_protected_path(contained):
+		return {"error": "script_path must be a .gd file in the project, outside protected folders: %s" % script_path}
+	if FileAccess.file_exists(contained):
+		return {"error": "%s already exists; pass another script_path (or attach it yourself)" % contained}
+	var template: String = ENEMY_AI_SCRIPT_3D if is_3d else ENEMY_AI_SCRIPT_2D
+	var source := template.format({"nav": navigation_name.validate_node_name(), "timer": timer_name.validate_node_name(),
+		"entered": methods["entered"], "exited": methods["exited"], "timeout": methods["timeout"]})
+	DirAccess.make_dir_recursive_absolute(contained.get_base_dir())
+	var file := FileAccess.open(contained, FileAccess.WRITE)
+	if file == null:
+		return {"error": "Failed to write %s" % contained}
+	file.store_string(source)
+	file = null
+	var compile_error := _gdscript_compile_error(contained)
+	if not compile_error.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(contained))
+		return {"error": "The generated script did not compile: %s" % compile_error}
+	EditorInterface.get_resource_filesystem().update_file(contained)
+	var script := ResourceLoader.load(contained, "Script", ResourceLoader.CACHE_MODE_REPLACE)
+	return {"script": script, "path": contained} if script else {"error": "Failed to load %s" % contained}
+
+
+# Collision layers of the detection group's bodies in the open scene (0 when none are here).
+func _group_collision_layers(group: String, is_3d: bool) -> int:
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var layers := 0
+	if scene_root == null:
+		return 0
+	for node in scene_root.get_tree().get_nodes_in_group(group):
+		if (scene_root == node or scene_root.is_ancestor_of(node)) and ((is_3d and node is CollisionObject3D) or (not is_3d and node is CollisionObject2D)):
+			layers |= node.collision_layer
+	return layers
+
+
 # Skip connections to handlers the target script does not define (they would error on every emit).
 func _signal_method_exists(target: Object, method_name: String, warnings: Array) -> bool:
 	if target.has_method(method_name):
@@ -18454,10 +18731,11 @@ func _analyze_accessibility(control: Control) -> Array:
 	var tooltip_text := ""
 	var control_text := ""
 
-	if "accessible_name" in control:
-		accessible_name = str(control.get("accessible_name"))
-	if "accessible_description" in control:
-		accessible_description = str(control.get("accessible_description"))
+	# Godot 4.5+ names these accessibility_name/accessibility_description; older builds have neither.
+	if "accessibility_name" in control:
+		accessible_name = str(control.get("accessibility_name"))
+	if "accessibility_description" in control:
+		accessible_description = str(control.get("accessibility_description"))
 	if "tooltip_text" in control:
 		tooltip_text = str(control.get("tooltip_text"))
 	if "text" in control:

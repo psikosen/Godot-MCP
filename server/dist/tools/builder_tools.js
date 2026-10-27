@@ -47,7 +47,7 @@ import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { fail, godotProblems, runGodot, send, vector2 } from './workflow_tools.js';
-var vector3 = z.union([
+export var vector3 = z.union([
     z.object({ x: z.number(), y: z.number(), z: z.number() }),
     z.tuple([z.number(), z.number(), z.number()]),
 ]);
@@ -252,7 +252,7 @@ export var builderTools = [
                         return [4 /*yield*/, send('generate_sfx', args)];
                     case 1:
                         r = _a.sent();
-                        return [2 /*return*/, "Saved ".concat(r.preset, " sound (").concat(r.seconds, "s) to ").concat(r.path, ". Play it with an AudioStreamPlayer (author_audio_stream_player).")];
+                        return [2 /*return*/, "Saved ".concat(r.preset, " sound (").concat(r.seconds, "s) to ").concat(r.path, ".").concat(r.imported === false ? ' Godot is still importing it; wait a moment before using it.' : '', " Play it with an AudioStreamPlayer (author_audio_stream_player).")];
                     case 2:
                         error_7 = _a.sent();
                         return [2 /*return*/, fail('generate sound effect', error_7)];
@@ -480,7 +480,7 @@ export var builderTools = [
                             mkdirSync(path.dirname(to), { recursive: true });
                             copyFileSync(from, to);
                         }
-                        return [4 /*yield*/, send('rescan_filesystem', {}).catch(function () { return undefined; })];
+                        return [4 /*yield*/, send('rescan_filesystem', { paths: plan.map(function (p) { return p.resPath; }) }).catch(function () { return undefined; })];
                     case 4:
                         _b.sent();
                         return [2 /*return*/, "Imported ".concat(plan.length, " file(s):\n").concat(plan.map(function (p) { return p.resPath; }).join('\n'))];

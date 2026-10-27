@@ -1465,6 +1465,8 @@ interface AuthorEnemyAi2DParams {
   vision_entered_method?: string;
   vision_exited_method?: string;
   attack_timeout_method?: string;
+  write_script?: boolean;
+  script_path?: string;
   signal_deferred?: boolean;
   signal_one_shot?: boolean;
   signal_reference_counted?: boolean;
@@ -1503,6 +1505,8 @@ interface AuthorEnemyAi3DParams {
   vision_entered_method?: string;
   vision_exited_method?: string;
   attack_timeout_method?: string;
+  write_script?: boolean;
+  script_path?: string;
   signal_deferred?: boolean;
   signal_one_shot?: boolean;
   signal_reference_counted?: boolean;
@@ -5297,7 +5301,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'author_enemy_ai_2d',
-    description: 'Author a 2D enemy AI scaffold (navigation, vision sensor, cooldown timer, metadata, and signal wiring)',
+    description: 'Give a CharacterBody2D enemy AI: a navigation agent, a vision area, an attack cooldown timer and settings, plus (when it has no script) a behavior script that patrols, chases the detection group and emits attacked(target) in range. The vision mask is set to the target group\'s layers when it would miss them.',
     parameters: z.object({
       enemy_path: z.string()
         .describe('Path to the CharacterBody2D enemy node'),
@@ -5332,6 +5336,8 @@ export const nodeTools: MCPTool[] = [
       vision_entered_method: z.string().optional(),
       vision_exited_method: z.string().optional(),
       attack_timeout_method: z.string().optional(),
+      write_script: z.boolean().optional().describe('Write a behavior script (default: only when the enemy has no script)'),
+      script_path: z.string().optional().describe('Default res://scripts/<enemy>_ai.gd'),
       signal_deferred: z.boolean().optional(),
       signal_one_shot: z.boolean().optional(),
       signal_reference_counted: z.boolean().optional(),
@@ -5346,7 +5352,9 @@ export const nodeTools: MCPTool[] = [
         const createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
         const warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
-        return `Authored enemy AI 2D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${warnings}`;
+        const scriptNote = result.script_path ? `\nWrote behavior script ${result.script_path}: connect its attacked(target) signal to deal damage.` : '';
+        const notes = Array.isArray(result.notes) && result.notes.length > 0 ? `\n${result.notes.join('\n')}` : '';
+        return `Authored enemy AI 2D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${scriptNote}${notes}${warnings}`;
       } catch (error) {
         throw new Error(`Failed to author enemy AI 2D: ${(error as Error).message}`);
       }
@@ -5357,7 +5365,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'author_enemy_ai_3d',
-    description: 'Author a 3D enemy AI scaffold (navigation, vision sensor, cooldown timer, metadata, and signal wiring)',
+    description: 'Give a CharacterBody3D enemy AI: a navigation agent, a vision area, an attack cooldown timer and settings, plus (when it has no script) a behavior script that patrols, chases the detection group and emits attacked(target) in range. The vision mask is set to the target group\'s layers when it would miss them.',
     parameters: z.object({
       enemy_path: z.string()
         .describe('Path to the CharacterBody3D enemy node'),
@@ -5391,6 +5399,8 @@ export const nodeTools: MCPTool[] = [
       vision_entered_method: z.string().optional(),
       vision_exited_method: z.string().optional(),
       attack_timeout_method: z.string().optional(),
+      write_script: z.boolean().optional().describe('Write a behavior script (default: only when the enemy has no script)'),
+      script_path: z.string().optional().describe('Default res://scripts/<enemy>_ai.gd'),
       signal_deferred: z.boolean().optional(),
       signal_one_shot: z.boolean().optional(),
       signal_reference_counted: z.boolean().optional(),
@@ -5405,7 +5415,9 @@ export const nodeTools: MCPTool[] = [
         const createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
         const warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
-        return `Authored enemy AI 3D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${warnings}`;
+        const scriptNote = result.script_path ? `\nWrote behavior script ${result.script_path}: connect its attacked(target) signal to deal damage.` : '';
+        const notes = Array.isArray(result.notes) && result.notes.length > 0 ? `\n${result.notes.join('\n')}` : '';
+        return `Authored enemy AI 3D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${scriptNote}${notes}${warnings}`;
       } catch (error) {
         throw new Error(`Failed to author enemy AI 3D: ${(error as Error).message}`);
       }

@@ -42,7 +42,9 @@ func _run() -> void:
 				Input.action_press(hold[0])
 			if frame == hold[2]:
 				Input.action_release(hold[0])
-		await process_frame
+		# Count physics steps (fixed 1/60 s), not drawn frames: a window can draw hundreds of frames a
+		# second, so held actions lasted a blink and the player barely moved.
+		await physics_frame
 		if profile and frame >= warmup:
 			samples["frame_ms"].append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 			samples["physics_ms"].append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)

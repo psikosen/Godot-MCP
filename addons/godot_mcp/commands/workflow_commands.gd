@@ -29,6 +29,7 @@ const LAYOUT_PROPERTIES := ["anchor_left", "anchor_top", "anchor_right", "anchor
 const GAME_SETTINGS := {
 	"game_name": ["application/config/name", TYPE_STRING],
 	"main_scene": ["application/run/main_scene", TYPE_STRING],
+	"icon": ["application/config/icon", TYPE_STRING],
 	"window_width": ["display/window/size/viewport_width", TYPE_INT],
 	"window_height": ["display/window/size/viewport_height", TYPE_INT],
 	"stretch_mode": ["display/window/stretch/mode", ["disabled", "canvas_items", "viewport"]],
@@ -37,6 +38,13 @@ const GAME_SETTINGS := {
 	"texture_filter": ["rendering/textures/canvas_textures/default_texture_filter", {"nearest": 0, "linear": 1}],
 	"gravity_2d": ["physics/2d/default_gravity", TYPE_FLOAT],
 	"gravity_3d": ["physics/3d/default_gravity", TYPE_FLOAT],
+	"physics_engine_3d": ["physics/3d/physics_engine", {"default": "DEFAULT", "jolt": "Jolt Physics", "godot": "GodotPhysics3D"}],
+	"physics_ticks_per_second": ["physics/common/physics_ticks_per_second", TYPE_INT],
+	"max_physics_steps_per_frame": ["physics/common/max_physics_steps_per_frame", TYPE_INT],
+	"physics_interpolation": ["physics/common/physics_interpolation", TYPE_BOOL],
+	"renderer": ["rendering/renderer/rendering_method", ["forward_plus", "mobile", "gl_compatibility"]],
+	"vsync": ["display/window/vsync/vsync_mode", {"disabled": 0, "enabled": 1, "adaptive": 2, "mailbox": 3}],
+	"hdr_output": ["display/window/hdr/request_hdr_output", TYPE_BOOL],
 }
 const LAYER_KINDS := ["2d_physics", "3d_physics", "2d_render", "3d_render", "2d_navigation", "3d_navigation", "avoidance"]
 const EXPORT_PLATFORMS := {"macos": "macOS", "windows": "Windows Desktop", "linux": "Linux", "web": "Web"}
@@ -232,8 +240,9 @@ func _search_project(client_id: int, params: Dictionary, command_id: String) -> 
 # whole file that edit_script needs.
 func _replace_in_script(client_id: int, params: Dictionary, command_id: String) -> void:
 	var requested := str(params.get("script_path", ""))
-	var old_text := str(params.get("old_text", ""))
-	var new_text := str(params.get("new_text", ""))
+	# Same names as replace_in_project: find (exact text here) and replace.
+	var old_text := str(params.get("find", ""))
+	var new_text := str(params.get("replace", ""))
 	var replace_all: bool = params.get("replace_all", false)
 	if not (requested.ends_with(".gd") or requested.ends_with(".gdshader")):
 		return _send_error(client_id, "replace_in_script only edits .gd and .gdshader files: %s" % requested, command_id)
@@ -245,13 +254,13 @@ func _replace_in_script(client_id: int, params: Dictionary, command_id: String) 
 	if not FileAccess.file_exists(path):
 		return _send_error(client_id, "Script file not found: %s" % path, command_id)
 	if old_text.is_empty():
-		return _send_error(client_id, "old_text cannot be empty", command_id)
+		return _send_error(client_id, "find cannot be empty", command_id)
 	var content := FileAccess.get_file_as_string(path)
 	var count := content.count(old_text)
 	if count == 0:
-		return _send_error(client_id, "old_text was not found in %s (check tabs vs spaces and line breaks)" % path, command_id)
+		return _send_error(client_id, "find text was not found in %s (check tabs vs spaces and line breaks)" % path, command_id)
 	if count > 1 and not replace_all:
-		return _send_error(client_id, "old_text appears %d times in %s; include more surrounding lines or set replace_all" % [count, path], command_id)
+		return _send_error(client_id, "find text appears %d times in %s; include more surrounding lines or set replace_all" % [count, path], command_id)
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		return _send_error(client_id, "Failed to open %s for writing" % path, command_id)
@@ -395,6 +404,8 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 			return _send_error(client_id, "Unknown setting %s; known: %s, layer_names" % [key, ", ".join(PackedStringArray(GAME_SETTINGS.keys()))], command_id)
 		var spec: Array = GAME_SETTINGS[key]
 		var value = params[key]
+		if not ProjectSettings.has_setting(spec[0]):
+			return _send_error(client_id, "%s (%s) is not in this Godot (%s); it needs a newer version" % [key, spec[0], _godot_version()], command_id)
 		if spec[1] is Array or spec[1] is Dictionary:
 			var words: Array = spec[1] if spec[1] is Array else (spec[1] as Dictionary).keys()
 			if not str(value) in words:
@@ -408,10 +419,18 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]) or int(value) < 1 or int(value) > 16384:
 				return _send_error(client_id, "%s must be a whole number from 1 to 16384" % key, command_id)
 			value = int(value)
+		elif spec[1] == TYPE_BOOL:
+			if typeof(value) != TYPE_BOOL:
+				return _send_error(client_id, "%s must be true or false" % key, command_id)
 		elif spec[1] == TYPE_FLOAT:
 			if not (typeof(value) in [TYPE_INT, TYPE_FLOAT]):
 				return _send_error(client_id, "%s must be a number" % key, command_id)
 			value = float(value)
+		elif key == "icon":
+			var icon := _contained_res_path(str(value))
+			if icon.is_empty() or not icon.get_extension().to_lower() in ["png", "svg", "webp", "jpg", "jpeg"] or not FileAccess.file_exists(icon):
+				return _send_error(client_id, "icon must be an existing .png/.svg/.webp/.jpg in the project: %s" % value, command_id)
+			value = icon
 		elif key == "main_scene":
 			var scene := _contained_res_path(str(value))
 			if scene.is_empty() or not (scene.ends_with(".tscn") or scene.ends_with(".scn")) or not FileAccess.file_exists(scene):
@@ -444,7 +463,11 @@ func _configure_game_settings(client_id: int, params: Dictionary, command_id: St
 	for key in GAME_SETTINGS:
 		current[key] = ProjectSettings.get_setting(GAME_SETTINGS[key][0], null)
 		if GAME_SETTINGS[key][1] is Dictionary and current[key] != null:
-			current[key] = (GAME_SETTINGS[key][1] as Dictionary).find_key(int(current[key]))
+			var words: Dictionary = GAME_SETTINGS[key][1]
+			var word = words.find_key(current[key])
+			if word == null and typeof(current[key]) in [TYPE_INT, TYPE_FLOAT]:
+				word = words.find_key(int(current[key]))
+			current[key] = word if word != null else current[key]
 	_send_success(client_id, {"changes": changes, "current": current}, command_id)
 
 
