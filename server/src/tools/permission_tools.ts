@@ -3,8 +3,6 @@ import { MCPTool } from '../utils/types.js';
 import { escalationManager, EscalationStatus } from '../utils/escalation_manager.js';
 
 const statusEnum = z.enum(['pending', 'approved', 'denied']);
-const resolutionEnum = z.enum(['approved', 'denied']);
-type ResolutionStatus = z.infer<typeof resolutionEnum>;
 
 export const permissionTools: MCPTool[] = [
   {
@@ -33,27 +31,30 @@ export const permissionTools: MCPTool[] = [
   },
   {
     name: 'resolve_permission_escalation',
-    description: 'Resolve a permission escalation request by approving or denying it.',
+    description:
+      'Deny (withdraw) a pending permission escalation request. This tool cannot approve: ' +
+      'approval is human-only and signed (cd server && npm run approve -- <id>).',
     parameters: z.object({
       escalation_id: z.string().describe('Identifier returned when the escalation was recorded.'),
-      status: resolutionEnum.describe('Resolution outcome for the escalation request.'),
+      status: z.literal('denied').default('denied')
+        .describe('Only "denied" is accepted. A human approves outside MCP.'),
       resolver: z.string().optional().describe('Who resolved the escalation (for audit trail).'),
       notes: z.string().optional().describe('Optional notes explaining the decision.'),
     }),
     execute: async ({
       escalation_id,
-      status,
       resolver,
       notes,
     }: {
       escalation_id: string;
-      status: ResolutionStatus;
+      status?: 'denied';
       resolver?: string;
       notes?: string;
     }): Promise<string> => {
+      // Hard-coded: the MCP client must never be able to approve its own escalation.
       const record = await escalationManager.resolveEscalation({
         id: escalation_id,
-        status,
+        status: 'denied',
         resolver,
         notes,
       });
@@ -66,11 +67,11 @@ export const permissionTools: MCPTool[] = [
         notes: record.notes,
         prompt: record.prompt,
         metadata: record.metadata,
-      }, null, 2);
+      });
     },
     metadata: {
-      requiredRole: 'admin',
-      escalationPrompt: 'Request approval to resolve a pending permission escalation.',
+      // Denying only removes access, so it needs no escalation (an 'admin' role here escalated itself forever).
+      requiredRole: 'edit',
     },
   },
 ];

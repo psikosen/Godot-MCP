@@ -13,7 +13,7 @@ export const multiplayerTools: MCPTool[] = [
     async execute(): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('get_multiplayer_state', {});
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',
@@ -35,6 +35,7 @@ export const multiplayerTools: MCPTool[] = [
       max_clients: z
         .number()
         .int()
+        .max(4095)
         .optional()
         .describe('Maximum concurrent clients when creating an ENet server.'),
       address: z
@@ -79,7 +80,7 @@ export const multiplayerTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('create_multiplayer_peer', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -92,7 +93,7 @@ export const multiplayerTools: MCPTool[] = [
     async execute(): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('teardown_multiplayer_peer', {});
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -129,7 +130,7 @@ export const multiplayerTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('spawn_multiplayer_scene', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',

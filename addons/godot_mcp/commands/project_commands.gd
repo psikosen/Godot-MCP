@@ -25,6 +25,21 @@ const PROJECT_SETTING_DENYLIST := [
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
+		"delete_project_file":
+			_delete_project_file(client_id, params, command_id)
+			return true
+		"move_project_file":
+			_move_project_file(client_id, params, command_id)
+			return true
+		"check_project":
+			_check_project(client_id, params, command_id)
+			return true
+		"find_unused_files":
+			_find_unused_files(client_id, params, command_id)
+			return true
+		"replace_in_project":
+			_replace_in_project(client_id, params, command_id)
+			return true
 		"get_project_info":
 			_get_project_info(client_id, params, command_id)
 			return true
@@ -198,31 +213,6 @@ func _list_project_files(client_id: int, params: Dictionary, command_id: String)
 		"files": files
 	}, command_id)
 
-func _scan_directory(dir: DirAccess, path: String, extensions: Array, files: Array) -> void:
-	dir.list_dir_begin()
-	var file_name = dir.get_next()
-	
-	while file_name != "":
-		if dir.current_is_dir():
-			var subdir = DirAccess.open("res://" + path + file_name)
-			if subdir:
-				_scan_directory(subdir, path + file_name + "/", extensions, files)
-		else:
-			var file_path = path + file_name
-			var has_valid_extension = extensions.is_empty()
-			
-			for ext in extensions:
-				if file_name.ends_with(ext):
-					has_valid_extension = true
-					break
-			
-			if has_valid_extension:
-				files.append("res://" + file_path)
-		
-		file_name = dir.get_next()
-	
-	dir.list_dir_end()
-
 func _get_project_structure(client_id: int, params: Dictionary, command_id: String) -> void:
 	var structure = {
 		"directories": [],
@@ -245,6 +235,9 @@ func _analyze_project_structure(dir: DirAccess, path: String, structure: Diction
 	while file_name != "":
 		if dir.current_is_dir():
 			var dir_path = path + file_name + "/"
+			if _is_ignored_dir(path + file_name, file_name):
+				file_name = dir.get_next()
+				continue
 			structure["directories"].append("res://" + dir_path)
 			
 			var subdir = DirAccess.open("res://" + dir_path)
@@ -291,9 +284,20 @@ func _get_project_settings(client_id: int, params: Dictionary, command_id: Strin
 	}
 	
 	# Get input mappings
-	var input_map = ProjectSettings.get_setting("input")
-	if input_map:
-		settings["input_map"] = input_map
+	# Actions are stored as separate "input/<name>" settings; there is no single "input" setting.
+	var input_map := {}
+	for property in ProjectSettings.get_property_list():
+		var key := str(property.get("name", ""))
+		if key.begins_with("input/"):
+			var action := key.trim_prefix("input/")
+			var setting = ProjectSettings.get_setting(key)
+			var events: Array = []
+			if typeof(setting) == TYPE_DICTIONARY:
+				for event in setting.get("events", []):
+					if event is InputEvent:
+						events.append(_serialize_input_event(event))
+			input_map[action] = {"deadzone": (setting.get("deadzone", 0.5) if typeof(setting) == TYPE_DICTIONARY else 0.5), "events": events}
+	settings["input_map"] = input_map
 	
 	_send_success(client_id, settings, command_id)
 
@@ -322,13 +326,13 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 	for bus_index in range(bus_count):
 		var bus_data := {
 			"index": bus_index,
-			"name": String(AudioServer.get_bus_name(bus_index)),
+			"name": str(AudioServer.get_bus_name(bus_index)),
 			"channels": AudioServer.get_bus_channels(bus_index),
 			"volume_db": AudioServer.get_bus_volume_db(bus_index),
 			"solo": AudioServer.is_bus_solo(bus_index),
 			"mute": AudioServer.is_bus_mute(bus_index),
 			"bypass_effects": AudioServer.is_bus_bypassing_effects(bus_index),
-			"send": String(AudioServer.get_bus_send(bus_index)),
+			"send": str(AudioServer.get_bus_send(bus_index)),
 			"effects": []
 		}
 
@@ -362,7 +366,7 @@ func _list_audio_buses(client_id: int, _params: Dictionary, command_id: String) 
 	_send_success(client_id, layout, command_id)
 
 func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String) -> void:
-	var bus_name := String(params.get("bus_name", ""))
+	var bus_name := str(params.get("bus_name", ""))
 	var bus_index := int(params.get("bus_index", -1))
 
 	if not bus_name.is_empty():
@@ -380,10 +384,16 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 		return
 
 	var applied_changes := {}
+	# Check the send target before changing anything: an unknown bus name was stored and listed.
+	if params.has("send"):
+		var requested_send := str(params["send"])
+		if not requested_send.is_empty() and AudioServer.get_bus_index(requested_send) == -1:
+			_send_error(client_id, "Audio bus not found for send: %s" % requested_send, command_id)
+			return
 	var change_count := 0
 
 	if params.has("new_name"):
-		var new_name := String(params["new_name"])
+		var new_name := str(params["new_name"])
 		if new_name.is_empty():
 			_log("New audio bus name cannot be empty", "_configure_audio_bus", {"bus_index": bus_index}, true)
 			_send_error(client_id, "New audio bus name cannot be empty", command_id)
@@ -418,7 +428,7 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 		change_count += 1
 
 	if params.has("send"):
-		var target_send := String(params["send"])
+		var target_send := str(params["send"])
 		AudioServer.set_bus_send(bus_index, target_send)
 		applied_changes["send"] = target_send
 		change_count += 1
@@ -468,8 +478,8 @@ func _configure_audio_bus(client_id: int, params: Dictionary, command_id: String
 
 	if persist:
 		var bus_layout := AudioServer.generate_bus_layout()
-		var layout_path := String(ProjectSettings.get_setting("audio/bus_layout/path", "res://default_bus_layout.tres"))
-		var save_error := ResourceSaver.save(bus_layout, layout_path)
+		var layout_path := str(ProjectSettings.get_setting("audio/bus_layout/path", "res://default_bus_layout.tres"))
+		var save_error := _save_resource_contained(bus_layout, layout_path)
 		if save_error != OK:
 			_log("Failed to persist audio bus layout", "_configure_audio_bus", {
 				"bus_index": bus_index,
@@ -522,24 +532,33 @@ func _add_input_action(client_id: int, params: Dictionary, command_id: String) -
 	if action_name.is_empty():
 		return _send_error(client_id, "Action name cannot be empty", command_id)
 
-	if InputMap.has_action(action_name):
-		if not overwrite_existing:
-			return _send_error(client_id, "Input action %s already exists" % action_name, command_id)
-		InputMap.erase_action(action_name)
+	if typeof(events_param) != TYPE_ARRAY:
+		return _send_error(client_id, "events must be an array", command_id)
 
+	if InputMap.has_action(action_name) and not overwrite_existing:
+		return _send_error(client_id, "Input action %s already exists" % action_name, command_id)
+
+	# Validate every event before touching InputMap so a bad one cannot leave a half-built action.
+	var parsed_events := []
+	for event_data in events_param:
+		if typeof(event_data) != TYPE_DICTIONARY:
+			return _send_error(client_id, "Each event definition must be a dictionary", command_id)
+		var event = _deserialize_input_event(event_data)
+		if not event:
+			return _send_error(client_id, "Unsupported input event definition: %s" % str(event_data.get("type", "")), command_id)
+		parsed_events.append(event)
+
+	if InputMap.has_action(action_name):
+		InputMap.erase_action(action_name)
 	InputMap.add_action(action_name, deadzone)
 
 	var added_events := []
-	for event_data in events_param:
-		if typeof(event_data) != TYPE_DICTIONARY:
-			continue
-		var event = _deserialize_input_event(event_data)
-		if event:
-			InputMap.action_add_event(action_name, event)
-			added_events.append(_serialize_input_event(event))
+	for event in parsed_events:
+		InputMap.action_add_event(action_name, event)
+		added_events.append(_serialize_input_event(event))
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	_log("Added input action", "_add_input_action", {
 		"action_name": action_name,
@@ -568,7 +587,7 @@ func _remove_input_action(client_id: int, params: Dictionary, command_id: String
 	InputMap.erase_action(action_name)
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	_log("Removed input action", "_remove_input_action", {
 		"action_name": action_name,
@@ -601,7 +620,7 @@ func _add_input_event_to_action(client_id: int, params: Dictionary, command_id: 
 	InputMap.action_add_event(action_name, event)
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	var serialized_event = _serialize_input_event(event)
 	_log("Added input event", "_add_input_event_to_action", {
@@ -618,7 +637,9 @@ func _add_input_event_to_action(client_id: int, params: Dictionary, command_id: 
 
 func _remove_input_event_from_action(client_id: int, params: Dictionary, command_id: String) -> void:
 	var action_name: String = params.get("action_name", "")
-	var event_index = params.get("event_index", -1)
+	# JSON numbers arrive as float, so accept any number.
+	var event_index_raw = params.get("event_index", -1)
+	var event_index: int = int(event_index_raw) if (event_index_raw is int or event_index_raw is float) else -1
 	var event_data = params.get("event", null)
 	var persistent: bool = params.get("persistent", true)
 
@@ -634,7 +655,10 @@ func _remove_input_event_from_action(client_id: int, params: Dictionary, command
 
 	var removed_event: InputEvent = null
 
-	if event_index is int and event_index >= 0 and event_index < events.size():
+	if event_index >= events.size():
+		return _send_error(client_id, "event_index %d out of range: action %s has %d event(s)" % [event_index, action_name, events.size()], command_id)
+
+	if event_index >= 0:
 		removed_event = events[event_index]
 	elif typeof(event_data) == TYPE_DICTIONARY:
 		for existing_event in events:
@@ -646,9 +670,17 @@ func _remove_input_event_from_action(client_id: int, params: Dictionary, command
 		return _send_error(client_id, "No matching input event found for action %s" % action_name, command_id)
 
 	InputMap.action_erase_event(action_name, removed_event)
+	if InputMap.action_get_events(action_name).has(removed_event):
+		# action_erase_event can miss some event types (e.g. mouse motion); rebuild the list instead.
+		var keep := InputMap.action_get_events(action_name).filter(func(e): return e != removed_event)
+		InputMap.action_erase_events(action_name)
+		for kept_event in keep:
+			InputMap.action_add_event(action_name, kept_event)
+		if InputMap.action_get_events(action_name).has(removed_event):
+			return _send_error(client_id, "Failed to remove input event from action %s" % action_name, command_id)
 
 	if persistent:
-		ProjectSettings.save()
+		_persist_input_action(action_name)
 
 	var serialized = _serialize_input_event(removed_event)
 	_log("Removed input event", "_remove_input_event_from_action", {
@@ -693,6 +725,9 @@ func _scan_resources(dir: DirAccess, path: String, resources: Dictionary) -> voi
 	
 	dir.list_dir_end()
 
+func _vec2_dict(v: Vector2) -> Dictionary:
+	return {"x": v.x, "y": v.y}
+
 func _serialize_input_event(event: InputEvent) -> Dictionary:
 	var data := {
 		"type": event.get_class(),
@@ -712,8 +747,8 @@ func _serialize_input_event(event: InputEvent) -> Dictionary:
 		data["button_index"] = event.button_index
 		data["pressed"] = event.pressed
 		data["double_click"] = event.double_click
-		data["position"] = event.position
-		data["global_position"] = event.global_position
+		data["position"] = _vec2_dict(event.position)
+		data["global_position"] = _vec2_dict(event.global_position)
 		data["alt_pressed"] = event.alt_pressed
 		data["ctrl_pressed"] = event.ctrl_pressed
 		data["shift_pressed"] = event.shift_pressed
@@ -726,11 +761,27 @@ func _serialize_input_event(event: InputEvent) -> Dictionary:
 		data["axis"] = event.axis
 		data["axis_value"] = event.axis_value
 	elif event is InputEventMouseMotion:
-		data["relative"] = event.relative
-		data["velocity"] = event.velocity
+		data["position"] = _vec2_dict(event.position)
+		data["global_position"] = _vec2_dict(event.global_position)
+		data["relative"] = _vec2_dict(event.relative)
+		data["velocity"] = _vec2_dict(event.velocity)
 		data["pressed_buttons"] = event.button_mask
 
 	return data
+
+# InputMap is runtime state; project.godot stores actions as "input/<name>" settings, so saving
+# without mirroring them wrote nothing. Copy the action into its setting (or clear it), then save.
+func _persist_input_action(action_name: String, save: bool = true) -> void:
+	var key := "input/" + action_name
+	if InputMap.has_action(action_name):
+		ProjectSettings.set_setting(key, {
+			"deadzone": InputMap.action_get_deadzone(action_name),
+			"events": InputMap.action_get_events(action_name),
+		})
+	else:
+		ProjectSettings.set_setting(key, null)
+	if save:
+		ProjectSettings.save()
 
 func _deserialize_input_event(data: Dictionary) -> InputEvent:
 	var type_name: String = data.get("type", "")
@@ -750,13 +801,14 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 			key_event.meta_pressed = data.get("meta_pressed", false)
 			return key_event
 		"inputeventmousebutton", "mouse_button":
+			# JSON sends Vector2 fields as {"x":..,"y":..} or [x, y]; coerce before assigning.
 			var mouse_button := InputEventMouseButton.new()
 			mouse_button.device = data.get("device", -1)
 			mouse_button.button_index = data.get("button_index", 0)
 			mouse_button.pressed = data.get("pressed", true)
 			mouse_button.double_click = data.get("double_click", false)
-			mouse_button.position = data.get("position", Vector2.ZERO)
-			mouse_button.global_position = data.get("global_position", Vector2.ZERO)
+			mouse_button.position = _coerce_to_vector2(data.get("position", Vector2.ZERO))
+			mouse_button.global_position = _coerce_to_vector2(data.get("global_position", Vector2.ZERO))
 			mouse_button.alt_pressed = data.get("alt_pressed", false)
 			mouse_button.ctrl_pressed = data.get("ctrl_pressed", false)
 			mouse_button.shift_pressed = data.get("shift_pressed", false)
@@ -778,23 +830,27 @@ func _deserialize_input_event(data: Dictionary) -> InputEvent:
 		"inputeventmousemotion", "mouse_motion":
 			var mouse_motion := InputEventMouseMotion.new()
 			mouse_motion.device = data.get("device", -1)
-			mouse_motion.relative = data.get("relative", Vector2.ZERO)
-			mouse_motion.velocity = data.get("velocity", Vector2.ZERO)
+			mouse_motion.position = _coerce_to_vector2(data.get("position", Vector2.ZERO))
+			mouse_motion.global_position = _coerce_to_vector2(data.get("global_position", Vector2.ZERO))
+			mouse_motion.relative = _coerce_to_vector2(data.get("relative", Vector2.ZERO))
+			mouse_motion.velocity = _coerce_to_vector2(data.get("velocity", Vector2.ZERO))
 			return mouse_motion
 
 	_log("Unsupported input event type", "_deserialize_input_event", {"type": type_name}, true)
 	return null
 
+func _normalize_event_type(type_name: String) -> String:
+	return type_name.strip_edges().to_lower().trim_prefix("inputevent").replace("_", "")
+
 func _event_matches(event: InputEvent, criteria: Dictionary) -> bool:
 	var serialized := _serialize_input_event(event)
 	for key in criteria.keys():
+		if key == "type":
+			# Serialized type is the class name; accept aliases like "key" / "mouse_button".
+			if _normalize_event_type(str(serialized["type"])) != _normalize_event_type(str(criteria[key])):
+				return false
+			continue
 		if not serialized.has(key):
-			if key == "type":
-				var event_type := String(serialized.get("type", "")).to_lower()
-				var criteria_type := String(criteria[key]).to_lower()
-				if event_type != criteria_type and not event_type.ends_with(criteria_type):
-					return false
-				continue
 			return false
 
 		if serialized[key] != criteria[key]:
@@ -830,6 +886,20 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 	var events_removed: Array = []
 	var processed_actions: Dictionary = {}
 
+	# Validate everything first so a bad entry cannot leave InputMap half-modified.
+	for action_entry in actions_param:
+		if typeof(action_entry) != TYPE_DICTIONARY:
+			return _send_error(client_id, "Each action definition must be a dictionary", command_id)
+		if str(action_entry.get("name", "")).is_empty():
+			return _send_error(client_id, "Action definitions require a name", command_id)
+		var check_events = action_entry.get("events", [])
+		if typeof(check_events) == TYPE_ARRAY and not action_entry.get("remove", false):
+			for check_event in check_events:
+				if typeof(check_event) != TYPE_DICTIONARY:
+					return _send_error(client_id, "Event definitions must be dictionaries", command_id)
+				if not _deserialize_input_event(check_event):
+					return _send_error(client_id, "Unsupported input event definition", command_id)
+
 	for action_entry in actions_param:
 		if typeof(action_entry) != TYPE_DICTIONARY:
 			return _send_error(client_id, "Each action definition must be a dictionary", command_id)
@@ -852,7 +922,7 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 			continue
 
 		if not InputMap.has_action(action_name):
-			InputMap.add_action(action_name)
+			InputMap.add_action(action_name, 0.5)  # same default deadzone as add_input_action
 			created_actions.append(action_name)
 
 		var desired_events: Array = []
@@ -910,6 +980,10 @@ func _configure_input_action_context(client_id: int, params: Dictionary, command
 			context_state.erase(action_name)
 
 	if persistent:
+		for persisted_name in processed_actions.keys():
+			_persist_input_action(str(persisted_name), false)
+		for persisted_name in removed_actions:
+			_persist_input_action(str(persisted_name), false)
 		ProjectSettings.set_setting(context_setting_path, context_state)
 		ProjectSettings.save()
 
@@ -968,6 +1042,10 @@ func _coerce_project_setting_value(previous_value, new_value, params: Dictionary
 		var parsed_value = _parse_property_value(new_value)
 		if typeof(parsed_value) == expected_type:
 			return parsed_value
+		if expected_type == TYPE_INT and new_value.is_valid_int():
+			return new_value.to_int()
+		if expected_type == TYPE_FLOAT and new_value.is_valid_float():
+			return new_value.to_float()
 		if expected_type == TYPE_BOOL:
 			var lowered = new_value.to_lower()
 			if lowered in ["true", "1", "yes", "on"]:
@@ -989,12 +1067,12 @@ func _coerce_project_setting_value(previous_value, new_value, params: Dictionary
 	if expected_type == TYPE_PACKED_STRING_ARRAY and provided_type == TYPE_ARRAY:
 		var psa := PackedStringArray()
 		for entry in new_value:
-			psa.append(String(entry))
+			psa.append(str(entry))
 		return psa
 	if expected_type == TYPE_ARRAY and provided_type == TYPE_PACKED_STRING_ARRAY:
 		return new_value
 	if expected_type == TYPE_STRING:
-		return String(new_value)
+		return str(new_value)
 
 	return new_value
 
@@ -1016,7 +1094,7 @@ func _coerce_with_hint(new_value, type_hint: String):
 				return abs(float(new_value)) > 0.0
 			return bool(new_value)
 		"string":
-			return String(new_value)
+			return str(new_value)
 		"array":
 			if typeof(new_value) == TYPE_ARRAY:
 				return new_value
@@ -1069,3 +1147,244 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
+
+
+
+# Moves one project file (plus its .import/.uid sidecars) to the system Trash, so it can be
+# restored. Reports the files that still refer to it, since Godot does not fix those up.
+func _delete_project_file(client_id: int, params: Dictionary, command_id: String) -> void:
+	var requested := str(params.get("path", ""))
+	var path := _contained_res_path(requested)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://): %s" % requested, command_id)
+	if _is_protected_path(path):
+		return _send_error(client_id, "%s is protected and cannot be deleted" % path, command_id)
+	if DirAccess.dir_exists_absolute(path):
+		return _send_error(client_id, "%s is a folder; delete the files in it one at a time" % path, command_id)
+	if not FileAccess.file_exists(path):
+		return _send_error(client_id, "File not found: %s" % path, command_id)
+	var edited := EditorInterface.get_edited_scene_root()
+	if edited and edited.scene_file_path == path:
+		return _send_error(client_id, "%s is the open scene; open another scene first" % path, command_id)
+
+	var needles: Array = [path]
+	var uid: int = ResourceLoader.get_resource_uid(path)
+	if uid != ResourceUID.INVALID_ID:
+		needles.append(ResourceUID.id_to_text(uid))
+	var candidates: Array = []
+	_scan_directory(DirAccess.open("res://"), "", [".tscn", ".tres", ".gd", ".gdshader", ".cfg", "project.godot"], candidates)
+	var referenced_by: Array = []
+	for candidate in candidates:
+		if candidate == path or referenced_by.size() >= 20:
+			continue
+		var text := FileAccess.get_file_as_string(candidate)
+		for needle in needles:
+			if text.contains(needle):
+				referenced_by.append(candidate)
+				break
+
+	var trashed: Array = []
+	for file_path in [path, path + ".import", path + ".uid"]:
+		if FileAccess.file_exists(file_path):
+			var err := OS.move_to_trash(ProjectSettings.globalize_path(file_path))
+			if err != OK:
+				return _send_error(client_id, "Could not move %s to the Trash: %s (moved so far: %s)" % [file_path, error_string(err), trashed], command_id)
+			trashed.append(file_path)
+	EditorInterface.get_resource_filesystem().scan()
+	_send_success(client_id, {
+		"path": path,
+		"trashed": trashed,
+		"still_referenced_by": referenced_by,
+	}, command_id)
+
+
+# Moves or renames one file with its .import/.uid sidecars, then rewrites quoted references to the
+# old path in scenes, resources, scripts and project.godot (UIDs alone miss preload("res://...")).
+func _move_project_file(client_id: int, params: Dictionary, command_id: String) -> void:
+	var from := _contained_res_path(str(params.get("from_path", "")))
+	var to := _contained_res_path(str(params.get("to_path", "")))
+	if from.is_empty() or to.is_empty():
+		return _send_error(client_id, "from_path and to_path must stay inside the project (res://)", command_id)
+	if _is_protected_path(from) or _is_protected_path(to):
+		return _send_error(client_id, "MCP-critical paths cannot be moved: %s -> %s" % [from, to], command_id)
+	if DirAccess.dir_exists_absolute(from):
+		return _send_error(client_id, "%s is a folder; move the files in it one at a time" % from, command_id)
+	if not FileAccess.file_exists(from):
+		return _send_error(client_id, "File not found: %s" % from, command_id)
+	if FileAccess.file_exists(to) or DirAccess.dir_exists_absolute(to):
+		return _send_error(client_id, "%s already exists" % to, command_id)
+	if from.get_extension().to_lower() != to.get_extension().to_lower():
+		return _send_error(client_id, "Keep the file extension (.%s); Godot picks the loader from it" % from.get_extension(), command_id)
+	var edited := EditorInterface.get_edited_scene_root()
+	if edited and edited.scene_file_path == from:
+		return _send_error(client_id, "%s is the open scene; open another scene first" % from, command_id)
+
+	DirAccess.make_dir_recursive_absolute(to.get_base_dir())
+	var uid: int = ResourceLoader.get_resource_uid(from)
+	var moved: Array = []
+	for suffix in ["", ".import", ".uid"]:
+		if FileAccess.file_exists(from + suffix):
+			var err := DirAccess.rename_absolute(from + suffix, to + suffix)
+			if err != OK:
+				return _send_error(client_id, "Could not move %s: %s (moved so far: %s)" % [from + suffix, error_string(err), moved], command_id)
+			moved.append(to + suffix)
+
+	var candidates: Array = []
+	_scan_directory(DirAccess.open("res://"), "", [".tscn", ".tres", ".gd", ".gdshader", ".cfg", ".import", "project.godot"], candidates)
+	var updated: Array = []
+	for candidate in candidates:
+		var text := FileAccess.get_file_as_string(candidate)
+		# A reference is the full path right before a closing quote: path="...", preload('...').
+		var rewritten := text.replace(from + "\"", to + "\"").replace(from + "'", to + "'")
+		if rewritten == text:
+			continue
+		var file := FileAccess.open(candidate, FileAccess.WRITE)
+		if file == null:
+			continue
+		file.store_string(rewritten)
+		updated.append(candidate)
+	if uid != ResourceUID.INVALID_ID:
+		ResourceUID.set_id(uid, to)
+	if ResourceLoader.has_cached(from):
+		ResourceLoader.load(from).take_over_path(to)
+	EditorInterface.get_resource_filesystem().scan()
+	_send_success(client_id, {"from_path": from, "to_path": to, "moved": moved, "updated_references": updated}, command_id)
+
+
+const ASSET_EXTENSIONS := [".png", ".jpg", ".jpeg", ".webp", ".svg", ".wav", ".ogg", ".mp3", ".ttf", ".otf", ".woff2",
+	".glb", ".gltf", ".obj", ".fbx", ".tscn", ".tres", ".gd", ".gdshader"]
+const REFERENCE_EXTENSIONS := [".tscn", ".tres", ".gd", ".gdshader", ".cfg", "project.godot"]
+
+
+func _project_files(extensions: Array, include_addons: bool) -> Array:
+	var files: Array = []
+	_scan_directory(DirAccess.open("res://"), "", extensions, files)
+	return files if include_addons else files.filter(func(path): return not str(path).begins_with("res://addons/"))
+
+
+# One pass over the project for what usually breaks a game: missing files behind scene/resource
+# links, scripts that do not compile, input actions scripts use but the project does not define.
+func _check_project(client_id: int, params: Dictionary, command_id: String) -> void:
+	var include_addons: bool = params.get("include_addons", false)
+	var issues: Array = []
+	var main_scene := str(ProjectSettings.get_setting("application/run/main_scene", ""))
+	if main_scene.is_empty():
+		issues.append("warning: project.godot: no main scene (configure_game_settings main_scene)")
+	elif not _resource_exists(main_scene):
+		issues.append("error: project.godot: main scene %s is missing" % main_scene)
+	for info in ProjectSettings.get_property_list():
+		var setting := str(info["name"])
+		if setting.begins_with("autoload/"):
+			var target := str(ProjectSettings.get_setting(setting)).trim_prefix("*")
+			if not _resource_exists(target):
+				issues.append("error: project.godot: autoload %s points to missing %s" % [setting.trim_prefix("autoload/"), target])
+
+	var link := RegEx.create_from_string("\\[ext_resource[^\\]]*?(?:uid=\"(uid://[^\"]+)\")?[^\\]]*?path=\"([^\"]+)\"")
+	for path in _project_files([".tscn", ".tres"], include_addons):
+		for found in link.search_all(FileAccess.get_file_as_string(path)):
+			var target := found.get_string(2)
+			var uid := found.get_string(1)
+			if not _resource_exists(target) and not (not uid.is_empty() and _resource_exists(uid)):
+				issues.append("error: %s: links to missing %s" % [path, target])
+
+	var action_call := RegEx.create_from_string("(?:is_action_pressed|is_action_just_pressed|is_action_just_released|is_action_released|get_action_strength|get_action_raw_strength|get_axis|get_vector|action_press|action_release|is_action)\\(([^)]*)\\)")
+	var quoted := RegEx.create_from_string("[\"']([A-Za-z0-9_]+)[\"']")
+	var missing_actions := {}
+	for path in _project_files([".gd"], include_addons):
+		var compile_error := _gdscript_compile_error(path, false)
+		if not compile_error.is_empty():
+			issues.append("error: %s: does not compile: %s" % [path, compile_error])
+		for action_match in action_call.search_all(FileAccess.get_file_as_string(path)):
+			for name_match in quoted.search_all(action_match.get_string(1)):
+				var action := name_match.get_string(1)
+				if not action.begins_with("ui_") and not ProjectSettings.has_setting("input/" + action):
+					missing_actions[action] = missing_actions.get(action, []) + [path.get_file()]
+	for action in missing_actions:
+		issues.append("error: input action \"%s\" is used in %s but not defined (add_input_action)" % [action, ", ".join(PackedStringArray(missing_actions[action]))])
+	var errors := issues.filter(func(issue): return str(issue).begins_with("error"))
+	_send_success(client_id, {"issues": issues.slice(0, 200), "error_count": errors.size(), "warning_count": issues.size() - errors.size()}, command_id)
+
+
+func _resource_exists(path: String) -> bool:
+	if path.begins_with("uid://"):
+		var id := ResourceUID.text_to_id(path)
+		return ResourceUID.has_id(id) and FileAccess.file_exists(ResourceUID.get_id_path(id))
+	return FileAccess.file_exists(path)
+
+
+# Files nothing points to: no scene, resource, script or project setting names their path or UID.
+# Scripts that build paths at runtime ("res://levels/%d.tscn") cannot be seen, so review the list.
+func _find_unused_files(client_id: int, params: Dictionary, command_id: String) -> void:
+	var include_addons: bool = params.get("include_addons", false)
+	var texts := {}
+	for path in _project_files(REFERENCE_EXTENSIONS, true):
+		texts[path] = FileAccess.get_file_as_string(path)
+	var unused: Array = []
+	var total_bytes := 0
+	var entry_point := RegEx.create_from_string("(?m)^extends\\s+(SceneTree|MainLoop|EditorScript)\\b")
+	for path in _project_files(ASSET_EXTENSIONS, include_addons):
+		# Test and tool scripts run with --script or from the editor, not through references.
+		if path.ends_with(".gd") and entry_point.search(FileAccess.get_file_as_string(path)) != null:
+			continue
+		var needles: Array = [path]
+		var uid: int = ResourceLoader.get_resource_uid(path)
+		if uid != ResourceUID.INVALID_ID:
+			needles.append(ResourceUID.id_to_text(uid))
+		var used := false
+		for other in texts:
+			if other == path:
+				continue
+			for needle in needles:
+				if texts[other].contains(needle):
+					used = true
+					break
+			if used:
+				break
+		if not used:
+			var bytes := FileAccess.get_file_as_bytes(path).size()
+			total_bytes += bytes
+			unused.append("%s (%s)" % [path, String.humanize_size(bytes)])
+	_send_success(client_id, {"unused": unused, "total": String.humanize_size(total_bytes)}, command_id)
+
+
+# Find and replace across project text files. Preview by default (dry_run); applying it
+# compile-checks every changed script.
+func _replace_in_project(client_id: int, params: Dictionary, command_id: String) -> void:
+	var find := str(params.get("find", ""))
+	if find.is_empty():
+		return _send_error(client_id, "find cannot be empty", command_id)
+	var replace := str(params.get("replace", ""))
+	var dry_run: bool = params.get("dry_run", true)
+	var regex: RegEx = null
+	if params.get("regex", false):
+		regex = RegEx.create_from_string(find)
+		if not regex.is_valid():
+			return _send_error(client_id, "Invalid regular expression: %s" % find, command_id)
+	var extensions: Array = params.get("extensions", [".gd"])
+	var changes: Array = []
+	var changed_scripts: Array = []
+	for path in _project_files(extensions, params.get("include_addons", false)):
+		if _is_protected_path(path):
+			continue
+		var text := FileAccess.get_file_as_string(path)
+		var count: int = regex.search_all(text).size() if regex else text.count(find)
+		if count == 0:
+			continue
+		changes.append("%s: %d" % [path, count])
+		if dry_run:
+			continue
+		var file := FileAccess.open(path, FileAccess.WRITE)
+		if file == null:
+			return _send_error(client_id, "Failed to write %s (changed so far: %s)" % [path, changes], command_id)
+		file.store_string(regex.sub(text, replace, true) if regex else text.replace(find, replace))
+		file = null
+		if path.ends_with(".gd"):
+			changed_scripts.append(path)
+	var compile_errors: Array = []
+	for path in changed_scripts:
+		var compile_error := _gdscript_compile_error(path)
+		if not compile_error.is_empty():
+			compile_errors.append("%s: %s" % [path, compile_error])
+	if not dry_run and not changes.is_empty():
+		EditorInterface.get_resource_filesystem().scan()
+	_send_success(client_id, {"dry_run": dry_run, "files": changes, "compile_errors": compile_errors}, command_id)

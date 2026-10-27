@@ -4,6 +4,13 @@ extends "res://addons/godot_mcp/commands/base_command_processor.gd"
 
 const LOG_FILENAME := "addons/godot_mcp/commands/rendering_commands.gd"
 const DEFAULT_SYSTEM_SECTION := "rendering_commands"
+const SHADER_PROBE_UNIFORM := "mcp_compile_probe"
+# Godot 4 Environment has no fog_sun_color/fog_sun_amount; sun-scattered fog uses the fog light color/energy.
+const SUN_PROPERTY_MAP := {
+	"color": "fog_light_color",
+	"amount": "fog_light_energy",
+	"scatter": "fog_sun_scatter",
+}
 
 var SceneTransactionManager = preload("res://addons/godot_mcp/utils/scene_transaction_manager.gd")
 
@@ -122,9 +129,15 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 
 	if typeof(overrides) == TYPE_DICTIONARY:
 		for property_name in overrides.keys():
-			var parsed_value = _parse_property_value(overrides[property_name])
+			if _get_property_info(variant, property_name).is_empty():
+				return _send_error(client_id, "%s has no property %s" % [variant.get_class(), property_name], command_id)
+			# Coerce to the property's type: comparing a Color with a Dictionary errored (20s hang).
+			var parsed_value = _convert_property_value(variant, property_name, overrides[property_name])
+			var value_error := _property_value_error(variant, property_name, parsed_value)
+			if not value_error.is_empty():
+				return _send_error(client_id, value_error, command_id)
 			var previous_value = variant.get(property_name)
-			if previous_value != parsed_value:
+			if typeof(previous_value) != typeof(parsed_value) or previous_value != parsed_value:
 				variant.set(property_name, parsed_value)
 				changes.append({
 					"type": "property",
@@ -133,10 +146,25 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 					"value": parsed_value,
 				})
 
-	if typeof(shader_parameters) == TYPE_DICTIONARY and variant is ShaderMaterial:
+	if typeof(shader_parameters) == TYPE_DICTIONARY and not shader_parameters.is_empty():
+		if not (variant is ShaderMaterial):
+			return _send_error(client_id, "shader_parameters need a ShaderMaterial; %s has no shader uniforms (use overrides)" % variant.get_class(), command_id)
 		var shader_material: ShaderMaterial = variant
+		# Convert each value to its uniform's type: a raw dict/array for a color uniform was stored as null.
+		var uniform_types := {}
+		if shader_material.shader != null:
+			for uniform in shader_material.shader.get_shader_uniform_list():
+				uniform_types[str(uniform.get("name", ""))] = int(uniform.get("type", TYPE_NIL))
 		for parameter_name in shader_parameters.keys():
-			var parsed: Variant = _parse_property_value(shader_parameters[parameter_name])
+			if not uniform_types.has(str(parameter_name)):
+				return _send_error(client_id, "Shader has no uniform %s" % parameter_name, command_id)
+			var expected_type: int = uniform_types[str(parameter_name)]
+			var parsed: Variant = _coerce_value_to_type(shader_parameters[parameter_name], expected_type)
+			var numeric := [TYPE_INT, TYPE_FLOAT]
+			if expected_type != TYPE_NIL and typeof(parsed) != expected_type \
+					and not (expected_type in numeric and typeof(parsed) in numeric) \
+					and not (expected_type == TYPE_OBJECT and (parsed == null or parsed is Object)):
+				return _send_error(client_id, "Shader uniform %s expects %s, got %s" % [parameter_name, type_string(expected_type), JSON.stringify(shader_parameters[parameter_name])], command_id)
 			var previous = shader_material.get_shader_parameter(parameter_name)
 			shader_material.set_shader_parameter(parameter_name, parsed)
 			changes.append({
@@ -164,7 +192,22 @@ func _generate_material_variant(client_id: int, params: Dictionary, command_id: 
 					if loaded_value is Texture2D:
 						texture = loaded_value
 
-			if texture != null and variant.has_method("set"):
+			if texture == null:
+				return _send_error(client_id, "texture_overrides.%s is not a loadable Texture2D: %s" % [slot, str(value)], command_id)
+			# ShaderMaterial texture slots are sampler uniforms, not properties.
+			if variant is ShaderMaterial and _get_property_info(variant, str(slot)).is_empty():
+				var uniform_names: Array = []
+				if variant.shader != null:
+					uniform_names = variant.shader.get_shader_uniform_list().map(func(u): return str(u.get("name", "")))
+				if not str(slot) in uniform_names:
+					return _send_error(client_id, "Shader has no uniform %s" % slot, command_id)
+				var previous_uniform = variant.get_shader_parameter(slot)
+				variant.set_shader_parameter(slot, texture)
+				changes.append({"type": "texture", "property": slot, "previous": previous_uniform, "value": texture.resource_path})
+				continue
+			if _get_property_info(variant, str(slot)).is_empty():
+				return _send_error(client_id, "%s has no texture slot %s" % [variant.get_class(), slot], command_id)
+			if variant.has_method("set"):
 				var previous_texture = variant.get(slot)
 				variant.set(slot, texture)
 				changes.append({
@@ -209,22 +252,33 @@ func _compile_shader_preview(client_id: int, params: Dictionary, command_id: Str
 	var shader_code := params.get("shader_code", "")
 	var shader_path := params.get("shader_path", "")
 
-	var shader: Shader = null
-	if shader_code != "":
-		shader = Shader.new()
-		shader.code = shader_code
-	elif shader_path != "":
-		var loaded = ResourceUtils.safe_load(shader_path)
-		if loaded is Shader:
-			shader = loaded
-			shader_code = shader.code
-	if shader == null:
+	if shader_code == "" and shader_path == "":
 		_log("shader_code or shader_path is required", "_compile_shader_preview", {"system_section": "shader", "line_num": 0}, true)
 		return _send_error(client_id, "Provide shader_code or shader_path", command_id)
+	if shader_code == "" and not ResourceLoader.exists(shader_path):
+		return _send_error(client_id, "Shader file not found: %s" % shader_path, command_id)
+
+	if shader_code == "":
+		var loaded = ResourceLoader.load(shader_path)
+		if not (loaded is Shader):
+			return _send_error(client_id, "Resource at %s is not a Shader" % shader_path, command_id)
+		shader_code = loaded.code
+
+	# The renderer reports compile errors only in the output log (not to scripts or custom
+	# Loggers) and then exposes no uniforms, so compile with an extra probe uniform:
+	# if it is missing, compilation failed.
+	var shader := Shader.new()
+	shader.code = "%s\nuniform float %s;\n" % [shader_code, SHADER_PROBE_UNIFORM]
+	var compiled := false
+	for uniform_dict in shader.get_shader_uniform_list(true):
+		if typeof(uniform_dict) == TYPE_DICTIONARY and uniform_dict.get("name", "") == SHADER_PROBE_UNIFORM:
+			compiled = true
+	if not compiled:
+		return _send_error(client_id, "Shader compilation failed; see the Godot output log for the error line", command_id)
 
 	var uniform_list := []
 	for uniform_dict in shader.get_shader_uniform_list(true):
-		if typeof(uniform_dict) == TYPE_DICTIONARY:
+		if typeof(uniform_dict) == TYPE_DICTIONARY and uniform_dict.get("name", "") != SHADER_PROBE_UNIFORM:
 			uniform_list.append(uniform_dict.duplicate(true))
 
 	var default_textures := []
@@ -293,15 +347,7 @@ func _unwrap_lightmap_uv2(client_id: int, params: Dictionary, command_id: String
 	if mesh == null:
 		return _send_error(client_id, "Mesh could not be resolved", command_id)
 
-	var array_mesh: ArrayMesh = null
-	if mesh is ArrayMesh:
-		array_mesh = mesh
-	else:
-		array_mesh = ArrayMesh.new()
-		for surface_index in mesh.get_surface_count():
-			var arrays = mesh.surface_get_arrays(surface_index)
-			var blend_shapes = mesh.surface_get_blend_shape_arrays(surface_index)
-			array_mesh.add_surface_from_arrays(mesh.surface_get_primitive_type(surface_index), arrays, blend_shapes)
+	var array_mesh := _to_array_mesh(mesh)
 
 	var unwrap_result = array_mesh.lightmap_unwrap(transform, texel_size)
 	if unwrap_result != OK:
@@ -435,7 +481,22 @@ func _optimize_mesh_lods(client_id: int, params: Dictionary, command_id: String)
 		"lods": lod_results,
 	}, command_id)
 
-func _generate_lod_mesh(mesh: Mesh, ratio: float) -> ArrayMesh:
+# Only ArrayMesh has surface_get_primitive_type; PrimitiveMesh (BoxMesh, ...) surfaces are triangle lists.
+func _to_array_mesh(mesh: Mesh) -> ArrayMesh:
+	if mesh is ArrayMesh:
+		return mesh
+	var array_mesh := ArrayMesh.new()
+	for surface_index in mesh.get_surface_count():
+		array_mesh.add_surface_from_arrays(
+			Mesh.PRIMITIVE_TRIANGLES,
+			mesh.surface_get_arrays(surface_index),
+			mesh.surface_get_blend_shape_arrays(surface_index)
+		)
+		array_mesh.surface_set_material(surface_index, mesh.surface_get_material(surface_index))
+	return array_mesh
+
+func _generate_lod_mesh(source_mesh: Mesh, ratio: float) -> ArrayMesh:
+	var mesh := _to_array_mesh(source_mesh)
 	var result := ArrayMesh.new()
 	for surface_index in mesh.get_surface_count():
 		var arrays: Array = mesh.surface_get_arrays(surface_index)
@@ -446,17 +507,21 @@ func _generate_lod_mesh(mesh: Mesh, ratio: float) -> ArrayMesh:
 		result.add_surface_from_arrays(primitive, new_arrays, mesh.surface_get_blend_shape_arrays(surface_index))
 	return result
 
+# Channels a mesh does not use (colors, bones, ...) are null in surface arrays.
+func _surface_channel(arrays: Array, index: int, empty):
+	return arrays[index] if arrays[index] != null else empty
+
 func _decimate_surface_arrays(arrays: Array, ratio: float) -> Array:
 	var new_arrays := arrays.duplicate(true)
-	var vertices: PackedVector3Array = new_arrays[Mesh.ARRAY_VERTEX]
-	var normals: PackedVector3Array = new_arrays[Mesh.ARRAY_NORMAL]
-	var tangents: PackedFloat32Array = new_arrays[Mesh.ARRAY_TANGENT]
-	var colors: PackedColorArray = new_arrays[Mesh.ARRAY_COLOR]
-	var uv: PackedVector2Array = new_arrays[Mesh.ARRAY_TEX_UV]
-	var uv2: PackedVector2Array = new_arrays[Mesh.ARRAY_TEX_UV2]
-	var bones: PackedInt32Array = new_arrays[Mesh.ARRAY_BONES]
-	var weights: PackedFloat32Array = new_arrays[Mesh.ARRAY_WEIGHTS]
-	var indices: PackedInt32Array = new_arrays[Mesh.ARRAY_INDEX]
+	var vertices: PackedVector3Array = _surface_channel(new_arrays, Mesh.ARRAY_VERTEX, PackedVector3Array())
+	var normals: PackedVector3Array = _surface_channel(new_arrays, Mesh.ARRAY_NORMAL, PackedVector3Array())
+	var tangents: PackedFloat32Array = _surface_channel(new_arrays, Mesh.ARRAY_TANGENT, PackedFloat32Array())
+	var colors: PackedColorArray = _surface_channel(new_arrays, Mesh.ARRAY_COLOR, PackedColorArray())
+	var uv: PackedVector2Array = _surface_channel(new_arrays, Mesh.ARRAY_TEX_UV, PackedVector2Array())
+	var uv2: PackedVector2Array = _surface_channel(new_arrays, Mesh.ARRAY_TEX_UV2, PackedVector2Array())
+	var bones: PackedInt32Array = _surface_channel(new_arrays, Mesh.ARRAY_BONES, PackedInt32Array())
+	var weights: PackedFloat32Array = _surface_channel(new_arrays, Mesh.ARRAY_WEIGHTS, PackedFloat32Array())
+	var indices: PackedInt32Array = _surface_channel(new_arrays, Mesh.ARRAY_INDEX, PackedInt32Array())
 
 	if not indices.is_empty():
 		var triangle_count := indices.size() / 3
@@ -546,6 +611,16 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var parent_path := params.get("parent_path", "/root")
 	var node_name := params.get("node_name", "ProceduralPlanet")
 
+	# Check the parent and name before anything is written to disk; failing later left saved
+	# textures behind.
+	if create_node:
+		var early_parent := _get_editor_node(parent_path)
+		if early_parent == null:
+			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var early_name_error := _sibling_name_error(early_parent, node_name)
+		if not early_name_error.is_empty():
+			return _send_error(client_id, early_name_error, command_id)
+
 	var elevation_noise := FastNoiseLite.new()
 	elevation_noise.seed = seed
 	elevation_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -559,12 +634,17 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var albedo_image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	var height_image := Image.create(width, height, false, Image.FORMAT_RF)
 	var specular_image := Image.create(width, height, false, Image.FORMAT_L8)
+	var roughness_image := Image.create(width, height, false, Image.FORMAT_L8)
 
 	var height_values := PackedFloat32Array()
 	height_values.resize(width * height)
+	var humidity_values := PackedFloat32Array()
+	humidity_values.resize(width * height)
 	var min_elevation := 1000.0
 	var max_elevation := -1000.0
 
+	# Pass 1 samples the noise. Fractal noise only spans about -0.2..0.2, so a sea_level outside that
+	# gave all land or all ocean and mountains never appeared; pass 2 stretches it to -1..1.
 	for y in range(height):
 		var v := float(y) / float(height - 1)
 		var latitude := (v - 0.5) * PI
@@ -595,18 +675,28 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 				lacunarity,
 				persistence
 			)
-			var elevation := clampf(elevation_raw, -1.0, 1.0)
-			var humidity := clampf((humidity_raw + 1.0) * 0.5, 0.0, 1.0)
-			var color := _planet_biome_color(elevation, humidity, sea_level)
+			height_values[y * width + x] = elevation_raw
+			humidity_values[y * width + x] = clampf((humidity_raw + 1.0) * 0.5, 0.0, 1.0)
+			min_elevation = min(min_elevation, elevation_raw)
+			max_elevation = max(max_elevation, elevation_raw)
+
+	var elevation_span: float = max(max_elevation - min_elevation, 0.0001)
+	for y in range(height):
+		for x in range(width):
+			var index: int = y * width + x
+			var elevation := (height_values[index] - min_elevation) / elevation_span * 2.0 - 1.0
+			height_values[index] = elevation
+			var color := _planet_biome_color(elevation, humidity_values[index], sea_level)
 			var water_factor := 1.0 - smoothstep(sea_level - 0.08, sea_level + 0.02, elevation)
 			var specular_value := water_factor * specular_intensity
-
+			# Godot 4 has no specular map: shiny water is low roughness.
+			var roughness_value := lerpf(roughness, 0.08, specular_value)
 			albedo_image.set_pixel(x, y, color)
-			height_image.set_pixel(x, y, Color(elevation, 0.0, 0.0, 1.0))
+			height_image.set_pixel(x, y, Color((elevation + 1.0) * 0.5, 0.0, 0.0, 1.0))
 			specular_image.set_pixel(x, y, Color(specular_value, specular_value, specular_value, 1.0))
-			height_values[y * width + x] = elevation
-			min_elevation = min(min_elevation, elevation)
-			max_elevation = max(max_elevation, elevation)
+			roughness_image.set_pixel(x, y, Color(roughness_value, roughness_value, roughness_value, 1.0))
+	min_elevation = -1.0
+	max_elevation = 1.0
 
 	var normal_image := _build_planet_normal_map(height_values, width, height, normal_strength)
 
@@ -614,6 +704,7 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var normal_texture := ImageTexture.create_from_image(normal_image)
 	var height_texture := ImageTexture.create_from_image(height_image)
 	var specular_texture := ImageTexture.create_from_image(specular_image)
+	var roughness_texture := ImageTexture.create_from_image(roughness_image)
 
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = radius
@@ -628,8 +719,9 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	material.normal_texture = normal_texture
 	material.heightmap_enabled = true
 	material.heightmap_texture = height_texture
-	material.specular_texture = specular_texture
-	material.roughness = roughness
+	material.roughness_texture = roughness_texture
+	material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	material.roughness = 1.0
 	material.metallic = metallic
 
 	var mesh_save_path := str(params.get("save_mesh_path", ""))
@@ -638,11 +730,19 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 	var height_save_path := str(params.get("save_height_path", ""))
 	var normal_save_path := str(params.get("save_normal_path", ""))
 	var specular_save_path := str(params.get("save_specular_path", ""))
+	var roughness_save_path := specular_save_path.get_basename() + "_roughness.png" if specular_save_path != "" else ""
+	# Textures that end up in a saved file (the scene, or the saved material) were embedded as
+	# megabytes of pixels; save every missing one as a PNG next to the material, or under
+	# res://generated/<node_name in snake_case>/, and reference it.
+	if create_node or material_save_path != "":
+		var folder := material_save_path.get_basename() + "_textures" if material_save_path != "" else "res://generated/%s" % str(node_name).to_snake_case()
+		albedo_save_path = albedo_save_path if albedo_save_path != "" else folder + "/albedo.png"
+		height_save_path = height_save_path if height_save_path != "" else folder + "/height.png"
+		normal_save_path = normal_save_path if normal_save_path != "" else folder + "/normal.png"
+		roughness_save_path = roughness_save_path if roughness_save_path != "" else folder + "/roughness.png"
 
 	if mesh_save_path != "" and not ResourceUtils.safe_save(sphere_mesh, mesh_save_path):
 		return _send_error(client_id, "Failed to save planet mesh to %s" % mesh_save_path, command_id)
-	if material_save_path != "" and not ResourceUtils.safe_save(material, material_save_path):
-		return _send_error(client_id, "Failed to save planet material to %s" % material_save_path, command_id)
 	if albedo_save_path != "" and not _save_image_or_texture(albedo_image, albedo_texture, albedo_save_path):
 		return _send_error(client_id, "Failed to save albedo texture to %s" % albedo_save_path, command_id)
 	if height_save_path != "" and not _save_image_or_texture(height_image, height_texture, height_save_path):
@@ -651,12 +751,27 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 		return _send_error(client_id, "Failed to save normal texture to %s" % normal_save_path, command_id)
 	if specular_save_path != "" and not _save_image_or_texture(specular_image, specular_texture, specular_save_path):
 		return _send_error(client_id, "Failed to save specular texture to %s" % specular_save_path, command_id)
+	if roughness_save_path != "" and not _save_image_or_texture(roughness_image, roughness_texture, roughness_save_path):
+		return _send_error(client_id, "Failed to save roughness texture to %s" % roughness_save_path, command_id)
+
+	# Reference the saved files instead of embedding pixels (an embedded 1.6 MB material, orphaned PNGs).
+	var reloaded: Dictionary = await _reload_saved_textures([albedo_save_path, height_save_path, normal_save_path, roughness_save_path])
+	for entry in [[albedo_save_path, "albedo_texture"], [height_save_path, "heightmap_texture"],
+			[normal_save_path, "normal_texture"], [roughness_save_path, "roughness_texture"]]:
+		var saved_texture = reloaded.get(_contained_res_path(entry[0]) if entry[0] != "" else "")
+		if saved_texture != null:
+			material.set(entry[1], saved_texture)
+	if material_save_path != "" and not ResourceUtils.safe_save(material, material_save_path):
+		return _send_error(client_id, "Failed to save planet material to %s" % material_save_path, command_id)
 
 	var created_node_path := ""
 	if create_node:
 		var parent := _get_editor_node(parent_path)
 		if parent == null:
 			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var planet_node := MeshInstance3D.new()
 		planet_node.name = node_name
@@ -688,7 +803,7 @@ func _generate_procedural_planet(client_id: int, params: Dictionary, command_id:
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit planet node creation", command_id)
 
-		created_node_path = str(planet_node.get_path())
+		created_node_path = _to_mcp_path(planet_node)
 
 	_log("Generated procedural planet", "_generate_procedural_planet", {
 		"system_section": "planet",
@@ -749,8 +864,14 @@ func _generate_procedural_planet_ocean(client_id: int, params: Dictionary, comma
 	var requested_parent_path := str(params.get("parent_path", ""))
 
 	var deep_color = _coerce_to_color(params.get("deep_color", {"r": 0.01, "g": 0.07, "b": 0.18, "a": 1.0}))
+	if not (deep_color is Color):
+		return _send_error(client_id, "deep_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var shallow_color = _coerce_to_color(params.get("shallow_color", {"r": 0.07, "g": 0.36, "b": 0.62, "a": 1.0}))
+	if not (shallow_color is Color):
+		return _send_error(client_id, "shallow_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var foam_color = _coerce_to_color(params.get("foam_color", {"r": 0.88, "g": 0.95, "b": 0.99, "a": 1.0}))
+	if not (foam_color is Color):
+		return _send_error(client_id, "foam_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 
 	var shader_code := """
 shader_type spatial;
@@ -894,6 +1015,9 @@ void fragment() {
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var ocean_mesh: Mesh = null
 		if mesh_mode == "single_tile":
@@ -915,7 +1039,7 @@ void fragment() {
 		ocean_node.mesh = ocean_mesh
 		ocean_node.material_override = material
 		if planet_node != null and ocean_node is Node3D and planet_node is Node3D:
-			ocean_node.transform = (planet_node as Node3D).transform
+			ocean_node.transform = _local_transform_matching(planet_node, parent)
 
 		var plugin = Engine.get_meta("GodotMCPPlugin")
 		var edited_scene_root = null
@@ -926,7 +1050,7 @@ void fragment() {
 		var transaction = SceneTransactionManager.begin_inline("Generate Planet Ocean", {
 			"command": "generate_procedural_planet_ocean",
 			"planet_node_path": planet_node_path,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 			"client_id": client_id,
 		})
 		if transaction == null:
@@ -943,7 +1067,7 @@ void fragment() {
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit ocean node creation", command_id)
 
-		created_node_path = str(ocean_node.get_path())
+		created_node_path = _to_mcp_path(ocean_node)
 
 	_log("Generated procedural planet ocean", "_generate_procedural_planet_ocean", {
 		"system_section": "ocean",
@@ -975,6 +1099,12 @@ void fragment() {
 			"material": save_material_path,
 		},
 	}, command_id)
+
+# add_child would silently rename a colliding node to @Class@N; refuse instead.
+func _sibling_name_error(parent: Node, child_name: String) -> String:
+	if parent != null and parent.has_node(NodePath(child_name)):
+		return "A node named '%s' already exists under %s; choose another node_name" % [child_name, _to_mcp_path(parent)]
+	return ""
 
 func _get_edited_scene_root_node() -> Node:
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -1049,11 +1179,22 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 	var roughness := clampf(float(params.get("roughness", 0.9)), 0.0, 1.0)
 	var metallic := clampf(float(params.get("metallic", 0.0)), 0.0, 1.0)
 	var color = _coerce_to_color(params.get("color", {"r": 0.35, "g": 0.38, "b": 0.43, "a": 1.0}))
+	if not (color is Color):
+		return _send_error(client_id, "color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var node_name := str(params.get("node_name", "PlanetShell"))
 	var parent_path := str(params.get("parent_path", "/root"))
 	var create_node := params.get("create_node", true)
 	var save_mesh_path := str(params.get("save_mesh_path", ""))
 	var save_material_path := str(params.get("save_material_path", ""))
+
+	# Check the parent and name before saving files; a bad parent left saved mesh/material behind.
+	if create_node:
+		var early_parent := _get_editor_node(parent_path)
+		if early_parent == null:
+			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var early_name_error := _sibling_name_error(early_parent, node_name)
+		if not early_name_error.is_empty():
+			return _send_error(client_id, early_name_error, command_id)
 
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = radius
@@ -1079,6 +1220,9 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 		var parent := _get_editor_node(parent_path)
 		if parent == null:
 			return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var shell_node := MeshInstance3D.new()
 		shell_node.name = node_name
@@ -1106,7 +1250,7 @@ func _create_planet_shell(client_id: int, params: Dictionary, command_id: String
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit planet shell creation", command_id)
 
-		created_node_path = str(shell_node.get_path())
+		created_node_path = _to_mcp_path(shell_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1130,8 +1274,10 @@ func _apply_triplanar_terrain_material(client_id: int, params: Dictionary, comma
 		return _send_error(client_id, "node_path is required", command_id)
 
 	var node := _get_editor_node(node_path)
-	if node == null or not (node is MeshInstance3D):
-		return _send_error(client_id, "Node at %s is not a MeshInstance3D" % node_path, command_id)
+	if node == null:
+		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
+	if not (node is MeshInstance3D):
+		return _send_error(client_id, "Node at %s is %s, not a MeshInstance3D" % [node_path, node.get_class()], command_id)
 
 	var rock_texture_path := str(params.get("rock_texture_path", ""))
 	var grass_texture_path := str(params.get("grass_texture_path", ""))
@@ -1147,16 +1293,19 @@ func _apply_triplanar_terrain_material(client_id: int, params: Dictionary, comma
 	var snow_texture: Texture2D = _create_solid_texture(Color(0.92, 0.94, 0.97, 1.0))
 	if rock_texture_path != "":
 		var loaded_rock = ResourceUtils.safe_load(rock_texture_path)
-		if loaded_rock is Texture2D:
-			rock_texture = loaded_rock
+		if not (loaded_rock is Texture2D):
+			return _send_error(client_id, "rock_texture_path is not a loadable Texture2D: %s" % rock_texture_path, command_id)
+		rock_texture = loaded_rock
 	if grass_texture_path != "":
 		var loaded_grass = ResourceUtils.safe_load(grass_texture_path)
-		if loaded_grass is Texture2D:
-			grass_texture = loaded_grass
+		if not (loaded_grass is Texture2D):
+			return _send_error(client_id, "grass_texture_path is not a loadable Texture2D: %s" % grass_texture_path, command_id)
+		grass_texture = loaded_grass
 	if snow_texture_path != "":
 		var loaded_snow = ResourceUtils.safe_load(snow_texture_path)
-		if loaded_snow is Texture2D:
-			snow_texture = loaded_snow
+		if not (loaded_snow is Texture2D):
+			return _send_error(client_id, "snow_texture_path is not a loadable Texture2D: %s" % snow_texture_path, command_id)
+		snow_texture = loaded_snow
 
 	var shader_code := """
 shader_type spatial;
@@ -1178,12 +1327,20 @@ vec3 triplanar_sample(sampler2D tex, vec3 wp, vec3 blend) {
 	return tx * blend.x + ty * blend.y + tz * blend.z;
 }
 
+varying vec3 world_pos;
+varying vec3 world_normal;
+
+void vertex() {
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+}
+
 void fragment() {
-	vec3 n = normalize(NORMAL);
+	vec3 n = normalize(world_normal);
 	vec3 blend = abs(n);
 	blend = pow(blend, vec3(4.0));
 	blend /= max(blend.x + blend.y + blend.z, 0.0001);
-	vec3 wp = WORLD_POSITION * texture_scale;
+	vec3 wp = world_pos * texture_scale;
 	vec3 rock = triplanar_sample(rock_tex, wp, blend);
 	vec3 grass = triplanar_sample(grass_tex, wp, blend);
 	vec3 snow = triplanar_sample(snow_tex, wp, blend);
@@ -1255,68 +1412,16 @@ func _generate_planet_cloud_layer(client_id: int, params: Dictionary, command_id
 	var cloud_speed := max(0.0, float(params.get("cloud_speed", 0.05)))
 	var cloud_alpha := clampf(float(params.get("cloud_alpha", 0.6)), 0.0, 1.0)
 	var cloud_color = _coerce_to_color(params.get("cloud_color", {"r": 0.95, "g": 0.97, "b": 1.0, "a": 1.0}))
+	if not (cloud_color is Color):
+		return _send_error(client_id, "cloud_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var node_name := str(params.get("node_name", "PlanetCloudLayer"))
 	var planet_node_path := str(params.get("planet_node_path", ""))
 	var parent_path := str(params.get("parent_path", ""))
 	var create_node := params.get("create_node", true)
 
-	var shader_code := """
-shader_type spatial;
-render_mode blend_mix, cull_back, unshaded, depth_draw_opaque;
 
-uniform vec4 cloud_color : source_color = vec4(0.95, 0.97, 1.0, 1.0);
-uniform float cloud_density = 0.45;
-uniform float cloud_scale = 2.4;
-uniform float cloud_speed = 0.05;
-uniform float cloud_alpha = 0.6;
-
-float hash31(vec3 p) {
-	p = fract(p * 0.1031);
-	p += dot(p, p.yzx + 33.33);
-	return fract((p.x + p.y) * p.z);
-}
-
-float noise3(vec3 p) {
-	vec3 i = floor(p);
-	vec3 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-	float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
-	float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
-	float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
-	float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
-	float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
-	float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
-	float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
-	float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
-	float nx00 = mix(n000, n100, f.x);
-	float nx10 = mix(n010, n110, f.x);
-	float nx01 = mix(n001, n101, f.x);
-	float nx11 = mix(n011, n111, f.x);
-	float nxy0 = mix(nx00, nx10, f.y);
-	float nxy1 = mix(nx01, nx11, f.y);
-	return mix(nxy0, nxy1, f.z);
-}
-
-void fragment() {
-	vec3 p = normalize(WORLD_POSITION) * cloud_scale;
-	float t = TIME * cloud_speed;
-	float n = noise3(p + vec3(t, t * 0.7, -t * 0.45));
-	float cloud = smoothstep(1.0 - cloud_density, 1.0, n);
-	ALBEDO = cloud_color.rgb;
-	EMISSION = cloud_color.rgb * 0.05;
-	ALPHA = cloud * cloud_alpha;
-}
-"""
-
-	var shader := Shader.new()
-	shader.code = shader_code
-	var material := ShaderMaterial.new()
-	material.shader = shader
-	material.set_shader_parameter("cloud_color", cloud_color)
-	material.set_shader_parameter("cloud_density", cloud_density)
-	material.set_shader_parameter("cloud_scale", cloud_scale)
-	material.set_shader_parameter("cloud_speed", cloud_speed)
-	material.set_shader_parameter("cloud_alpha", cloud_alpha)
+	var material := _cloud_shader_material(cloud_color, cloud_density, cloud_scale, cloud_speed, cloud_alpha)
+	var shader: Shader = material.shader
 
 	var save_shader_path := str(params.get("save_shader_path", ""))
 	var save_material_path := str(params.get("save_material_path", ""))
@@ -1344,6 +1449,9 @@ void fragment() {
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var cloud_mesh := SphereMesh.new()
 		cloud_mesh.radius = cloud_radius
@@ -1356,12 +1464,12 @@ void fragment() {
 		cloud_node.mesh = cloud_mesh
 		cloud_node.material_override = material
 		if planet_node != null and cloud_node is Node3D and planet_node is Node3D:
-			cloud_node.transform = (planet_node as Node3D).transform
+			cloud_node.transform = _local_transform_matching(planet_node, parent)
 
 		var transaction = SceneTransactionManager.begin_inline("Generate Planet Cloud Layer", {
 			"command": "generate_planet_cloud_layer",
 			"client_id": client_id,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 		})
 		if transaction == null:
 			return _send_error(client_id, "Unable to obtain transaction for cloud layer creation", command_id)
@@ -1378,7 +1486,7 @@ void fragment() {
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit cloud layer creation", command_id)
 
-		created_node_path = str(cloud_node.get_path())
+		created_node_path = _to_mcp_path(cloud_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1391,6 +1499,8 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 	var radial_segments := clampi(int(params.get("radial_segments", 96)), 8, 512)
 	var rings := clampi(int(params.get("rings", 64)), 8, 256)
 	var glow_color = _coerce_to_color(params.get("glow_color", {"r": 0.35, "g": 0.62, "b": 1.0, "a": 1.0}))
+	if not (glow_color is Color):
+		return _send_error(client_id, "glow_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var fresnel_power := max(0.1, float(params.get("fresnel_power", 4.0)))
 	var intensity := max(0.0, float(params.get("intensity", 1.2)))
 	var alpha := clampf(float(params.get("alpha", 0.45)), 0.0, 1.0)
@@ -1428,6 +1538,9 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var atmosphere_mesh := SphereMesh.new()
 		atmosphere_mesh.radius = radius
@@ -1440,12 +1553,12 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 		atmosphere_node.mesh = atmosphere_mesh
 		atmosphere_node.material_override = material
 		if planet_node != null and atmosphere_node is Node3D and planet_node is Node3D:
-			atmosphere_node.transform = (planet_node as Node3D).transform
+			atmosphere_node.transform = _local_transform_matching(planet_node, parent)
 
 		var transaction = SceneTransactionManager.begin_inline("Create Atmosphere Glow", {
 			"command": "create_planet_atmosphere_glow",
 			"client_id": client_id,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 		})
 		if transaction == null:
 			return _send_error(client_id, "Unable to obtain transaction for atmosphere creation", command_id)
@@ -1462,7 +1575,7 @@ func _create_planet_atmosphere_glow(client_id: int, params: Dictionary, command_
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit atmosphere creation", command_id)
 
-		created_node_path = str(atmosphere_node.get_path())
+		created_node_path = _to_mcp_path(atmosphere_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1474,13 +1587,17 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 	var count := clampi(int(params.get("count", 24)), 1, 2048)
 	var planet_radius := max(0.1, float(params.get("planet_radius", 1.0)))
 	var crater_min_radius := max(0.001, float(params.get("crater_min_radius", 0.03)))
-	var crater_max_radius := max(crater_min_radius, float(params.get("crater_max_radius", 0.09)))
+	var crater_max_radius := float(params.get("crater_max_radius", 0.09))
+	if crater_max_radius < crater_min_radius:
+		return _send_error(client_id, "crater_min_radius (%s) must not exceed crater_max_radius (%s)" % [crater_min_radius, crater_max_radius], command_id)
 	var crater_depth := clampf(float(params.get("crater_depth", 0.35)), 0.05, 1.0)
 	var seed := int(params.get("seed", 1337))
 	var node_name := str(params.get("node_name", "CraterField"))
 	var parent_path := str(params.get("parent_path", ""))
 	var planet_node_path := str(params.get("planet_node_path", ""))
 	var crater_color = _coerce_to_color(params.get("crater_color", {"r": 0.24, "g": 0.24, "b": 0.25, "a": 1.0}))
+	if not (crater_color is Color):
+		return _send_error(client_id, "crater_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var create_node := params.get("create_node", true)
 
 	if not create_node:
@@ -1505,6 +1622,9 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 		parent = _get_editor_node("/root")
 	if parent == null:
 		return _send_error(client_id, "Parent node not found", command_id)
+	var name_error := _sibling_name_error(parent, node_name)
+	if not name_error.is_empty():
+		return _send_error(client_id, name_error, command_id)
 
 	var crater_material := StandardMaterial3D.new()
 	crater_material.albedo_color = crater_color
@@ -1529,14 +1649,16 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 		crater_node.name = "Crater%03d" % i
 		crater_node.mesh = crater_mesh
 		crater_node.material_override = crater_material
-		crater_node.transform = Transform3D(_basis_from_y_axis(direction), direction * (planet_radius - crater_radius * crater_depth))
+		# The disc's underside touches the surface, so its rim stands clear of the curving sphere;
+		# (planet_radius - crater_radius * depth) buried every crater inside the planet.
+		crater_node.transform = Transform3D(_basis_from_y_axis(direction), direction * (planet_radius + crater_mesh.height * crater_depth * 0.5))
 		crater_node.scale = Vector3(1.0, crater_depth, 1.0)
 		crater_root.add_child(crater_node)
 
 	var transaction = SceneTransactionManager.begin_inline("Scatter Craters", {
 		"command": "scatter_craters_on_sphere",
 		"client_id": client_id,
-		"parent_path": str(parent.get_path()),
+		"parent_path": _to_mcp_path(parent),
 		"planet_node_path": planet_node_path,
 	})
 	if transaction == null:
@@ -1555,18 +1677,22 @@ func _scatter_craters_on_sphere(client_id: int, params: Dictionary, command_id: 
 		return _send_error(client_id, "Failed to commit crater scatter", command_id)
 
 	_send_success(client_id, {
-		"created_node_path": str(crater_root.get_path()),
+		"created_node_path": _to_mcp_path(crater_root),
 		"count": count,
 		"seed": seed,
 	}, command_id)
 
 func _create_ring_system(client_id: int, params: Dictionary, command_id: String) -> void:
 	var outer_radius := max(0.1, float(params.get("outer_radius", 2.0)))
-	var inner_radius := clampf(float(params.get("inner_radius", 1.3)), 0.01, outer_radius - 0.01)
+	var inner_radius := max(0.01, float(params.get("inner_radius", 1.3)))
+	if inner_radius >= outer_radius:
+		return _send_error(client_id, "inner_radius (%s) must be smaller than outer_radius (%s)" % [inner_radius, outer_radius], command_id)
 	var alpha := clampf(float(params.get("alpha", 0.82)), 0.0, 1.0)
 	var banding := clampf(float(params.get("banding", 0.35)), 0.0, 1.0)
 	var seed := float(params.get("seed", 12.0))
 	var ring_color = _coerce_to_color(params.get("ring_color", {"r": 0.76, "g": 0.68, "b": 0.56, "a": 1.0}))
+	if not (ring_color is Color):
+		return _send_error(client_id, "ring_color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var node_name := str(params.get("node_name", "PlanetRings"))
 	var create_node := params.get("create_node", true)
 	var planet_node_path := str(params.get("planet_node_path", ""))
@@ -1645,6 +1771,9 @@ void fragment() {
 			parent = _get_editor_node("/root")
 		if parent == null:
 			return _send_error(client_id, "Parent node not found", command_id)
+		var name_error := _sibling_name_error(parent, node_name)
+		if not name_error.is_empty():
+			return _send_error(client_id, name_error, command_id)
 
 		var ring_mesh := PlaneMesh.new()
 		ring_mesh.size = Vector2(outer_radius * 2.0, outer_radius * 2.0)
@@ -1662,7 +1791,7 @@ void fragment() {
 		var transaction = SceneTransactionManager.begin_inline("Create Ring System", {
 			"command": "create_ring_system",
 			"client_id": client_id,
-			"parent_path": str(parent.get_path()),
+			"parent_path": _to_mcp_path(parent),
 		})
 		if transaction == null:
 			return _send_error(client_id, "Unable to obtain transaction for ring creation", command_id)
@@ -1679,7 +1808,7 @@ void fragment() {
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit ring creation", command_id)
 
-		created_node_path = str(ring_node.get_path())
+		created_node_path = _to_mcp_path(ring_node)
 
 	_send_success(client_id, {
 		"created_node_path": created_node_path,
@@ -1694,7 +1823,11 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	var star_count := clampi(int(params.get("star_count", 2200)), 1, 200000)
 	var seed := int(params.get("seed", 4242))
 	var background_top = _coerce_to_color(params.get("background_top", {"r": 0.01, "g": 0.02, "b": 0.06, "a": 1.0}))
+	if not (background_top is Color):
+		return _send_error(client_id, "background_top must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var background_bottom = _coerce_to_color(params.get("background_bottom", {"r": 0.0, "g": 0.0, "b": 0.02, "a": 1.0}))
+	if not (background_bottom is Color):
+		return _send_error(client_id, "background_bottom must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var apply_to_environment := params.get("apply_to_environment", true)
 	var environment_path := str(params.get("environment_path", ""))
 	var node_path := str(params.get("world_environment", params.get("node_path", "")))
@@ -1702,7 +1835,7 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	for y in range(height):
 		var t := float(y) / float(max(1, height - 1))
-		var row_color = background_bottom.lerp(background_top, pow(t, 0.75))
+		var row_color = background_top.lerp(background_bottom, pow(t, 0.75))  # row 0 is the zenith
 		for x in range(width):
 			image.set_pixel(x, y, row_color)
 
@@ -1735,10 +1868,21 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 	var save_material_path := str(params.get("save_material_path", ""))
 	var save_sky_path := str(params.get("save_sky_path", ""))
 	var save_environment_path := str(params.get("save_environment_path", ""))
+	# Saved resources without a saved image embedded the whole panorama (480 KB for 256x128).
+	if save_image_path == "":
+		for resource_path in [save_environment_path, save_sky_path, save_material_path]:
+			if resource_path != "":
+				save_image_path = resource_path.get_basename() + "_panorama.png"
+				break
 
 	if save_image_path != "":
 		if not _save_image_or_texture(image, panorama_texture, save_image_path):
 			return _send_error(client_id, "Failed to save starfield image to %s" % save_image_path, command_id)
+		# Reference the saved PNG instead of embedding the pixels in every saved .tres (7 MB each).
+		var reloaded: Dictionary = await _reload_saved_textures([save_image_path])
+		var saved_panorama = reloaded.get(_contained_res_path(save_image_path))
+		if saved_panorama != null:
+			sky_material.panorama = saved_panorama
 	if save_material_path != "":
 		if not ResourceUtils.safe_save(sky_material, save_material_path):
 			return _send_error(client_id, "Failed to save starfield material to %s" % save_material_path, command_id)
@@ -1770,6 +1914,14 @@ func _generate_starfield_skybox(client_id: int, params: Dictionary, command_id: 
 			var previous_sky = environment.sky
 			transaction.add_do_property(environment, "sky", sky)
 			transaction.add_undo_property(environment, "sky", previous_sky)
+			if environment.background_mode != Environment.BG_SKY:
+				transaction.add_do_property(environment, "background_mode", Environment.BG_SKY)
+				transaction.add_undo_property(environment, "background_mode", environment.background_mode)
+			# A WorldEnvironment without an Environment got a new one that was never assigned.
+			var assign_to = resolve.get("assign_to")
+			if assign_to != null:
+				transaction.add_do_property(assign_to, "environment", environment)
+				transaction.add_undo_property(assign_to, "environment", assign_to.environment)
 			transaction.register_on_commit(func():
 				_mark_scene_modified()
 			)
@@ -1810,6 +1962,8 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 	var planet_node_path := str(params.get("planet_node_path", ""))
 	var parent_path := str(params.get("parent_path", ""))
 	var moon_color = _coerce_to_color(params.get("color", {"r": 0.74, "g": 0.74, "b": 0.78, "a": 1.0}))
+	if not (moon_color is Color):
+		return _send_error(client_id, "color must be a color (#hex, a color name, [r,g,b(,a)] or {r,g,b,a})", command_id)
 	var create_node := params.get("create_node", true)
 
 	if not create_node:
@@ -1833,6 +1987,9 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 		parent = _get_editor_node("/root")
 	if parent == null:
 		return _send_error(client_id, "Parent node not found", command_id)
+	var name_error := _sibling_name_error(parent, "%sPivot" % node_name)
+	if not name_error.is_empty():
+		return _send_error(client_id, name_error, command_id)
 
 	var pivot := Node3D.new()
 	pivot.name = "%sPivot" % node_name
@@ -1863,7 +2020,7 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 	var transaction = SceneTransactionManager.begin_inline("Create Moon Proxy", {
 		"command": "create_moon_proxy",
 		"client_id": client_id,
-		"parent_path": str(parent.get_path()),
+		"parent_path": _to_mcp_path(parent),
 	})
 	if transaction == null:
 		return _send_error(client_id, "Unable to obtain transaction for moon proxy creation", command_id)
@@ -1881,8 +2038,8 @@ func _create_moon_proxy(client_id: int, params: Dictionary, command_id: String) 
 		return _send_error(client_id, "Failed to commit moon proxy creation", command_id)
 
 	_send_success(client_id, {
-		"pivot_path": str(pivot.get_path()),
-		"moon_path": str(moon_node.get_path()),
+		"pivot_path": _to_mcp_path(pivot),
+		"moon_path": _to_mcp_path(moon_node),
 		"radius": radius,
 		"distance": distance,
 		"orbit_speed_deg_per_sec": orbit_speed,
@@ -1897,6 +2054,7 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 
 	var config := {
 		"planet_color": Color(0.30, 0.42, 0.30, 1.0),
+		"ocean": "water",
 		"ocean_color": Color(0.08, 0.28, 0.52, 0.72),
 		"cloud_alpha": 0.45,
 		"atmo_color": Color(0.32, 0.58, 1.0, 1.0),
@@ -1904,6 +2062,7 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 	match preset:
 		"desert":
 			config["planet_color"] = Color(0.72, 0.58, 0.36, 1.0)
+			config["ocean"] = "none"
 			config["ocean_color"] = Color(0.18, 0.30, 0.34, 0.35)
 			config["cloud_alpha"] = 0.20
 			config["atmo_color"] = Color(0.95, 0.72, 0.45, 1.0)
@@ -1914,6 +2073,7 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 			config["atmo_color"] = Color(0.72, 0.86, 1.0, 1.0)
 		"lava":
 			config["planet_color"] = Color(0.32, 0.19, 0.18, 1.0)
+			config["ocean"] = "lava"
 			config["ocean_color"] = Color(0.85, 0.25, 0.06, 0.40)
 			config["cloud_alpha"] = 0.10
 			config["atmo_color"] = Color(1.0, 0.42, 0.18, 1.0)
@@ -1923,6 +2083,9 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 	var parent := _get_editor_node(parent_path)
 	if parent == null:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+	var name_error := _sibling_name_error(parent, root_name)
+	if not name_error.is_empty():
+		return _send_error(client_id, name_error, command_id)
 
 	var root := Node3D.new()
 	root.name = root_name
@@ -1950,21 +2113,26 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 	ocean_material.albedo_color = config["ocean_color"]
 	ocean_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ocean_material.roughness = 0.10
+	if config["ocean"] == "lava":
+		# A glowing lava sea; desert planets have no sea at all (both got a blue-ish ocean sphere).
+		ocean_material.emission_enabled = true
+		ocean_material.emission = config["ocean_color"]
+		ocean_material.emission_energy_multiplier = 1.6
 	var ocean_node := MeshInstance3D.new()
-	ocean_node.name = "Ocean"
+	ocean_node.name = "LavaSea" if config["ocean"] == "lava" else "Ocean"
 	ocean_node.mesh = ocean_mesh
 	ocean_node.material_override = ocean_material
-	root.add_child(ocean_node)
+	var has_ocean: bool = config["ocean"] != "none"
+	if has_ocean:
+		root.add_child(ocean_node)
 
 	var cloud_mesh := SphereMesh.new()
 	cloud_mesh.radius = planet_radius * 1.05
 	cloud_mesh.height = cloud_mesh.radius * 2.0
 	cloud_mesh.radial_segments = 64
 	cloud_mesh.rings = 48
-	var cloud_material := StandardMaterial3D.new()
-	cloud_material.albedo_color = Color(1, 1, 1, config["cloud_alpha"])
-	cloud_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	cloud_material.roughness = 1.0
+	# Noise clouds (the same shader as generate_planet_cloud_layer), not a flat white haze.
+	var cloud_material := _cloud_shader_material(Color(0.95, 0.97, 1.0, 1.0), 0.45, 2.4, 0.03, minf(1.0, float(config["cloud_alpha"]) * 1.8))
 	var cloud_node := MeshInstance3D.new()
 	cloud_node.name = "Clouds"
 	cloud_node.mesh = cloud_mesh
@@ -2029,17 +2197,19 @@ func _planet_preset_quickstart(client_id: int, params: Dictionary, command_id: S
 		return _send_error(client_id, "Failed to commit quickstart preset", command_id)
 
 	if moon_proxy != null:
-		moon_path = str(moon_proxy.get_path())
+		moon_path = _to_mcp_path(moon_proxy)
 
 	_send_success(client_id, {
 		"preset": preset,
-		"root_path": str(root.get_path()),
-		"planet_path": str(planet_node.get_path()),
-		"ocean_path": str(ocean_node.get_path()),
-		"cloud_path": str(cloud_node.get_path()),
-		"atmosphere_path": str(atmo_node.get_path()),
+		"root_path": _to_mcp_path(root),
+		"planet_path": _to_mcp_path(planet_node),
+		"ocean_path": _to_mcp_path(ocean_node) if has_ocean else "",  # desert: no sea
+		"cloud_path": _to_mcp_path(cloud_node),
+		"atmosphere_path": _to_mcp_path(atmo_node),
 		"moon_path": moon_path,
 	}, command_id)
+	if not has_ocean:
+		ocean_node.free()  # built but never added (desert)
 
 func _fractal_noise_sample(
 	noise: FastNoiseLite,
@@ -2112,7 +2282,38 @@ func _build_planet_normal_map(height_values: PackedFloat32Array, width: int, hei
 			)
 	return normal_image
 
+# Coroutine: a freshly written PNG is only loadable after the editor scans and imports it.
+func _reload_saved_textures(paths: Array) -> Dictionary:
+	var textures := {}
+	var filesystem := EditorInterface.get_resource_filesystem()
+	var wanted: Array = []
+	for raw_path in paths:
+		var path := _contained_res_path(str(raw_path)) if str(raw_path) != "" else ""
+		if not path.is_empty():
+			wanted.append(path)
+	if filesystem == null or wanted.is_empty():
+		return textures
+	filesystem.scan()
+	var deadline := Time.get_ticks_msec() + 5000
+	var pending := wanted.duplicate()
+	while not pending.is_empty() and Time.get_ticks_msec() < deadline:
+		await Engine.get_main_loop().process_frame
+		pending = pending.filter(func(path): return filesystem.get_file_type(path) == "")
+	var known := PackedStringArray(wanted.filter(func(path): return filesystem.get_file_type(path) != ""))
+	if known.is_empty():
+		return textures
+	filesystem.reimport_files(known)
+	for path in known:
+		var loaded = ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_REPLACE)
+		if loaded is Texture2D:
+			textures[path] = loaded
+	return textures
+
 func _save_image_or_texture(image: Image, texture: Texture2D, path: String) -> bool:
+	# globalize_path() passes absolute paths through unchanged, so contain first.
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return false
 	var extension := path.get_extension().to_lower()
 	var global_path := ProjectSettings.globalize_path(path)
 	var save_error := ERR_UNAVAILABLE
@@ -2150,7 +2351,12 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 	var save_changes := params.get("save", true)
 
 	var changes := _collect_environment_changes(environment, params)
-	if changes.is_empty():
+	var assign_to = resolve.get("assign_to")
+	if not _refused_values.is_empty():
+		# Atomic: refuse the whole call before anything is applied.
+		var refused := "; ".join(PackedStringArray(_refused_values))
+		return _send_error(client_id, "Refused: %s" % refused, command_id)
+	if changes.is_empty() and assign_to == null:
 		_send_success(client_id, {
 			"status": "no_change",
 			"environment_path": environment_path,
@@ -2180,7 +2386,17 @@ func _configure_environment(client_id: int, params: Dictionary, command_id: Stri
 	if transaction == null:
 		return _send_error(client_id, "Unable to acquire transaction for environment configuration", command_id)
 
+	if assign_to != null:
+		transaction.add_do_property(assign_to, "environment", environment)
+		transaction.add_undo_property(assign_to, "environment", assign_to.environment)
+		changes.append({
+			"property": "WorldEnvironment.environment",
+			"previous": assign_to.environment.resource_path if assign_to.environment != null else null,
+			"value": environment.resource_path if environment.resource_path != "" else ("new Environment" if resolve.get("created_environment", false) else "Environment"),
+		})
 	for change in changes:
+		if str(change.property) == "WorldEnvironment.environment":
+			continue
 		transaction.add_do_property(environment, change.property, change.value)
 		transaction.add_undo_property(environment, change.property, change.previous)
 
@@ -2220,27 +2436,17 @@ func _preview_environment_sun_settings(client_id: int, params: Dictionary, comma
 	var environment_path: String = resolve.get("environment_path", "")
 	var node_path: String = resolve.get("node_path", "")
 	var overrides := params.get("sun", {})
-	var preview := {
-		"fog_sun_color": environment.get("fog_sun_color"),
-		"fog_sun_amount": environment.get("fog_sun_amount"),
-		"fog_sun_scatter": environment.get("fog_sun_scatter"),
-	}
+	var current := {}
+	for property_name in SUN_PROPERTY_MAP.values():
+		current[property_name] = environment.get(property_name)
+	var preview := current.duplicate()
 
 	if typeof(overrides) == TYPE_DICTIONARY:
 		for key in overrides.keys():
-			var property_name = ""
-			match key:
-				"color":
-					property_name = "fog_sun_color"
-				"amount":
-					property_name = "fog_sun_amount"
-				"scatter":
-					property_name = "fog_sun_scatter"
-				_:
-					if key is String:
-						property_name = key
-			if property_name != "":
-				preview[property_name] = _parse_property_value(overrides[key])
+			var property_name: String = SUN_PROPERTY_MAP.get(key, key if SUN_PROPERTY_MAP.values().has(key) else "")
+			if property_name.is_empty():
+				return _send_error(client_id, "Unknown sun key: %s (supported: %s)" % [key, ", ".join(SUN_PROPERTY_MAP.keys())], command_id)
+			preview[property_name] = _coerce_value_to_match(current[property_name], _parse_property_value(overrides[key]))
 
 	var apply_changes := params.get("apply", false)
 	if apply_changes:
@@ -2252,11 +2458,7 @@ func _preview_environment_sun_settings(client_id: int, params: Dictionary, comma
 	_send_success(client_id, {
 		"environment_path": environment_path,
 		"node_path": node_path,
-		"current": {
-			"fog_sun_color": environment.get("fog_sun_color"),
-			"fog_sun_amount": environment.get("fog_sun_amount"),
-			"fog_sun_scatter": environment.get("fog_sun_scatter"),
-		},
+		"current": current,
 		"preview": preview,
 	}, command_id)
 
@@ -2266,14 +2468,7 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 	var direct_properties := params.get("properties", {})
 	if typeof(direct_properties) == TYPE_DICTIONARY:
 		for property_name in direct_properties.keys():
-			var parsed: Variant = _parse_property_value(direct_properties[property_name])
-			var previous = environment.get(property_name)
-			if previous != parsed:
-				changes.append({
-					"property": property_name,
-					"previous": previous,
-					"value": parsed,
-				})
+			_append_environment_change(environment, property_name, direct_properties[property_name], changes)
 
 	var ambient := params.get("ambient_light", {})
 	if typeof(ambient) == TYPE_DICTIONARY:
@@ -2288,24 +2483,20 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 	if typeof(fog) == TYPE_DICTIONARY:
 		var fog_map := {
 			"enabled": "fog_enabled",
-			"color": "fog_color",
+			"color": "fog_light_color",
+			"energy": "fog_light_energy",
 			"density": "fog_density",
 			"height": "fog_height",
-			"height_range": "fog_height_max",
-			"sun_color": "fog_sun_color",
-			"sun_amount": "fog_sun_amount",
-			"sun_scatter": "fog_sun_scatter",
+			"height_density": "fog_height_density",
+			"sun_color": SUN_PROPERTY_MAP["color"],
+			"sun_amount": SUN_PROPERTY_MAP["amount"],
+			"sun_scatter": SUN_PROPERTY_MAP["scatter"],
 		}
 		_merge_environment_section_changes(environment, fog_map, fog, changes)
 
 	var sun := params.get("sun", {})
 	if typeof(sun) == TYPE_DICTIONARY:
-		var sun_map := {
-			"color": "fog_sun_color",
-			"amount": "fog_sun_amount",
-			"scatter": "fog_sun_scatter",
-		}
-		_merge_environment_section_changes(environment, sun_map, sun, changes)
+		_merge_environment_section_changes(environment, SUN_PROPERTY_MAP, sun, changes)
 
 	var sky := params.get("sky", {})
 	if typeof(sky) == TYPE_DICTIONARY:
@@ -2322,7 +2513,7 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 		var sky_map := {
 			"custom_fov": "sky_custom_fov",
 			"rotation": "sky_rotation",
-			"energy": "sky_energy",
+			"energy": "background_energy_multiplier",  # Godot 4 has no sky_energy
 		}
 		_merge_environment_section_changes(environment, sky_map, sky, changes)
 
@@ -2330,16 +2521,33 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 
 func _merge_environment_section_changes(environment: Environment, property_map: Dictionary, values: Dictionary, changes: Array) -> void:
 	for key in property_map.keys():
-			if values.has(key):
-				var property_name: String = property_map[key]
-				var parsed: Variant = _parse_property_value(values[key])
-				var previous = environment.get(property_name)
-				if previous != parsed:
-					changes.append({
-						"property": property_name,
-						"previous": previous,
-						"value": parsed,
-					})
+		if values.has(key):
+			_append_environment_change(environment, property_map[key], values[key], changes)
+
+func _append_environment_change(environment: Environment, property_name: String, raw_value, changes: Array) -> void:
+	if _get_property_info(environment, property_name).is_empty():
+		_refused_values.append("Environment has no property %s" % property_name)
+		return
+	# Two inputs can map to one property (fog.color and sun.color are both fog_light_color);
+	# the later one silently won before.
+	for existing_change in changes:
+		if str(existing_change.get("property", "")) == property_name:
+			_refused_values.append("%s is set twice in this call (e.g. fog.color and sun.color both map to it)" % property_name)
+			return
+	var previous = environment.get(property_name)
+	# Coerce JSON input ("#hex", {"r":..}) to the property's type; != between mismatched types errors.
+	var parsed: Variant = _coerce_value_to_match(previous, _parse_property_value(raw_value))
+	var value_error := _property_value_error(environment, property_name, parsed)
+	if not value_error.is_empty():
+		_refused_values.append(value_error)
+		return
+	if typeof(previous) == typeof(parsed) and previous == parsed:
+		return
+	changes.append({
+		"property": property_name,
+		"previous": previous,
+		"value": parsed,
+	})
 
 func _resolve_environment(params: Dictionary) -> Dictionary:
 	var environment_path := params.get("environment_path", "")
@@ -2355,8 +2563,17 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 		var loaded = ResourceUtils.safe_load(environment_path)
 		if loaded is Environment:
 			result["environment"] = loaded
+			# Both given: the file was edited but never assigned to the node ("no_change"). Assign it.
+			if node_path != "":
+				var target = _get_editor_node(node_path)
+				if not (target is WorldEnvironment):
+					result["environment"] = null
+					result["error_message"] = ("Node at %s is %s, not a WorldEnvironment" % [node_path, target.get_class()]) if target else ("WorldEnvironment node not found: %s" % node_path)
+					return result
+				if target.environment != loaded:
+					result["assign_to"] = target
 			return result
-		result["error_message"] = "Resource at %s is not an Environment" % environment_path
+		result["error_message"] = ("Resource at %s is not an Environment" % environment_path) if loaded != null else ("Environment resource not found or not loadable: %s" % environment_path)
 		return result
 
 	if node_path != "":
@@ -2368,9 +2585,88 @@ func _resolve_environment(params: Dictionary) -> Dictionary:
 				result["environment_path"] = world_env.environment.resource_path
 			result["node_path"] = node_path
 			if result.get("environment") == null:
-				result["error_message"] = "WorldEnvironment at %s has no Environment resource" % node_path
+				# A fresh WorldEnvironment has none and no tool could create one: make it here.
+				result["environment"] = Environment.new()
+				result["assign_to"] = world_env
+				result["created_environment"] = true
 			return result
-		result["error_message"] = "Node at %s is not a WorldEnvironment" % node_path
+		result["error_message"] = ("Node at %s is %s, not a WorldEnvironment" % [node_path, node.get_class()]) if node else ("WorldEnvironment node not found: %s" % node_path)
 		return result
 
 	return result
+
+
+# A transform for a new child of parent that puts it exactly where planet is. Copying the planet's
+# local transform misplaced layers created under a different parent.
+func _local_transform_matching(planet: Node3D, parent: Node) -> Transform3D:
+	if parent is Node3D:
+		return (parent as Node3D).global_transform.affine_inverse() * planet.global_transform
+	return planet.global_transform
+
+
+const CLOUD_SHADER_CODE := """
+shader_type spatial;
+render_mode blend_mix, cull_back, unshaded, depth_draw_opaque;
+
+uniform vec4 cloud_color : source_color = vec4(0.95, 0.97, 1.0, 1.0);
+uniform float cloud_density = 0.45;
+uniform float cloud_scale = 2.4;
+uniform float cloud_speed = 0.05;
+uniform float cloud_alpha = 0.6;
+
+float hash31(vec3 p) {
+	p = fract(p * 0.1031);
+	p += dot(p, p.yzx + 33.33);
+	return fract((p.x + p.y) * p.z);
+}
+
+float noise3(vec3 p) {
+	vec3 i = floor(p);
+	vec3 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
+	float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+	float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+	float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+	float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+	float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+	float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+	float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+	float nx00 = mix(n000, n100, f.x);
+	float nx10 = mix(n010, n110, f.x);
+	float nx01 = mix(n001, n101, f.x);
+	float nx11 = mix(n011, n111, f.x);
+	float nxy0 = mix(nx00, nx10, f.y);
+	float nxy1 = mix(nx01, nx11, f.y);
+	return mix(nxy0, nxy1, f.z);
+}
+
+varying vec3 local_pos;
+
+void vertex() {
+	local_pos = VERTEX;
+}
+
+void fragment() {
+	vec3 p = normalize(local_pos) * cloud_scale;
+	float t = TIME * cloud_speed;
+	float n = noise3(p + vec3(t, t * 0.7, -t * 0.45));
+	float cloud = smoothstep(1.0 - cloud_density, 1.0, n);
+	ALBEDO = cloud_color.rgb;
+	EMISSION = cloud_color.rgb * 0.05;
+	ALPHA = cloud * cloud_alpha;
+}
+"""
+
+
+func _cloud_shader_material(color: Color, density: float, scale: float, speed: float, alpha: float) -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = CLOUD_SHADER_CODE
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("cloud_color", color)
+	material.set_shader_parameter("cloud_density", density)
+	material.set_shader_parameter("cloud_scale", scale)
+	material.set_shader_parameter("cloud_speed", speed)
+	material.set_shader_parameter("cloud_alpha", alpha)
+	return material

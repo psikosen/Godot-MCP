@@ -50,7 +50,7 @@ export var compressionSettingsResource = {
                     case 1:
                         result = _a.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(result, null, 2),
+                                text: JSON.stringify(result),
                             }];
                 }
             });

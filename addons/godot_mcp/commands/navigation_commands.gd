@@ -32,7 +32,7 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 	return false
 
 func _list_navigation_maps(client_id: int, params: Dictionary, command_id: String) -> void:
-	var dimension := String(params.get("dimension", "both")).to_lower()
+	var dimension := str(params.get("dimension", "both")).to_lower()
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
@@ -70,7 +70,7 @@ func _list_navigation_maps(client_id: int, params: Dictionary, command_id: Strin
 	}, command_id)
 
 func _list_navigation_agents(client_id: int, params: Dictionary, command_id: String) -> void:
-	var dimension := String(params.get("dimension", "both")).to_lower()
+	var dimension := str(params.get("dimension", "both")).to_lower()
 	if not ["2d", "3d", "both"].has(dimension):
 		return _send_error(client_id, "Invalid dimension filter: %s" % dimension, command_id)
 
@@ -118,28 +118,44 @@ func _bake_navigation_region(client_id: int, params: Dictionary, command_id: Str
 		return _send_error(client_id, "Navigation region not found: %s" % node_path, command_id)
 
 	if node is NavigationRegion2D:
+		if node.navigation_polygon == null:
+			return _send_error(client_id, "NavigationRegion2D has no navigation_polygon to bake; assign one first", command_id)
 		node.bake_navigation_polygon(on_thread)
 		_log("Triggered 2D navigation bake", "_bake_navigation_region", {
 			"node_path": _path_to_string(node),
 			"on_thread": on_thread,
 		})
+		# A finished (non-threaded) bake that produced nothing usually means no source geometry.
+		var bake_note := ""
+		if not on_thread and node.navigation_polygon.get_polygon_count() == 0:
+			bake_note = "Bake produced 0 polygons: no source geometry was found (add collision shapes or meshes as children, or set the source geometry mode/group)."
 		_send_success(client_id, {
 			"node_path": _path_to_string(node),
 			"dimension": "2d",
-			"status": "bake_started",
+			"status": "bake_started" if on_thread else ("baked_empty" if bake_note != "" else "baked"),
 			"on_thread": on_thread,
+			"polygon_count": -1 if on_thread else node.navigation_polygon.get_polygon_count(),
+			"note": bake_note,
 		}, command_id)
 	elif node is NavigationRegion3D:
+		if node.navigation_mesh == null:
+			return _send_error(client_id, "NavigationRegion3D has no navigation_mesh to bake; assign one first", command_id)
 		node.bake_navigation_mesh(on_thread)
 		_log("Triggered 3D navigation bake", "_bake_navigation_region", {
 			"node_path": _path_to_string(node),
 			"on_thread": on_thread,
 		})
+		# A finished (non-threaded) bake that produced nothing usually means no source geometry.
+		var bake_note := ""
+		if not on_thread and node.navigation_mesh.get_polygon_count() == 0:
+			bake_note = "Bake produced 0 polygons: no source geometry was found (add collision shapes or meshes as children, or set the source geometry mode/group)."
 		_send_success(client_id, {
 			"node_path": _path_to_string(node),
 			"dimension": "3d",
-			"status": "bake_started",
+			"status": "bake_started" if on_thread else ("baked_empty" if bake_note != "" else "baked"),
 			"on_thread": on_thread,
+			"polygon_count": -1 if on_thread else node.navigation_mesh.get_polygon_count(),
+			"note": bake_note,
 		}, command_id)
 	else:
 		_send_error(client_id, "Node at path is not a NavigationRegion2D or NavigationRegion3D", command_id)
@@ -186,7 +202,14 @@ func _update_navigation_region(client_id: int, params: Dictionary, command_id: S
 				transaction.rollback()
 			return _send_error(client_id, "Navigation region does not have property: %s" % property_name, command_id)
 
-		var parsed_value = _parse_property_value(properties[property_name])
+		# Coerce to the property type and refuse values set() would drop (e.g. a res:// path for
+		# navigation_mesh stayed null while the tool reported committed).
+		var parsed_value = _convert_property_value(node, property_name, properties[property_name])
+		var value_error := _property_value_error(node, property_name, parsed_value)
+		if not value_error.is_empty():
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, value_error, command_id)
 		var old_value = node.get(property_name)
 		property_changes.append({
 			"property": property_name,
@@ -285,7 +308,14 @@ func _update_navigation_resource(client_id: int, params: Dictionary, command_id:
 				transaction.rollback()
 			return _send_error(client_id, "Navigation resource does not have property: %s" % property_name, command_id)
 
-		var parsed_value = _parse_property_value(properties[property_name])
+		# Coerce to the property type and refuse values set() would drop (e.g. a res:// path for
+		# navigation_mesh stayed null while the tool reported committed).
+		var parsed_value = _convert_property_value(resource, property_name, properties[property_name])
+		var value_error := _property_value_error(resource, property_name, parsed_value)
+		if not value_error.is_empty():
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, value_error, command_id)
 		var old_value = resource.get(property_name)
 		resource_changes.append({
 			"property": property_name,
@@ -313,6 +343,11 @@ func _update_navigation_resource(client_id: int, params: Dictionary, command_id:
 		if not transaction.commit():
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit navigation resource update", command_id)
+		# An external .tres is not written by save_scene (the scene only references it): save it here,
+		# or "committed" edits vanished on reload.
+		if resource.resource_path.begins_with("res://") and not "::" in resource.resource_path:
+			if not ResourceUtils.safe_save(resource, resource.resource_path):
+				return _send_error(client_id, "Updated, but failed to save %s" % resource.resource_path, command_id)
 
 		_send_success(client_id, {
 			"node_path": _path_to_string(node),
@@ -374,7 +409,14 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
 				transaction.rollback()
 			return _send_error(client_id, "Navigation agent does not have property: %s" % property_name, command_id)
 
-		var parsed_value = _parse_property_value(properties[property_name])
+		# Coerce to the property type and refuse values set() would drop (e.g. a res:// path for
+		# navigation_mesh stayed null while the tool reported committed).
+		var parsed_value = _convert_property_value(node, property_name, properties[property_name])
+		var value_error := _property_value_error(node, property_name, parsed_value)
+		if not value_error.is_empty():
+			if transaction_id.is_empty():
+				transaction.rollback()
+			return _send_error(client_id, value_error, command_id)
 		var old_value = node.get(property_name)
 		agent_changes.append({
 			"property": property_name,
@@ -421,7 +463,7 @@ func _update_navigation_agent(client_id: int, params: Dictionary, command_id: St
 
 func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_synchronize_navmesh_with_tilemap"
-	var tilemap_path := String(params.get("tilemap_path", ""))
+	var tilemap_path := str(params.get("tilemap_path", ""))
 	var region_paths_param = params.get("region_paths", [])
 	var on_thread := bool(params.get("on_thread", true))
 
@@ -441,10 +483,13 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 		_log("TileMap node not found", function_name, context, true)
 		return _send_error(client_id, "TileMap not found: %s" % tilemap_path, command_id)
 
-	if not (tilemap is TileMap):
+	if not (tilemap is TileMap or tilemap is TileMapLayer):
 		context["node_type"] = tilemap.get_class()
-		_log("Node at path is not a TileMap", function_name, context, true)
-		return _send_error(client_id, "Node at path is not a TileMap", command_id)
+		_log("Node at path is not a TileMap or TileMapLayer", function_name, context, true)
+		return _send_error(client_id, "Node at path is not a TileMap or TileMapLayer", command_id)
+
+	if tilemap.tile_set == null:
+		return _send_error(client_id, "%s at %s has no TileSet; nothing to synchronize" % [tilemap.get_class(), tilemap_path], command_id)
 
 	var requested_region_paths: Array = []
 	if params.has("region_paths"):
@@ -467,7 +512,7 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 				target_regions.append(child)
 	else:
 		for entry in requested_region_paths:
-			var region_path := String(entry)
+			var region_path := str(entry)
 			if region_path.is_empty():
 				continue
 			var region_node = _get_editor_node(region_path)
@@ -479,7 +524,12 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 				continue
 			target_regions.append(region_node)
 
+	var skipped_regions: Array = []
 	for region in target_regions:
+		if (region is NavigationRegion2D and region.navigation_polygon == null) \
+				or (region is NavigationRegion3D and region.navigation_mesh == null):
+			skipped_regions.append("%s (no navigation mesh)" % _path_to_string(region))
+			continue
 		if region is NavigationRegion2D:
 			region.bake_navigation_polygon(on_thread)
 			rebaked_regions.append(_path_to_string(region))
@@ -494,10 +544,15 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 	elif tilemap.has_method("queue_navigation_update"):
 		tilemap.queue_navigation_update()
 		navigation_map_updated = true
-	elif tilemap.has_method("get_navigation_map"):
-		var nav_map = tilemap.get_navigation_map()
-		if typeof(nav_map) == TYPE_RID:
-			var rid: RID = nav_map
+	else:
+		# TileMap.get_navigation_map takes a layer index; TileMapLayer's takes none.
+		var nav_maps: Array = []
+		if tilemap is TileMap:
+			for layer in tilemap.get_layers_count():
+				nav_maps.append(tilemap.get_navigation_map(layer))
+		else:
+			nav_maps.append(tilemap.get_navigation_map())
+		for rid in nav_maps:
 			if rid.is_valid():
 				NavigationServer2D.map_force_update(rid)
 				navigation_map_updated = true
@@ -512,6 +567,7 @@ func _synchronize_navmesh_with_tilemap(client_id: int, params: Dictionary, comma
 		"tilemap_path": _path_to_string(tilemap),
 		"rebaked_regions": rebaked_regions,
 		"invalid_regions": invalid_regions,
+		"skipped_regions": skipped_regions,
 		"navigation_map_updated": navigation_map_updated,
 	}
 
@@ -529,7 +585,7 @@ func _summarize_region_2d(region: NavigationRegion2D) -> Dictionary:
 		"travel_cost": region.travel_cost,
 		"enter_cost": region.enter_cost,
 		"use_edge_connections": region.use_edge_connections,
-		"resource": _summarize_navigation_polygon(polygon),
+		"resource": _summarize_navigation_polygon(polygon) if polygon != null else null,
 	}
 	return summary
 
@@ -543,7 +599,7 @@ func _summarize_region_3d(region: NavigationRegion3D) -> Dictionary:
 		"travel_cost": region.travel_cost,
 		"enter_cost": region.enter_cost,
 		"use_edge_connections": region.use_edge_connections,
-		"resource": _summarize_navigation_mesh(mesh),
+		"resource": _summarize_navigation_mesh(mesh) if mesh != null else null,
 	}
 	return summary
 
@@ -552,16 +608,15 @@ func _summarize_agent_2d(agent: NavigationAgent2D) -> Dictionary:
 		"dimension": "2d",
 		"node_path": _path_to_string(agent),
 		"target_position": _vector_to_dict(agent.target_position),
-		"position": _vector_to_dict(agent.global_position),
+		"position": _vector_to_dict(agent.get_parent().global_position if (agent.get_parent() is Node2D or agent.get_parent() is Node3D) else null),
 		"velocity": _vector_to_dict(agent.velocity),
 		"radius": agent.radius,
 		"max_speed": agent.max_speed,
-		"max_acceleration": agent.max_acceleration,
 		"path_desired_distance": agent.path_desired_distance,
 		"target_desired_distance": agent.target_desired_distance,
 		"avoidance_enabled": agent.avoidance_enabled,
 		"max_neighbors": agent.max_neighbors,
-		"neighbor_max_distance": agent.neighbor_max_distance,
+		"neighbor_max_distance": agent.neighbor_distance,
 	}
 
 func _summarize_agent_3d(agent: NavigationAgent3D) -> Dictionary:
@@ -569,17 +624,16 @@ func _summarize_agent_3d(agent: NavigationAgent3D) -> Dictionary:
 		"dimension": "3d",
 		"node_path": _path_to_string(agent),
 		"target_position": _vector_to_dict(agent.target_position),
-		"position": _vector_to_dict(agent.global_position),
+		"position": _vector_to_dict(agent.get_parent().global_position if (agent.get_parent() is Node2D or agent.get_parent() is Node3D) else null),
 		"velocity": _vector_to_dict(agent.velocity),
 		"radius": agent.radius,
 		"height": agent.height,
 		"max_speed": agent.max_speed,
-		"max_acceleration": agent.max_acceleration,
 		"path_desired_distance": agent.path_desired_distance,
 		"target_desired_distance": agent.target_desired_distance,
 		"avoidance_enabled": agent.avoidance_enabled,
 		"max_neighbors": agent.max_neighbors,
-		"neighbor_max_distance": agent.neighbor_max_distance,
+		"neighbor_max_distance": agent.neighbor_distance,
 	}
 
 func _summarize_navigation_polygon(polygon: NavigationPolygon) -> Dictionary:
@@ -632,10 +686,9 @@ func _vector_to_dict(value) -> Dictionary:
 	return {"value": str(value)}
 
 func _path_to_string(node: Node) -> String:
-	var node_path = node.get_path()
-	if typeof(node_path) == TYPE_NODE_PATH:
-		return String(node_path)
-	return str(node_path)
+	if node == null:
+		return ""
+	return _to_mcp_path(node)
 
 func _has_property(target: Object, property_name: String) -> bool:
 	if target == null:
@@ -644,7 +697,7 @@ func _has_property(target: Object, property_name: String) -> bool:
 	var property_list = target.get_property_list()
 	for property_info in property_list:
 		if typeof(property_info) == TYPE_DICTIONARY and property_info.has("name"):
-			if String(property_info["name"]) == property_name:
+			if str(property_info["name"]) == property_name:
 				return true
 
 	return false

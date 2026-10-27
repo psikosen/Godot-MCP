@@ -56,6 +56,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
 };
 import 'dotenv/config';
 import { FastMCP } from 'fastmcp';
+import { z } from 'zod';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
@@ -70,9 +71,15 @@ import { xrTools } from './tools/xr_tools.js';
 import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
+import { workflowTools } from './tools/workflow_tools.js';
+import { builderTools } from './tools/builder_tools.js';
+import { featureTools } from './tools/feature_tools.js';
+import { assetTools } from './tools/asset_tools.js';
+import { polishTools } from './tools/polish_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
+import { enabledToolsets, toolsetOf, TOOLSETS } from './utils/toolsets.js';
 // Import resources
 import { sceneListResource, sceneStructureResource } from './resources/scene_resources.js';
 import { scriptResourceTemplate, scriptListResource, scriptMetadataResourceTemplate } from './resources/script_resources.js';
@@ -90,30 +97,58 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var server, registerTool, launcher, error_1, err, cleanup, error_2;
+        var toolsets, hiddenToolsets, server, SCENE_STATE_RESOURCE_URIS, registerTool, cleanup, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     console.error('Starting Godot MCP server...');
+                    toolsets = enabledToolsets(process.env.GODOT_MCP_TOOLSETS);
+                    hiddenToolsets = toolsets ? TOOLSETS.filter(function (name) { return !toolsets.has(name); }) : [];
                     server = new FastMCP({
                         name: 'GodotMCP',
                         version: '1.0.0',
+                        instructions: 'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
+                            'Read the godot/* resources or list/get tools before editing. ' +
+                            'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
+                            'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
+                            (hiddenToolsets.length > 0 ? " Hidden tool groups (GODOT_MCP_TOOLSETS): ".concat(hiddenToolsets.join(', '), ".") : ''),
                     });
+                    SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
                     registerTool = function (tool) {
-                        server.addTool(__assign(__assign({}, tool), { execute: function (args) {
+                        var _a, _b;
+                        server.addTool(__assign(__assign({}, tool), { 
+                            // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
+                            annotations: { readOnlyHint: ((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') === 'read' }, 
+                            // The listed schema already says additionalProperties:false; enforce it so a wrong argument
+                            // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
+                            // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
+                            parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters), execute: function (args) {
                                 return __awaiter(this, void 0, void 0, function () {
-                                    return __generator(this, function (_a) {
-                                        switch (_a.label) {
+                                    var output, _i, SCENE_STATE_RESOURCE_URIS_1, uri;
+                                    var _a, _b;
+                                    return __generator(this, function (_c) {
+                                        switch (_c.label) {
                                             case 0: return [4 /*yield*/, commandGuard.assertAllowed(tool, args)];
                                             case 1:
-                                                _a.sent();
-                                                return [2 /*return*/, tool.execute(args)];
+                                                _c.sent();
+                                                return [4 /*yield*/, tool.execute(args)];
+                                            case 2:
+                                                output = _c.sent();
+                                                // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
+                                                if (((_b = (_a = tool.metadata) === null || _a === void 0 ? void 0 : _a.requiredRole) !== null && _b !== void 0 ? _b : 'read') !== 'read') {
+                                                    for (_i = 0, SCENE_STATE_RESOURCE_URIS_1 = SCENE_STATE_RESOURCE_URIS; _i < SCENE_STATE_RESOURCE_URIS_1.length; _i++) {
+                                                        uri = SCENE_STATE_RESOURCE_URIS_1[_i];
+                                                        server.sendResourceUpdated(uri).catch(function () { return undefined; });
+                                                    }
+                                                }
+                                                return [2 /*return*/, output];
                                         }
                                     });
                                 });
                             } }));
                     };
-                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true).forEach(function (tool) {
+                    __spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray(__spreadArray([], nodeTools, true), scriptTools, true), sceneTools, true), editorTools, true), patchTools, true), projectTools, true), permissionTools, true), navigationTools, true), audioTools, true), animationTools, true), xrTools, true), multiplayerTools, true), compressionTools, true), renderingTools, true), workflowTools, true), builderTools, true), featureTools, true), assetTools, true), polishTools, true).filter(function (tool) { return toolsets === null || toolsets.has(toolsetOf(tool.name)); })
+                        .forEach(function (tool) {
                         registerTool(tool);
                     });
                     // Register all resources
@@ -138,23 +173,6 @@ function main() {
                     server.addResource(sceneStructureResource);
                     server.addResourceTemplate(scriptResourceTemplate);
                     server.addResourceTemplate(scriptMetadataResourceTemplate);
-                    _a.label = 1;
-                case 1:
-                    _a.trys.push([1, 3, , 4]);
-                    console.error('Checking if Godot is running...');
-                    launcher = getGodotLauncher();
-                    return [4 /*yield*/, launcher.ensureGodotRunning()];
-                case 2:
-                    _a.sent();
-                    console.error('Godot editor is ready!');
-                    return [3 /*break*/, 4];
-                case 3:
-                    error_1 = _a.sent();
-                    err = error_1;
-                    console.error("Failed to ensure Godot is running: ".concat(err.message));
-                    console.error('You may need to manually launch Godot with the project');
-                    return [3 /*break*/, 4];
-                case 4:
                     cleanup = function () {
                         console.error('Shutting down Godot MCP server...');
                         var godot = getGodotConnection();
@@ -167,21 +185,32 @@ function main() {
                     };
                     process.on('SIGINT', cleanup);
                     process.on('SIGTERM', cleanup);
-                    _a.label = 5;
-                case 5:
-                    _a.trys.push([5, 7, , 8]);
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
                     return [4 /*yield*/, server.start({
                             transportType: 'stdio',
                         })];
-                case 6:
+                case 2:
                     _a.sent();
-                    return [3 /*break*/, 8];
-                case 7:
-                    error_2 = _a.sent();
-                    console.error('Failed to start MCP server:', error_2);
+                    return [3 /*break*/, 4];
+                case 3:
+                    error_1 = _a.sent();
+                    console.error('Failed to start MCP server:', error_1);
                     process.exit(1);
-                    return [3 /*break*/, 8];
-                case 8: return [2 /*return*/];
+                    return [3 /*break*/, 4];
+                case 4:
+                    // Ensure Godot is running - auto-launch if needed.
+                    // Not awaited: tool calls retry the connection on their own.
+                    console.error('Checking if Godot is running...');
+                    getGodotLauncher()
+                        .ensureGodotRunning()
+                        .then(function () { return console.error('Godot editor is ready!'); })
+                        .catch(function (error) {
+                        console.error("Failed to ensure Godot is running: ".concat(error.message));
+                        console.error('You may need to manually launch Godot with the project');
+                    });
+                    return [2 /*return*/];
             }
         });
     });

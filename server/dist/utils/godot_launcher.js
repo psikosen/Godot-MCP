@@ -125,7 +125,7 @@ var GodotLauncher = /** @class */ (function () {
      */
     GodotLauncher.prototype.launch = function () {
         return __awaiter(this, void 0, void 0, function () {
-            var startTime, lastError, godot, error_1;
+            var startTime, lastError, spawnFailed, godot, error_1;
             var _this = this;
             return __generator(this, function (_a) {
                 switch (_a.label) {
@@ -141,19 +141,23 @@ var GodotLauncher = /** @class */ (function () {
                             stdio: 'ignore', // Ignore stdio to prevent interfering with MCP protocol
                             detached: false,
                         });
+                        startTime = Date.now();
+                        lastError = null;
+                        spawnFailed = false;
                         this.godotProcess.on('error', function (error) {
+                            // Throwing inside an event listener is an uncaught exception that kills the MCP server.
+                            // Stop the wait loop instead so launch() rejects normally.
                             console.error('Failed to launch Godot:', error);
-                            throw new Error("Failed to launch Godot: ".concat(error.message));
+                            lastError = error;
+                            spawnFailed = true;
                         });
                         this.godotProcess.on('exit', function (code, signal) {
                             console.error("Godot process exited with code ".concat(code, ", signal ").concat(signal));
                             _this.godotProcess = null;
                         });
-                        startTime = Date.now();
-                        lastError = null;
                         _a.label = 1;
                     case 1:
-                        if (!(Date.now() - startTime < this.maxStartupTime)) return [3 /*break*/, 7];
+                        if (!(!spawnFailed && Date.now() - startTime < this.maxStartupTime)) return [3 /*break*/, 7];
                         _a.label = 2;
                     case 2:
                         _a.trys.push([2, 4, , 6]);
@@ -179,7 +183,9 @@ var GodotLauncher = /** @class */ (function () {
                             this.godotProcess.kill();
                             this.godotProcess = null;
                         }
-                        throw new Error("Timed out waiting for Godot WebSocket server to start. Last error: ".concat(lastError === null || lastError === void 0 ? void 0 : lastError.message));
+                        throw new Error(spawnFailed
+                            ? "Failed to launch Godot: ".concat(lastError === null || lastError === void 0 ? void 0 : lastError.message)
+                            : "Timed out waiting for Godot WebSocket server to start. Last error: ".concat(lastError === null || lastError === void 0 ? void 0 : lastError.message));
                 }
             });
         });

@@ -57,6 +57,7 @@ var GodotConnection = /** @class */ (function () {
         this.retryDelay = retryDelay;
         this.ws = null;
         this.connected = false;
+        this.connecting = null;
         this.commandQueue = new Map();
         this.commandId = 0;
         console.error('GodotConnection created with URL:', this.url);
@@ -66,13 +67,27 @@ var GodotConnection = /** @class */ (function () {
      */
     GodotConnection.prototype.connect = function () {
         return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            var _a;
+            return __generator(this, function (_b) {
+                if (this.connected)
+                    return [2 /*return*/];
+                // Share one in-flight attempt: the startup launcher and early tool calls can both
+                // call connect(), and parallel attempts would overwrite this.ws and leak sockets.
+                (_a = this.connecting) !== null && _a !== void 0 ? _a : (this.connecting = this.openConnection().finally(function () {
+                    _this.connecting = null;
+                }));
+                return [2 /*return*/, this.connecting];
+            });
+        });
+    };
+    GodotConnection.prototype.openConnection = function () {
+        return __awaiter(this, void 0, void 0, function () {
             var retries, tryConnect, error_1;
             var _this = this;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        if (this.connected)
-                            return [2 /*return*/];
                         retries = 0;
                         tryConnect = function () {
                             return new Promise(function (resolve, reject) {
@@ -113,15 +128,25 @@ var GodotConnection = /** @class */ (function () {
                                 });
                                 _this.ws.on('error', function (error) {
                                     var err = error;
-                                    console.error('WebSocket error:', err);
-                                    // Don't terminate the connection on error - let the timeout handle it
-                                    // Just log the error and allow retry mechanism to work
+                                    console.error('WebSocket error:', err.message);
+                                    // Fail this attempt now (e.g. ECONNREFUSED) instead of waiting out connectionTimeout;
+                                    // otherwise a call with Godot down took ~(timeout + retryDelay) x attempts = 86s.
+                                    if (!_this.connected) {
+                                        clearTimeout(connectionTimeout);
+                                        reject(err);
+                                    }
                                 });
                                 _this.ws.on('close', function () {
                                     if (_this.connected) {
                                         console.error('Disconnected from Godot WebSocket server');
                                         _this.connected = false;
                                     }
+                                    // Commands in flight will never get a reply; fail them now instead of after their timeout.
+                                    _this.commandQueue.forEach(function (pending) {
+                                        clearTimeout(pending.timeout);
+                                        pending.reject(new Error('Godot connection closed before a reply'));
+                                    });
+                                    _this.commandQueue.clear();
                                 });
                                 // Set connection timeout
                                 var connectionTimeout = setTimeout(function () {

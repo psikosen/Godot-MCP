@@ -68,7 +68,10 @@ function formatNavigationRegions(regions) {
             "Enter Cost: ".concat(region.enter_cost),
             "Edge Connections: ".concat(region.use_edge_connections),
         ];
-        if (region.resource) {
+        if (!region.resource) {
+            details.push('Resource: none (no navigation mesh assigned)');
+        }
+        else {
             var resource = region.resource;
             details.push('Resource:', "  Path: ".concat(resource.resource_path || '<local>'), "  Vertex Count: ".concat(resource.vertex_count), "  Polygon Count: ".concat(resource.polygon_count));
             if ('agent_radius' in resource) {
@@ -93,7 +96,6 @@ function formatNavigationAgents(agents) {
             "Dimension: ".concat(agent.dimension),
             "Radius: ".concat(agent.radius),
             "Max Speed: ".concat(agent.max_speed),
-            "Max Acceleration: ".concat(agent.max_acceleration),
             "Avoidance Enabled: ".concat(agent.avoidance_enabled),
             "Max Neighbors: ".concat(agent.max_neighbors),
             "Neighbor Max Distance: ".concat(agent.neighbor_max_distance),
@@ -219,7 +221,10 @@ export var navigationTools = [
                     case 2:
                         result = _e.sent();
                         dimension = String((_c = result.dimension) !== null && _c !== void 0 ? _c : 'unknown');
-                        return [2 /*return*/, "Started ".concat(dimension.toUpperCase(), " navigation bake for ").concat(result.node_path, " (threaded: ").concat(result.on_thread, ").")];
+                        if (result.on_thread) {
+                            return [2 /*return*/, "Started ".concat(dimension.toUpperCase(), " navigation bake for ").concat(result.node_path, " (threaded; check list_navigation_maps for the result).")];
+                        }
+                        return [2 /*return*/, "Baked ".concat(dimension.toUpperCase(), " navigation for ").concat(result.node_path, ": ").concat(result.polygon_count, " polygon(s).").concat(result.note ? " ".concat(result.note) : '')];
                     case 3:
                         error_3 = _e.sent();
                         throw new Error("Failed to bake navigation region: ".concat(error_3.message));
@@ -373,22 +378,22 @@ export var navigationTools = [
     },
     {
         name: 'synchronize_navmesh_with_tilemap',
-        description: 'Rebake TileMap navigation layers and optional navigation regions to keep pathfinding in sync.',
+        description: 'Rebake TileMapLayer (or legacy TileMap) navigation layers and optional navigation regions to keep pathfinding in sync.',
         parameters: z.object({
             tilemap_path: z
                 .string()
-                .describe('Path to the TileMap node whose navigation data should be synchronized.'),
+                .describe('Path to the TileMapLayer (or legacy TileMap) node whose navigation data should be synchronized.'),
             region_paths: z
                 .array(z.string())
                 .optional()
-                .describe('Optional navigation region node paths to rebake after updating the TileMap.'),
+                .describe('Optional navigation region node paths to rebake after updating the tile map layer.'),
             on_thread: z
                 .boolean()
                 .optional()
                 .describe('Whether navigation baking should run on a worker thread (defaults to true).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, payload, result, rebaked, invalid, navigationUpdated, lines, error_7;
+            var godot, payload, result, rebaked, invalid, skipped, navigationUpdated, lines, error_7;
             var _c;
             var tilemap_path = _b.tilemap_path, region_paths = _b.region_paths, _d = _b.on_thread, on_thread = _d === void 0 ? true : _d;
             return __generator(this, function (_e) {
@@ -410,11 +415,13 @@ export var navigationTools = [
                         result = _e.sent();
                         rebaked = Array.isArray(result.rebaked_regions) ? result.rebaked_regions : [];
                         invalid = Array.isArray(result.invalid_regions) ? result.invalid_regions : [];
+                        skipped = Array.isArray(result.skipped_regions) ? result.skipped_regions : [];
                         navigationUpdated = Boolean(result.navigation_map_updated);
                         lines = [
-                            "Synchronized TileMap navigation for ".concat((_c = result.tilemap_path) !== null && _c !== void 0 ? _c : tilemap_path),
+                            "Synchronized tile map navigation for ".concat((_c = result.tilemap_path) !== null && _c !== void 0 ? _c : tilemap_path),
                             "Rebaked regions: ".concat(rebaked.length > 0 ? rebaked.join(', ') : 'none'),
                             "Invalid regions: ".concat(invalid.length > 0 ? invalid.join(', ') : 'none'),
+                            "Skipped regions: ".concat(skipped.length > 0 ? skipped.join(', ') : 'none'),
                             "Navigation map updated: ".concat(navigationUpdated ? 'yes' : 'no'),
                         ];
                         return [2 /*return*/, lines.join('\n')];

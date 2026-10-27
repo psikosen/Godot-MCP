@@ -63,12 +63,13 @@ func run():
 	_parent = get_parent()
 	var scene = get_tree().edited_scene_root
 	
-	# Execute the provided code
-	var err = _execute_code()
-	
-	# If there was an error, store it
-	if err != OK:
-		_error_message = "Failed to execute script with error: " + str(err)
+	# Execute the provided code. A runtime error aborts it and yields null; a user
+	# `return <value>` (anything but the template's own `return OK`) is the script's result.
+	var returned = _execute_code()
+	if returned == null:
+		_error_message = "Script stopped on a runtime error (the Godot output log has the line)"
+	elif result == null and not (typeof(returned) == TYPE_INT and returned == OK):
+		result = returned
 	
 	# Signal that execution is complete
 	execution_completed.emit()
@@ -118,7 +119,7 @@ func _execute_code():
 	if error != OK:
 		remove_child(script_node)
 		script_node.queue_free()
-		return _send_error(client_id, "Script parsing error: " + str(error), command_id)
+		return _send_error(client_id, "GDScript parse error (%s); the Godot output log has the line" % error_string(error), command_id)
 	
 	# Assign the script to the node
 	script_node.set_script(script)
@@ -149,7 +150,9 @@ func _on_script_execution_completed(script_node: Node, client_id: int, command_i
 	print("result_data: ", result_data)
 	
 	if not error_message.is_empty():
-		result_data["error"] = error_message
+		# Report failures as errors: the server only reads errors, so success:false was shown as success.
+		var printed := "\n".join(PackedStringArray(output.map(func(line): return str(line))))
+		return _send_error(client_id, "Script error: %s%s" % [error_message, ("\nOutput:\n" + printed) if not printed.is_empty() else ""], command_id)
 	elif execution_result != null:
 		result_data["result"] = execution_result
 	
@@ -157,25 +160,40 @@ func _on_script_execution_completed(script_node: Node, client_id: int, command_i
 
 # Replace print() calls with custom_print() in the user code
 func _replace_print_calls(code: String) -> String:
-	var regex = RegEx.new()
-	# Match print statements with any content inside the parentheses
-	regex.compile("print\\s*\\(([^\\)]+)\\)")
-	
-	var result = regex.search_all(code)
-	var modified_code = code
-	
-	# Process matches in reverse order to avoid issues with changing string length
-	for i in range(result.size() - 1, -1, -1):
-		var match_obj = result[i]
-		var full_match = match_obj.get_string()
-		var arg_content = match_obj.get_string(1)
-		
-		# Create an array with all arguments
-		var replacement = "custom_print([" + arg_content + "])"
-		
-		var start = match_obj.get_start()
-		var end = match_obj.get_end()
-		
-		modified_code = modified_code.substr(0, start) + replacement + modified_code.substr(end)
-	
-	return modified_code
+	# print(args) -> custom_print([args]). Scan for the matching ")" (skipping strings) instead of a
+	# regex, which stopped at the first ")" and broke print("n=", a.size()).
+	var out := ""
+	var i := 0
+	while i < code.length():
+		var at_word_start := i == 0 or not (code[i - 1].is_valid_identifier() or code[i - 1] == "." or code[i - 1].is_valid_int())
+		if at_word_start and code.substr(i, 5) == "print":
+			var j := i + 5
+			while j < code.length() and code[j] == " ":
+				j += 1
+			if j < code.length() and code[j] == "(":
+				var depth := 0
+				var k := j
+				var quote := ""
+				while k < code.length():
+					var c := code[k]
+					if quote != "":
+						if c == "\\":
+							k += 1
+						elif c == quote:
+							quote = ""
+					elif c == "\"" or c == "'":
+						quote = c
+					elif c == "(":
+						depth += 1
+					elif c == ")":
+						depth -= 1
+						if depth == 0:
+							break
+					k += 1
+				if depth == 0 and k < code.length():
+					out += "custom_print([" + code.substr(j + 1, k - j - 1) + "])"
+					i = k + 1
+					continue
+		out += code[i]
+		i += 1
+	return out

@@ -29,16 +29,28 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	var content = params.get("content", "")
 	var node_path = params.get("node_path", "")
 	
+	var overwrite: bool = params.get("overwrite", false)
+	
 	# Validation
 	if script_path.is_empty():
 		return _send_error(client_id, "Script path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not script_path.begins_with("res://"):
-		script_path = "res://" + script_path
-	
-	if not script_path.ends_with(".gd"):
+	# Bare names get .gd; an explicit other extension is refused rather than becoming "x.txt.gd".
+	if script_path.get_extension().is_empty():
 		script_path += ".gd"
+	elif script_path.get_extension() != "gd":
+		return _send_error(client_id, "create_script only creates .gd files: %s" % script_path, command_id)
+	
+	var requested_path: String = script_path
+	script_path = _contained_res_path(script_path)
+	if script_path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
+	if _is_protected_path(script_path):
+		return _send_error(client_id, "%s belongs to the Godot MCP addon and cannot be changed by tools" % script_path, command_id)
+	
+	var replaced := FileAccess.file_exists(script_path)
+	if replaced and not overwrite:
+		return _send_error(client_id, "Script already exists: %s (pass overwrite=true to replace it)" % script_path, command_id)
 	
 	# Get editor plugin and interfaces
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -47,6 +59,13 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	
 	var editor_interface = plugin.get_editor_interface()
 	var script_editor = editor_interface.get_script_editor()
+	
+	# Resolve the target node before writing anything so a bad node_path leaves no stray file.
+	var node: Node = null
+	if not node_path.is_empty():
+		node = _get_editor_node(node_path)
+		if not node:
+			return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 	
 	# Create the directory if it doesn't exist
 	var dir = script_path.get_base_dir()
@@ -66,12 +85,13 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	# Refresh the filesystem
 	editor_interface.get_resource_filesystem().scan()
 	
+	var compile_error := _gdscript_compile_error(script_path) if script_path.ends_with(".gd") else ""
+	if not compile_error.is_empty():
+		return _send_error(client_id, "Script saved to %s but it does not compile%s: %s. Fix it with edit_script." % [
+			script_path, " (not attached to %s)" % node_path if node else "", compile_error], command_id)
+	
 	# Attach the script to a node if specified
-	if not node_path.is_empty():
-		var node = _get_editor_node(node_path)
-		if not node:
-			return _send_error(client_id, "Node not found: %s" % node_path, command_id)
-		
+	if node:
 		# Wait for script to be recognized in the filesystem
 		await get_tree().create_timer(0.5).timeout
 		
@@ -102,6 +122,7 @@ func _create_script(client_id: int, params: Dictionary, command_id: String) -> v
 	
 	_send_success(client_id, {
 		"script_path": script_path,
+		"replaced": replaced,
 		"node_path": node_path
 	}, command_id)
 
@@ -116,9 +137,17 @@ func _edit_script(client_id: int, params: Dictionary, command_id: String) -> voi
 	if content.is_empty():
 		return _send_error(client_id, "Content cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not script_path.begins_with("res://"):
-		script_path = "res://" + script_path
+	# Only .gd files: this tool must not rewrite arbitrary project files
+	# (e.g. project-manager/permission_escalations.json, which holds human approvals).
+	if not script_path.ends_with(".gd"):
+		return _send_error(client_id, "edit_script only edits .gd files: %s" % script_path, command_id)
+	
+	var requested_path: String = script_path
+	script_path = _contained_res_path(script_path)
+	if script_path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
+	if _is_protected_path(script_path):
+		return _send_error(client_id, "%s belongs to the Godot MCP addon and cannot be changed by tools" % script_path, command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(script_path):
@@ -132,6 +161,10 @@ func _edit_script(client_id: int, params: Dictionary, command_id: String) -> voi
 	file.store_string(content)
 	file = null  # Close the file
 	
+	var compile_error := _gdscript_compile_error(script_path)
+	if not compile_error.is_empty():
+		return _send_error(client_id, "Script saved to %s but it does not compile: %s" % [script_path, compile_error], command_id)
+	
 	_send_success(client_id, {
 		"script_path": script_path
 	}, command_id)
@@ -143,6 +176,9 @@ func _get_script(client_id: int, params: Dictionary, command_id: String) -> void
 	# Validation - either script_path or node_path must be provided
 	if script_path.is_empty() and node_path.is_empty():
 		return _send_error(client_id, "Either script_path or node_path must be provided", command_id)
+	
+	if not script_path.is_empty() and not node_path.is_empty():
+		return _send_error(client_id, "Provide either script_path or node_path, not both", command_id)
 	
 	# If node_path is provided, get the script from the node
 	if not node_path.is_empty():
@@ -156,9 +192,10 @@ func _get_script(client_id: int, params: Dictionary, command_id: String) -> void
 		
 		script_path = script.resource_path
 	
-	# Make sure we have an absolute path
-	if not script_path.begins_with("res://"):
-		script_path = "res://" + script_path
+	var requested_path: String = script_path
+	script_path = _contained_res_path(script_path)
+	if script_path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(script_path):
@@ -184,8 +221,10 @@ func _get_script_metadata(client_id: int, params: Dictionary, command_id: String
 	if path.is_empty():
 		return _send_error(client_id, "Script path cannot be empty", command_id)
 	
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	var requested_path: String = path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Script path must stay inside the project (res://): %s" % requested_path, command_id)
 	
 	if not FileAccess.file_exists(path):
 		return _send_error(client_id, "Script file not found: " + path, command_id)

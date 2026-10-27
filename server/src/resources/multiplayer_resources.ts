@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const multiplayerStateResource: Resource = {
+export const multiplayerStateResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/multiplayer/state',
   name: 'Godot Multiplayer State Snapshot',
   mimeType: 'application/json',
@@ -9,7 +9,7 @@ export const multiplayerStateResource: Resource = {
     const godot = getGodotConnection();
     const result = await godot.sendCommand('get_multiplayer_state', {});
     return {
-      text: JSON.stringify(result, null, 2),
+      text: JSON.stringify(result),
     };
   },
 };

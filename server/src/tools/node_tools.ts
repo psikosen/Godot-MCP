@@ -26,6 +26,19 @@ interface UpdateNodePropertyParams {
 
 interface GetNodePropertiesParams {
   node_path: string;
+  properties?: string[];
+  changed_only?: boolean;
+}
+
+interface GetSceneTreeParams {
+  root_path?: string;
+  max_depth?: number;
+  max_nodes?: number;
+}
+
+interface BatchUpdateNodesParams {
+  updates: Array<{ node_path: string; properties: Record<string, unknown> }>;
+  transaction_id?: string;
 }
 
 interface ListNodesParams {
@@ -62,6 +75,7 @@ interface InstantiateSceneParams {
   scene_path: string;
   parent_path?: string;
   node_name?: string;
+  properties?: Record<string, unknown>;
   transaction_id?: string;
 }
 
@@ -1451,6 +1465,8 @@ interface AuthorEnemyAi2DParams {
   vision_entered_method?: string;
   vision_exited_method?: string;
   attack_timeout_method?: string;
+  write_script?: boolean;
+  script_path?: string;
   signal_deferred?: boolean;
   signal_one_shot?: boolean;
   signal_reference_counted?: boolean;
@@ -1489,6 +1505,8 @@ interface AuthorEnemyAi3DParams {
   vision_entered_method?: string;
   vision_exited_method?: string;
   attack_timeout_method?: string;
+  write_script?: boolean;
+  script_path?: string;
   signal_deferred?: boolean;
   signal_one_shot?: boolean;
   signal_reference_counted?: boolean;
@@ -1633,7 +1651,7 @@ const camera2DLimitsSchema = z
     bottom: z.number().int().optional().describe('Bottom boundary in pixels.'),
   })
   .refine(value => Object.values(value).some(entry => entry !== undefined), {
-    message: 'Provide at least one limit property to update.',
+    message: 'Provide at least one limit property to update (enabled, draw_limits, smoothed, left, right, top, bottom)',
   });
 
 const camera2DSmoothingSchema = z
@@ -1652,7 +1670,7 @@ const camera2DSmoothingSchema = z
       .describe('Smoothing speed used when rotating towards the target angle.'),
   })
   .refine(value => Object.values(value).some(entry => entry !== undefined), {
-    message: 'Provide at least one smoothing property to update.',
+    message: 'Provide at least one smoothing property to update (position_enabled, position_speed, rotation_enabled, rotation_speed)',
   });
 
 const vector2ParamSchema = z.union([
@@ -1694,7 +1712,7 @@ export const nodeTools: MCPTool[] = [
         });
 
         const status = (result.status as string) ?? 'committed';
-        return `Created ${node_type} node named "${node_name}" at ${result.node_path} [${status}]`;
+        return `Created ${node_type} node named "${result.node_name ?? node_name}" at ${result.node_path} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to create node: ${(error as Error).message}`);
       }
@@ -1766,25 +1784,54 @@ export const nodeTools: MCPTool[] = [
 
   {
     name: 'get_node_properties',
-    description: 'Get all properties of a node in the Godot scene tree',
+    description: 'Get properties of a node. Pass properties (names) or changed_only to keep the reply short; a full dump is 60-150 entries.',
     parameters: z.object({
       node_path: z.string()
         .describe('Path to the node to inspect (e.g. "/root/MainScene/Player")'),
+      properties: z.array(z.string()).max(200).optional()
+        .describe('Only these properties, e.g. ["position", "modulate", "position.x"]'),
+      changed_only: z.boolean().optional()
+        .describe('Only properties that differ from the class or script default'),
     }),
-    execute: async ({ node_path }: GetNodePropertiesParams): Promise<string> => {
+    execute: async ({ node_path, properties, changed_only }: GetNodePropertiesParams): Promise<string> => {
       const godot = getGodotConnection();
       
       try {
-        const result = await godot.sendCommand<CommandResult>('get_node_properties', { node_path });
+        const result = await godot.sendCommand<CommandResult>('get_node_properties', { node_path, properties, changed_only });
         
-        // Format properties for display
-        const formattedProperties = Object.entries(result.properties)
-          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-          .join('\n');
-        
-        return `Properties of node at ${node_path}:\n\n${formattedProperties}`;
+        const lines = Object.entries(result.properties)
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`);
+        const missing = (result.missing as string[] | undefined) ?? [];
+        if (missing.length > 0) lines.push(`missing: ${missing.join(', ')}`);
+        return `Properties of node at ${node_path}:\n${lines.join('\n') || '(none differ from defaults)'}`;
       } catch (error) {
         throw new Error(`Failed to get node properties: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'read',
+    },
+  },
+
+  {
+    name: 'get_scene_tree',
+    description: 'Outline the scene tree, one short line per node: "Name (Type) @instanced_scene script=file.gd [groups]". The cheapest way to see a whole scene.',
+    parameters: z.object({
+      root_path: z.string().optional()
+        .describe('Subtree to outline (default "/root", the scene root)'),
+      max_depth: z.number().int().min(0).max(64).optional()
+        .describe('Levels below the root to show (default 10)'),
+      max_nodes: z.number().int().min(1).max(5000).optional()
+        .describe('Stop after this many nodes (default 400)'),
+    }),
+    execute: async ({ root_path, max_depth, max_nodes }: GetSceneTreeParams): Promise<string> => {
+      const godot = getGodotConnection();
+      try {
+        const result = await godot.sendCommand<CommandResult>('get_scene_tree', { root_path, max_depth, max_nodes });
+        const omitted = Number(result.omitted ?? 0);
+        return `${result.outline}${omitted > 0 ? `\n(${omitted} more node(s) not shown; raise max_depth/max_nodes or outline a subtree)` : ''}`;
+      } catch (error) {
+        throw new Error(`Failed to get scene tree: ${(error as Error).message}`);
       }
     },
     metadata: {
@@ -1925,7 +1972,8 @@ export const nodeTools: MCPTool[] = [
         const resolvedPath = (result.node_path as string) ?? node_path;
         const resolvedParent = (result.new_parent_path as string) ?? new_parent_path;
         const resolvedIndex = result.new_index ?? child_index ?? 'auto';
-        return `Reparented ${resolvedPath} to ${resolvedParent} at index ${resolvedIndex} [${status}]`;
+        // node_path is where the node ends up; say where it came from too (the old text read as the source).
+        return `Reparented ${node_path} to ${resolvedParent} at index ${resolvedIndex}; it is now ${resolvedPath} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to reparent node: ${(error as Error).message}`);
       }
@@ -1981,10 +2029,12 @@ export const nodeTools: MCPTool[] = [
         .describe('Optional parent node path (defaults to "/root")'),
       node_name: z.string().optional()
         .describe('Optional name for the instantiated root node'),
+      properties: z.record(z.any()).optional()
+        .describe('Values to set on the new instance, e.g. {"position": {"x": 300, "y": 120}, "speed": 90}'),
       transaction_id: z.string().optional()
         .describe('Optional scene transaction identifier used to batch operations'),
     }),
-    execute: async ({ scene_path, parent_path, node_name, transaction_id }: InstantiateSceneParams): Promise<string> => {
+    execute: async ({ scene_path, parent_path, node_name, properties, transaction_id }: InstantiateSceneParams): Promise<string> => {
       const godot = getGodotConnection();
 
       try {
@@ -1992,6 +2042,7 @@ export const nodeTools: MCPTool[] = [
           scene_path,
           parent_path,
           node_name,
+          properties,
           transaction_id,
         });
 
@@ -2107,6 +2158,35 @@ export const nodeTools: MCPTool[] = [
     },
   },
   {
+    name: 'batch_update_nodes',
+    description: 'Set properties on many nodes in one call and one undo step. All values are checked first; one bad value changes nothing.',
+    parameters: z.object({
+      updates: z.array(z.object({
+        node_path: z.string().describe('Node to update'),
+        properties: z.record(z.any()).describe('Property map, keys may be paths like "position.x"'),
+      })).min(1).max(500)
+        .describe('One entry per node'),
+      transaction_id: z.string().optional()
+        .describe('Optional scene transaction identifier used to batch operations'),
+    }),
+    execute: async ({ updates, transaction_id }: BatchUpdateNodesParams): Promise<string> => {
+      const godot = getGodotConnection();
+      try {
+        const result = await godot.sendCommand<CommandResult>('batch_update_nodes', { updates, transaction_id });
+        const status = (result.status as string) ?? 'committed';
+        if (status === 'no_change') {
+          return 'Batch update had no effective changes (all values already set).';
+        }
+        return `Updated ${result.updated_nodes} node(s) with ${result.change_count} property change(s) [${status}]`;
+      } catch (error) {
+        throw new Error(`Failed to batch update nodes: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
     name: 'batch_create_nodes',
     description: 'Create multiple child nodes in one undo-aware operation',
     parameters: z.object({
@@ -2137,7 +2217,10 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const count = Number(result.count ?? (Array.isArray(result.created_nodes) ? result.created_nodes.length : nodes.length));
         const resolvedParent = (result.parent_path as string) ?? parent_path ?? '/root';
-        return `Batch created ${count} node(s) under ${resolvedParent} [${status}]`;
+        const names = Array.isArray(result.created_nodes)
+          ? result.created_nodes.map((entry: { node_name?: string }) => entry?.node_name).filter(Boolean)
+          : [];
+        return `Batch created ${count} node(s) under ${resolvedParent} [${status}]${names.length ? `: ${names.join(', ')}` : ''}`;
       } catch (error) {
         throw new Error(`Failed to batch create nodes: ${(error as Error).message}`);
       }
@@ -2448,11 +2531,13 @@ export const nodeTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('set_animation_tree_state', args);
         const status = (result.status as string) ?? 'committed';
+        // travel()/start() take effect on the tree's next process step, so the state read back now is
+        // still the previous one; report the request and the state it left.
+        const previous = result.previous_state ?? result.current_state;
         if (status === 'no_change') {
-          return `AnimationTree at ${args.node_path} is already in state ${args.state_name}.`;
+          return `AnimationTree at ${args.node_path} was already set to ${args.state_name}.`;
         }
-        const currentState = String(result.current_state ?? args.state_name);
-        return `Set AnimationTree state on ${args.node_path} to ${currentState} [${status}]`;
+        return `Requested AnimationTree state ${args.state_name} on ${args.node_path}${previous ? ` (was ${previous})` : ''} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to set AnimationTree state: ${(error as Error).message}`);
       }
@@ -2498,14 +2583,14 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       parent_path: z.string().optional(),
       spawner_name: z.string().optional(),
-      spawn_points: z.array(vector2ParamSchema).optional(),
+      spawn_points: z.array(vector2ParamSchema).optional().describe('Spawn positions relative to the spawner node.'),
       create_timer: z.boolean().optional(),
       timer_name: z.string().optional(),
       create_spawn_nodes: z.boolean().optional(),
       spawn_nodes_parent_name: z.string().optional(),
       wave_interval: z.number().nonnegative().optional(),
       enemies_per_wave: z.number().int().positive().optional(),
-      max_waves: z.number().int().positive().optional(),
+      max_waves: z.number().int().positive().max(1000).optional(),
       current_wave: z.number().int().nonnegative().optional(),
       auto_start: z.boolean().optional(),
       enemy_scene_path: z.string().optional(),
@@ -2536,14 +2621,14 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       parent_path: z.string().optional(),
       spawner_name: z.string().optional(),
-      spawn_points: z.array(vector3ParamSchema).optional(),
+      spawn_points: z.array(vector3ParamSchema).optional().describe('Spawn positions relative to the spawner node.'),
       create_timer: z.boolean().optional(),
       timer_name: z.string().optional(),
       create_spawn_nodes: z.boolean().optional(),
       spawn_nodes_parent_name: z.string().optional(),
       wave_interval: z.number().nonnegative().optional(),
       enemies_per_wave: z.number().int().positive().optional(),
-      max_waves: z.number().int().positive().optional(),
+      max_waves: z.number().int().positive().max(1000).optional(),
       current_wave: z.number().int().nonnegative().optional(),
       auto_start: z.boolean().optional(),
       enemy_scene_path: z.string().optional(),
@@ -2574,7 +2659,7 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       spawner_path: z.string()
         .describe('Path to the 2D spawner node'),
-      spawn_count: z.number().int().positive().optional(),
+      spawn_count: z.number().int().positive().max(200).optional(),
       advance_wave: z.boolean().optional(),
       instantiate_enemy: z.boolean().optional(),
       enemy_scene_path: z.string().optional(),
@@ -2586,9 +2671,10 @@ export const nodeTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('simulate_wave_spawner_step_2d', args);
         const status = (result.status as string) ?? 'committed';
-        const spawnCount = Number(result.spawn_count ?? 0);
+        const spawnedCount = Number(result.spawned_count ?? 0);
+        const positions = Number(result.spawn_count ?? 0);
         const nextWave = Number(result.next_wave ?? 0);
-        return `Simulated 2D wave step at ${args.spawner_path} -> spawned ${spawnCount}, next_wave=${nextWave} [${status}]`;
+        return `Simulated 2D wave step at ${args.spawner_path} -> ${args.instantiate_enemy ? `spawned ${spawnedCount} enem${spawnedCount === 1 ? 'y' : 'ies'} at` : 'selected (instantiate_enemy=false, nothing spawned)'} ${positions} spawn position(s), next_wave=${nextWave} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate wave spawner step 2D: ${(error as Error).message}`);
       }
@@ -2603,7 +2689,7 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       spawner_path: z.string()
         .describe('Path to the 3D spawner node'),
-      spawn_count: z.number().int().positive().optional(),
+      spawn_count: z.number().int().positive().max(200).optional(),
       advance_wave: z.boolean().optional(),
       instantiate_enemy: z.boolean().optional(),
       enemy_scene_path: z.string().optional(),
@@ -2615,9 +2701,10 @@ export const nodeTools: MCPTool[] = [
       try {
         const result = await godot.sendCommand<CommandResult>('simulate_wave_spawner_step_3d', args);
         const status = (result.status as string) ?? 'committed';
-        const spawnCount = Number(result.spawn_count ?? 0);
+        const spawnedCount = Number(result.spawned_count ?? 0);
+        const positions = Number(result.spawn_count ?? 0);
         const nextWave = Number(result.next_wave ?? 0);
-        return `Simulated 3D wave step at ${args.spawner_path} -> spawned ${spawnCount}, next_wave=${nextWave} [${status}]`;
+        return `Simulated 3D wave step at ${args.spawner_path} -> ${args.instantiate_enemy ? `spawned ${spawnedCount} enem${spawnedCount === 1 ? 'y' : 'ies'} at` : 'selected (instantiate_enemy=false, nothing spawned)'} ${positions} spawn position(s), next_wave=${nextWave} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate wave spawner step 3D: ${(error as Error).message}`);
       }
@@ -2635,7 +2722,8 @@ export const nodeTools: MCPTool[] = [
       trauma: z.number().min(0).max(1).optional(),
       amplitude: z.number().nonnegative().optional(),
       rotation_amplitude_degrees: z.number().nonnegative().optional(),
-      add_to_existing: z.boolean().optional(),
+      add_to_existing: z.boolean().optional()
+        .describe('Default true: add the shake onto the camera\'s current offset/rotation, so repeated calls accumulate even with the same seed. Use false for a repeatable, absolute shake.'),
       seed: z.number().int().optional(),
       transaction_id: z.string().optional(),
     }),
@@ -2666,8 +2754,10 @@ export const nodeTools: MCPTool[] = [
       horizontal_amplitude: z.number().nonnegative().optional(),
       vertical_amplitude: z.number().nonnegative().optional(),
       roll_amplitude_degrees: z.number().nonnegative().optional(),
-      fov_pulse: z.number().nonnegative().optional(),
-      add_to_existing: z.boolean().optional(),
+      fov_pulse: z.number().nonnegative().optional()
+        .describe('FOV pulse added to the camera\'s base fov (remembered between shakes, so it does not accumulate)'),
+      add_to_existing: z.boolean().optional()
+        .describe('Default true: add h/v offset and roll onto the current values (repeated calls accumulate). Use false for a repeatable, absolute shake.'),
       seed: z.number().int().optional(),
       transaction_id: z.string().optional(),
     }),
@@ -2680,8 +2770,8 @@ export const nodeTools: MCPTool[] = [
         const rotation = result.rotation ? JSON.stringify(result.rotation) : 'unknown';
         const hOffset = Number(result.h_offset ?? 0);
         const vOffset = Number(result.v_offset ?? 0);
-        const fov = Number(result.fov ?? 0);
-        return `Simulated Camera3D shake on ${args.node_path} [${status}] -> h_offset=${hOffset.toFixed(4)}, v_offset=${vOffset.toFixed(4)}, fov=${fov.toFixed(3)}, rotation=${rotation}`;
+        const fov = result.fov === undefined ? 'unknown' : Number(result.fov).toFixed(3);
+        return `Simulated Camera3D shake on ${args.node_path} [${status}] -> h_offset=${hOffset.toFixed(4)}, v_offset=${vOffset.toFixed(4)}, fov=${fov}, rotation=${rotation}`;
       } catch (error) {
         throw new Error(`Failed to simulate Camera3D shake: ${(error as Error).message}`);
       }
@@ -2829,7 +2919,7 @@ export const nodeTools: MCPTool[] = [
       floor_snap_length: z.number().optional(),
       floor_max_angle: z.number().optional(),
       wall_min_slide_angle: z.number().optional(),
-      max_slides: z.number().int().min(1).optional(),
+      max_slides: z.number().int().min(1).max(64).optional(),
       safe_margin: z.number().nonnegative().optional(),
       slide_on_ceiling: z.boolean().optional(),
       platform_on_leave: z.number().int().optional(),
@@ -3005,11 +3095,11 @@ export const nodeTools: MCPTool[] = [
           .describe('Offset added to noise sample coordinates'),
         noise_seed: z.number().int().optional(),
         frequency: z.number().positive().optional(),
-        fractal_octaves: z.number().int().min(1).optional(),
+        fractal_octaves: z.number().int().min(1).max(10).optional(),
         fractal_lacunarity: z.number().nonnegative().optional(),
         fractal_gain: z.number().nonnegative().optional(),
-        noise_type: z.number().int().optional(),
-        fractal_type: z.number().int().optional(),
+        noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+        fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
         transaction_id: z.string().optional(),
       })
       .superRefine((value, ctx) => {
@@ -3084,11 +3174,11 @@ export const nodeTools: MCPTool[] = [
         seed: z.number().int().optional(),
         noise_seed: z.number().int().optional(),
         frequency: z.number().positive().optional(),
-        fractal_octaves: z.number().int().min(1).optional(),
+        fractal_octaves: z.number().int().min(1).max(10).optional(),
         fractal_lacunarity: z.number().nonnegative().optional(),
         fractal_gain: z.number().nonnegative().optional(),
-        noise_type: z.number().int().optional(),
-        fractal_type: z.number().int().optional(),
+        noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+        fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
         ignore_empty_terrains: z.boolean().optional(),
         clear_unselected: z.boolean().optional(),
         neighbor_margin: z.number().int().min(0).optional(),
@@ -3141,7 +3231,7 @@ export const nodeTools: MCPTool[] = [
         .describe('MeshLibrary item id to place'),
       orientation: z.number().int().optional(),
       min_height: z.number().int().optional(),
-      max_height: z.number().int().optional(),
+      max_height: z.number().int().max(256).optional(),
       surface_only: z.boolean().optional()
         .describe('Place only the top surface cell for each column'),
       clear_unselected: z.boolean().optional()
@@ -3149,11 +3239,11 @@ export const nodeTools: MCPTool[] = [
       sample_offset: vector2ParamSchema.optional(),
       noise_seed: z.number().int().optional(),
       frequency: z.number().positive().optional(),
-      fractal_octaves: z.number().int().min(1).optional(),
+      fractal_octaves: z.number().int().min(1).max(10).optional(),
       fractal_lacunarity: z.number().nonnegative().optional(),
       fractal_gain: z.number().nonnegative().optional(),
-      noise_type: z.number().int().optional(),
-      fractal_type: z.number().int().optional(),
+      noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+      fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
       transaction_id: z.string().optional(),
     }),
     execute: async (args: GenerateHeightmapGridMap3DParams): Promise<string> => {
@@ -3184,7 +3274,7 @@ export const nodeTools: MCPTool[] = [
       parent_path: z.string().optional(),
       scene_path: z.string()
         .describe('PackedScene path (res://...) to instantiate'),
-      count: z.number().int().positive().optional(),
+      count: z.number().int().positive().max(2000).optional(),
       rect: z.union([
         z.object({
           position: z.object({ x: z.number().optional(), y: z.number().optional() }).optional(),
@@ -3197,7 +3287,7 @@ export const nodeTools: MCPTool[] = [
         z.tuple([z.number(), z.number(), z.number(), z.number()]),
       ]),
       min_distance: z.number().nonnegative().optional(),
-      max_attempts: z.number().int().positive().optional(),
+      max_attempts: z.number().int().positive().max(100000).optional(),
       require_full_count: z.boolean().optional(),
       name_prefix: z.string().optional(),
       random_rotation: z.boolean().optional(),
@@ -3226,16 +3316,16 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'scatter_scene_instances_3d',
-    description: 'Procedurally scatter PackedScene Node3D instances across a 3D volume',
+    description: 'Procedurally scatter PackedScene Node3D instances across a 3D volume. origin is the volume\'s minimum corner (it spans origin to origin + size).',
     parameters: z.object({
       parent_path: z.string().optional(),
       scene_path: z.string()
         .describe('PackedScene path (res://...) to instantiate'),
-      count: z.number().int().positive().optional(),
+      count: z.number().int().positive().max(2000).optional(),
       origin: vector3ParamSchema.optional(),
       size: vector3ParamSchema,
       min_distance: z.number().nonnegative().optional(),
-      max_attempts: z.number().int().positive().optional(),
+      max_attempts: z.number().int().positive().max(100000).optional(),
       require_full_count: z.boolean().optional(),
       name_prefix: z.string().optional(),
       random_yaw: z.boolean().optional(),
@@ -3276,7 +3366,7 @@ export const nodeTools: MCPTool[] = [
       floor_snap_length: z.number().optional(),
       floor_max_angle: z.number().optional(),
       wall_min_slide_angle: z.number().optional(),
-      max_slides: z.number().int().min(1).optional(),
+      max_slides: z.number().int().min(1).max(64).optional(),
       safe_margin: z.number().nonnegative().optional(),
       slide_on_ceiling: z.boolean().optional(),
       platform_on_leave: z.number().int().optional(),
@@ -3398,7 +3488,7 @@ export const nodeTools: MCPTool[] = [
       max_speed: z.number().nonnegative().optional(),
       avoidance_enabled: z.boolean().optional(),
       neighbor_distance: z.number().nonnegative().optional(),
-      max_neighbors: z.number().int().nonnegative().optional(),
+      max_neighbors: z.number().int().nonnegative().max(1000).optional(),
       time_horizon: z.number().nonnegative().optional(),
       time_horizon_agents: z.number().nonnegative().optional(),
       time_horizon_obstacles: z.number().nonnegative().optional(),
@@ -3445,7 +3535,7 @@ export const nodeTools: MCPTool[] = [
       max_speed: z.number().nonnegative().optional(),
       avoidance_enabled: z.boolean().optional(),
       neighbor_distance: z.number().nonnegative().optional(),
-      max_neighbors: z.number().int().nonnegative().optional(),
+      max_neighbors: z.number().int().nonnegative().max(1000).optional(),
       time_horizon: z.number().nonnegative().optional(),
       time_horizon_agents: z.number().nonnegative().optional(),
       time_horizon_obstacles: z.number().nonnegative().optional(),
@@ -3627,7 +3717,7 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       path_path: z.string()
         .describe('Path to the Path2D node'),
-      follower_count: z.number().int().min(0).optional(),
+      follower_count: z.number().int().min(0).max(256).optional(),
       create_missing: z.boolean().optional(),
       base_name: z.string().optional(),
       use_progress_ratio: z.boolean().optional(),
@@ -3678,7 +3768,7 @@ export const nodeTools: MCPTool[] = [
     parameters: z.object({
       path_path: z.string()
         .describe('Path to the Path3D node'),
-      follower_count: z.number().int().min(0).optional(),
+      follower_count: z.number().int().min(0).max(256).optional(),
       create_missing: z.boolean().optional(),
       base_name: z.string().optional(),
       use_progress_ratio: z.boolean().optional(),
@@ -3737,7 +3827,7 @@ export const nodeTools: MCPTool[] = [
       floor_constant_speed: z.boolean().optional(),
       floor_block_on_wall: z.boolean().optional(),
       floor_snap_length: z.number().optional(),
-      max_slides: z.number().int().min(1).optional(),
+      max_slides: z.number().int().min(1).max(64).optional(),
       safe_margin: z.number().nonnegative().optional(),
       slide_on_ceiling: z.boolean().optional(),
       platform_on_leave: z.number().int().optional(),
@@ -4052,7 +4142,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'build_water_body_3d',
-    description: 'Generate a 3D water volume scaffold (surface mesh + Area3D volume) with tunable rendering and wave metadata',
+    description: 'Generate a 3D water volume scaffold (flat surface mesh + Area3D volume). Wave settings are stored as metadata for your own water shader or script; the surface itself is flat.',
     parameters: z.object({
       parent_path: z.string().optional()
         .describe('Parent node path for the generated water root (defaults to "/root")'),
@@ -4078,8 +4168,8 @@ export const nodeTools: MCPTool[] = [
       metallic: z.number().min(0).max(1).optional(),
       emission_color: z.any().optional(),
       emission_energy: z.number().nonnegative().optional(),
-      subdivide_width: z.number().int().min(0).optional(),
-      subdivide_depth: z.number().int().min(0).optional(),
+      subdivide_width: z.number().int().min(0).max(256).optional(),
+      subdivide_depth: z.number().int().min(0).max(256).optional(),
       transaction_id: z.string().optional(),
     }),
     execute: async (args: BuildWaterBody3DParams): Promise<string> => {
@@ -4115,7 +4205,7 @@ export const nodeTools: MCPTool[] = [
       grain_spacing: z.number().positive().optional(),
       grain_radius: z.number().positive().optional(),
       jitter: z.number().nonnegative().optional(),
-      max_grains: z.number().int().positive().optional(),
+      max_grains: z.number().int().positive().max(20000).optional(),
       random_yaw: z.boolean().optional(),
       seed: z.number().int().optional(),
       grain_color: z.any().optional(),
@@ -4137,7 +4227,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const fieldPath = (result.field_path as string) ?? 'unknown';
         const grains = Number(result.grain_count ?? 0);
-        return `Built 3D sand field at ${fieldPath} with ${grains} grains [${status}]`;
+        const gridPoints = Number(result.grid_points ?? 0);
+        return `Built 3D sand field at ${fieldPath} with ${grains} grains${gridPoints > Number(grains) ? ` (max_grains capped a ${gridPoints}-point grid; grains are spread over the whole field)` : ''} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to build sand field 3D: ${(error as Error).message}`);
       }
@@ -4159,7 +4250,7 @@ export const nodeTools: MCPTool[] = [
       cell_size: vector2ParamSchema.optional()
         .describe('Cell dimensions in local units/pixels'),
       fill_ratio: z.number().min(0).max(1).optional(),
-      smoothing_steps: z.number().int().nonnegative().optional(),
+      smoothing_steps: z.number().int().nonnegative().max(50).optional(),
       birth_limit: z.number().int().min(0).max(8).optional(),
       death_limit: z.number().int().min(0).max(8).optional(),
       border_solid: z.boolean().optional(),
@@ -4200,14 +4291,14 @@ export const nodeTools: MCPTool[] = [
       field_name: z.string().optional(),
       origin: vector2ParamSchema.optional(),
       size: vector2ParamSchema.optional(),
-      create_visual: z.boolean().optional(),
+      create_visual: z.boolean().optional().describe('Grain polygons (default true); false builds only the sand volume area'),
       create_volume_area: z.boolean().optional(),
       collision_layer: z.number().int().optional(),
       collision_mask: z.number().int().optional(),
       grain_spacing: z.number().positive().optional(),
       grain_radius: z.number().positive().optional(),
       jitter: z.number().nonnegative().optional(),
-      max_grains: z.number().int().positive().optional(),
+      max_grains: z.number().int().positive().max(20000).optional(),
       random_rotation: z.boolean().optional(),
       grain_segments: z.number().int().min(3).max(24).optional(),
       seed: z.number().int().optional(),
@@ -4245,7 +4336,7 @@ export const nodeTools: MCPTool[] = [
         .describe('Parent node path for the generated level root (defaults to "/root")'),
       level_name: z.string().optional(),
       origin: vector2ParamSchema.optional(),
-      segment_count: z.number().int().positive().optional(),
+      segment_count: z.number().int().positive().max(500).optional(),
       min_platform_width: z.number().positive().optional(),
       max_platform_width: z.number().positive().optional(),
       platform_height: z.number().positive().optional(),
@@ -4338,17 +4429,17 @@ export const nodeTools: MCPTool[] = [
       level_name: z.string().optional(),
       origin: vector2ParamSchema.optional(),
       grid_size: vector2ParamSchema.optional(),
-      max_tiles: z.number().int().positive().optional(),
+      max_tiles: z.number().int().positive().max(20000).optional(),
       tile_size: vector2ParamSchema.optional(),
       min_height: z.number().int().optional(),
-      max_height: z.number().int().optional(),
+      max_height: z.number().int().max(256).optional(),
       elevation_step: z.number().positive().optional(),
       noise_frequency: z.number().positive().optional(),
-      fractal_octaves: z.number().int().positive().optional(),
+      fractal_octaves: z.number().int().positive().max(10).optional(),
       fractal_lacunarity: z.number().nonnegative().optional(),
       fractal_gain: z.number().nonnegative().optional(),
-      noise_type: z.number().int().optional(),
-      fractal_type: z.number().int().optional(),
+      noise_type: z.number().int().min(0).max(5).optional().describe('FastNoiseLite.NoiseType: 0 simplex, 1 simplex smooth, 2 cellular, 3 perlin, 4 value cubic, 5 value.'),
+      fractal_type: z.number().int().min(0).max(3).optional().describe('FastNoiseLite.FractalType: 0 none, 1 fbm, 2 ridged, 3 ping-pong.'),
       sample_offset: vector2ParamSchema.optional(),
       create_collision: z.boolean().optional(),
       create_side_faces: z.boolean().optional(),
@@ -4386,10 +4477,10 @@ export const nodeTools: MCPTool[] = [
         .describe('Parent node path for the generated tentacle root (defaults to "/root")'),
       tentacle_name: z.string().optional(),
       origin: vector2ParamSchema.optional(),
-      waypoint_count: z.number().int().min(2).optional(),
+      waypoint_count: z.number().int().min(2).max(1000).optional(),
       segment_length: z.number().positive().optional(),
       lateral_amplitude: z.number().nonnegative().optional(),
-      wave_count: z.number().nonnegative().optional(),
+      wave_count: z.number().nonnegative().max(100).optional(),
       random_jitter: z.number().nonnegative().optional(),
       taper: z.number().min(0).max(1).optional(),
       direction: vector2ParamSchema.optional(),
@@ -4468,11 +4559,11 @@ export const nodeTools: MCPTool[] = [
       origin: vector2ParamSchema.optional(),
       grid_size: vector2ParamSchema.optional(),
       cell_size: vector2ParamSchema.optional(),
-      initial_cell_count: z.number().int().positive().optional(),
+      initial_cell_count: z.number().int().positive().max(5000).optional(),
       initial_radius: z.number().int().nonnegative().optional(),
       spread_chance: z.number().min(0).max(1).optional(),
       growth_rate: z.number().nonnegative().optional(),
-      max_cells: z.number().int().positive().optional(),
+      max_cells: z.number().int().positive().max(5000).optional(),
       create_visuals: z.boolean().optional(),
       create_collision: z.boolean().optional(),
       cell_color: z.any().optional(),
@@ -4510,9 +4601,9 @@ export const nodeTools: MCPTool[] = [
       cell_size: vector2ParamSchema.optional(),
       spread_chance: z.number().min(0).max(1).optional(),
       growth_rate: z.number().nonnegative().optional(),
-      max_cells: z.number().int().positive().optional(),
-      steps: z.number().int().positive().optional(),
-      max_new_cells_per_step: z.number().int().positive().optional(),
+      max_cells: z.number().int().positive().max(5000).optional(),
+      steps: z.number().int().positive().max(100).optional(),
+      max_new_cells_per_step: z.number().int().positive().max(1000).optional(),
       allow_diagonal: z.boolean().optional(),
       create_visuals: z.boolean().optional(),
       create_collision: z.boolean().optional(),
@@ -4591,8 +4682,9 @@ export const nodeTools: MCPTool[] = [
         const nodePath = (result.node_path as string) ?? args.node_path;
         const lightType = String(result.light_type ?? 'Light');
         const enabled = Boolean(result.enabled ?? args.enabled ?? true);
-        const energy = Number(result.energy ?? args.energy ?? 0);
-        return `Configured ${lightType} at ${nodePath} enabled=${enabled} energy=${energy.toFixed(2)} [${status}]`;
+        const energyValue = result.energy ?? args.energy;
+        const energy = energyValue === undefined ? 'unknown' : Number(energyValue).toFixed(2);
+        return `Configured ${lightType} at ${nodePath} enabled=${enabled} energy=${energy} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to configure light node: ${(error as Error).message}`);
       }
@@ -4613,7 +4705,7 @@ export const nodeTools: MCPTool[] = [
       intensity: z.number().min(0).max(1).optional(),
       wind_direction: vector2ParamSchema.optional(),
       wind_strength: z.number().min(0).max(1).optional(),
-      max_particles: z.number().int().nonnegative().optional(),
+      max_particles: z.number().int().nonnegative().max(100000).optional(),
       particle_lifetime: z.number().positive().optional(),
       rise_speed_min: z.number().nonnegative().optional(),
       rise_speed_max: z.number().nonnegative().optional(),
@@ -4665,7 +4757,7 @@ export const nodeTools: MCPTool[] = [
       one_shot: z.boolean().optional(),
       local_coords: z.boolean().optional(),
       trail_enabled: z.boolean().optional(),
-      amount: z.number().int().nonnegative().optional(),
+      amount: z.number().int().nonnegative().max(100000).optional(),
       fixed_fps: z.number().int().nonnegative().optional(),
       draw_order: z.number().int().optional(),
       amount_ratio: z.number().min(0).max(1).optional(),
@@ -4736,7 +4828,7 @@ export const nodeTools: MCPTool[] = [
       intensity: z.number().min(0).max(1).optional(),
       wind_direction: vector3ParamSchema.optional(),
       wind_strength: z.number().min(0).max(1).optional(),
-      max_particles: z.number().int().nonnegative().optional(),
+      max_particles: z.number().int().nonnegative().max(100000).optional(),
       particle_lifetime: z.number().positive().optional(),
       rise_speed_min: z.number().nonnegative().optional(),
       rise_speed_max: z.number().nonnegative().optional(),
@@ -4898,7 +4990,7 @@ export const nodeTools: MCPTool[] = [
       enable_lightning_overlay: z.boolean().optional(),
       precipitation_mode: z.enum(['none', 'rain', 'snow', 'ash']).optional(),
       precipitation_intensity_scale: z.number().min(0).max(2).optional(),
-      max_particles: z.number().int().nonnegative().optional(),
+      max_particles: z.number().int().nonnegative().max(100000).optional(),
       particle_lifetime: z.number().positive().optional(),
       particle_speed_min: z.number().nonnegative().optional(),
       particle_speed_max: z.number().nonnegative().optional(),
@@ -4952,7 +5044,7 @@ export const nodeTools: MCPTool[] = [
       wind_strength: z.number().min(0).max(1).optional(),
       precipitation_mode: z.enum(['none', 'rain', 'snow', 'ash']).optional(),
       precipitation_intensity_scale: z.number().min(0).max(2).optional(),
-      max_particles: z.number().int().nonnegative().optional(),
+      max_particles: z.number().int().nonnegative().max(100000).optional(),
       particle_lifetime: z.number().positive().optional(),
       particle_speed_min: z.number().nonnegative().optional(),
       particle_speed_max: z.number().nonnegative().optional(),
@@ -5019,7 +5111,8 @@ export const nodeTools: MCPTool[] = [
       drag_scale: z.number().nonnegative().optional(),
       sink_bias: z.number().optional(),
       clamp_speed: z.number().nonnegative().optional(),
-      apply_position: z.boolean().optional(),
+      apply_position: z.boolean().optional()
+        .describe('When false, only report the simulated position and velocity; nothing is written (default true)'),
       require_inside: z.boolean().optional(),
       current_velocity: vector2ParamSchema.optional(),
       transaction_id: z.string().optional(),
@@ -5043,7 +5136,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'simulate_water_current_step_3d',
-    description: 'Apply one water current/buoyancy simulation step to a Node3D body against a 3D water volume',
+    description: 'Apply one water current/buoyancy step to a Node3D body over a 3D water volume. Gravity always pulls (a body above the surface falls in); buoyancy pushes up by how deep the body sits (1 hovers fully under, 2 floats half under, 0 sinks). Bodies outside the water footprint are left alone unless require_inside is false.',
     parameters: z.object({
       water_path: z.string()
         .describe('Path to the 3D water root node'),
@@ -5054,6 +5147,7 @@ export const nodeTools: MCPTool[] = [
       depth: z.number().positive().optional(),
       flow_direction: vector2ParamSchema.optional(),
       flow_speed: z.number().optional(),
+      gravity: z.number().optional().describe('m/s² (default: project 3D gravity, 9.8)'),
       buoyancy: z.number().optional(),
       drag: z.number().nonnegative().optional(),
       delta: z.number().positive().optional(),
@@ -5062,7 +5156,8 @@ export const nodeTools: MCPTool[] = [
       drag_scale: z.number().nonnegative().optional(),
       sink_bias: z.number().optional(),
       clamp_speed: z.number().nonnegative().optional(),
-      apply_position: z.boolean().optional(),
+      apply_position: z.boolean().optional()
+        .describe('When false, only report the simulated position and velocity; nothing is written (default true)'),
       require_inside: z.boolean().optional(),
       preserve_vertical_velocity: z.boolean().optional(),
       current_velocity: vector3ParamSchema.optional(),
@@ -5076,7 +5171,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const inside = Boolean(result.inside_water ?? false);
         const submersion = Number(result.submersion ?? 0);
-        return `Simulated 3D water step for ${args.body_path} in ${args.water_path} (inside=${inside}, submersion=${submersion.toFixed(2)}) [${status}]`;
+        const position = result.position ? ` position=${JSON.stringify(result.position)} velocity=${JSON.stringify(result.velocity)}` : '';
+        return `Simulated 3D water step for ${args.body_path} in ${args.water_path} (inside=${inside}, submersion=${submersion.toFixed(2)})${position} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to simulate 3D water current step: ${(error as Error).message}`);
       }
@@ -5095,7 +5191,7 @@ export const nodeTools: MCPTool[] = [
         .describe('Optional explicit path to the MultiMeshInstance3D grains node'),
       size: vector3ParamSchema.optional()
         .describe('Optional bounds override for clamping settled grains'),
-      iterations: z.number().int().positive().optional(),
+      iterations: z.number().int().positive().max(1000).optional(),
       settle_strength: z.number().nonnegative().optional(),
       horizontal_jitter: z.number().nonnegative().optional(),
       downward_bias: z.number().nonnegative().optional(),
@@ -5205,7 +5301,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'author_enemy_ai_2d',
-    description: 'Author a 2D enemy AI scaffold (navigation, vision sensor, cooldown timer, metadata, and signal wiring)',
+    description: 'Give a CharacterBody2D enemy AI: a navigation agent, a vision area, an attack cooldown timer and settings, plus (when it has no script) a behavior script that patrols, chases the detection group and emits attacked(target) in range. The vision mask is set to the target group\'s layers when it would miss them.',
     parameters: z.object({
       enemy_path: z.string()
         .describe('Path to the CharacterBody2D enemy node'),
@@ -5224,7 +5320,7 @@ export const nodeTools: MCPTool[] = [
       target_desired_distance: z.number().nonnegative().optional(),
       avoidance_enabled: z.boolean().optional(),
       neighbor_distance: z.number().nonnegative().optional(),
-      max_neighbors: z.number().int().nonnegative().optional(),
+      max_neighbors: z.number().int().nonnegative().max(1000).optional(),
       time_horizon: z.number().nonnegative().optional(),
       time_horizon_agents: z.number().nonnegative().optional(),
       time_horizon_obstacles: z.number().nonnegative().optional(),
@@ -5240,6 +5336,8 @@ export const nodeTools: MCPTool[] = [
       vision_entered_method: z.string().optional(),
       vision_exited_method: z.string().optional(),
       attack_timeout_method: z.string().optional(),
+      write_script: z.boolean().optional().describe('Write a behavior script (default: only when the enemy has no script)'),
+      script_path: z.string().optional().describe('Default res://scripts/<enemy>_ai.gd'),
       signal_deferred: z.boolean().optional(),
       signal_one_shot: z.boolean().optional(),
       signal_reference_counted: z.boolean().optional(),
@@ -5253,7 +5351,10 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-        return `Authored enemy AI 2D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]`;
+        const warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
+        const scriptNote = result.script_path ? `\nWrote behavior script ${result.script_path}: connect its attacked(target) signal to deal damage.` : '';
+        const notes = Array.isArray(result.notes) && result.notes.length > 0 ? `\n${result.notes.join('\n')}` : '';
+        return `Authored enemy AI 2D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${scriptNote}${notes}${warnings}`;
       } catch (error) {
         throw new Error(`Failed to author enemy AI 2D: ${(error as Error).message}`);
       }
@@ -5264,7 +5365,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'author_enemy_ai_3d',
-    description: 'Author a 3D enemy AI scaffold (navigation, vision sensor, cooldown timer, metadata, and signal wiring)',
+    description: 'Give a CharacterBody3D enemy AI: a navigation agent, a vision area, an attack cooldown timer and settings, plus (when it has no script) a behavior script that patrols, chases the detection group and emits attacked(target) in range. The vision mask is set to the target group\'s layers when it would miss them.',
     parameters: z.object({
       enemy_path: z.string()
         .describe('Path to the CharacterBody3D enemy node'),
@@ -5283,7 +5384,7 @@ export const nodeTools: MCPTool[] = [
       target_desired_distance: z.number().nonnegative().optional(),
       avoidance_enabled: z.boolean().optional(),
       neighbor_distance: z.number().nonnegative().optional(),
-      max_neighbors: z.number().int().nonnegative().optional(),
+      max_neighbors: z.number().int().nonnegative().max(1000).optional(),
       agent_radius: z.number().nonnegative().optional(),
       agent_height: z.number().nonnegative().optional(),
       vision_area_name: z.string().optional(),
@@ -5298,6 +5399,8 @@ export const nodeTools: MCPTool[] = [
       vision_entered_method: z.string().optional(),
       vision_exited_method: z.string().optional(),
       attack_timeout_method: z.string().optional(),
+      write_script: z.boolean().optional().describe('Write a behavior script (default: only when the enemy has no script)'),
+      script_path: z.string().optional().describe('Default res://scripts/<enemy>_ai.gd'),
       signal_deferred: z.boolean().optional(),
       signal_one_shot: z.boolean().optional(),
       signal_reference_counted: z.boolean().optional(),
@@ -5311,7 +5414,10 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const createdCount = Array.isArray(result.created_nodes) ? result.created_nodes.length : 0;
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-        return `Authored enemy AI 3D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]`;
+        const warnings = Array.isArray(result.warnings) && result.warnings.length > 0 ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
+        const scriptNote = result.script_path ? `\nWrote behavior script ${result.script_path}: connect its attacked(target) signal to deal damage.` : '';
+        const notes = Array.isArray(result.notes) && result.notes.length > 0 ? `\n${result.notes.join('\n')}` : '';
+        return `Authored enemy AI 3D for ${args.enemy_path}: ${createdCount} created node(s), ${signalCount} signal wiring change(s) [${status}]${scriptNote}${notes}${warnings}`;
       } catch (error) {
         throw new Error(`Failed to author enemy AI 3D: ${(error as Error).message}`);
       }
@@ -5363,7 +5469,8 @@ export const nodeTools: MCPTool[] = [
         const status = (result.status as string) ?? 'committed';
         const flowPath = (result.flow_path as string) ?? 'unknown';
         const signalCount = Array.isArray(result.signal_changes) ? result.signal_changes.length : 0;
-        return `Built menu UI flow at ${flowPath} with ${signalCount} signal wiring change(s) [${status}]`;
+        const warnings = Array.isArray(result.warnings) ? (result.warnings as string[]) : [];
+        return `Built menu UI flow at ${flowPath} with ${signalCount} signal wiring change(s) [${status}]${warnings.length ? `\nWarnings:\n- ${warnings.join('\n- ')}` : ''}`;
       } catch (error) {
         throw new Error(`Failed to build menu UI flow 2D: ${(error as Error).message}`);
       }
@@ -5374,7 +5481,7 @@ export const nodeTools: MCPTool[] = [
   },
   {
     name: 'set_menu_ui_flow_state',
-    description: 'Switch a generated menu flow between main, pause, game-over, or hidden states',
+    description: 'Switch a generated menu flow between main, pause, game_over (or gameover), or hidden states',
     parameters: z.object({
       flow_path: z.string()
         .describe('Path to the menu flow root node'),
@@ -5425,7 +5532,8 @@ export const nodeTools: MCPTool[] = [
         }
 
         const previousName = (result.previous_name as string) ?? node_path.split('/').pop() ?? node_path;
-        return `Renamed node ${previousName} to ${result.new_name} [${status}]`;
+        const tracks = Number(result.animation_tracks_updated ?? 0);
+        return `Renamed node ${previousName} to ${result.new_name}${tracks ? ` (updated ${tracks} animation track path(s))` : ''} [${status}]`;
       } catch (error) {
         throw new Error(`Failed to rename node: ${(error as Error).message}`);
       }
@@ -5743,6 +5851,7 @@ export const nodeTools: MCPTool[] = [
         .number()
         .int()
         .min(1)
+        .max(64)
         .optional()
         .describe('Number of columns to use (default 2).'),
       horizontal_gap: z
@@ -5818,6 +5927,7 @@ export const nodeTools: MCPTool[] = [
         .number()
         .int()
         .nonnegative()
+        .max(64)
         .optional()
         .describe('Limit the traversal depth (0 means unlimited).'),
     }),
@@ -5834,7 +5944,11 @@ export const nodeTools: MCPTool[] = [
         const issueCount = Number(result.issue_count ?? result.issues?.length ?? 0);
         const scanned = Number(result.scanned_count ?? 0);
         const target = root_path ?? 'scene';
-        return `Accessibility scan for ${target} inspected ${scanned} controls and found ${issueCount} issues.`;
+        const summary = `Accessibility scan for ${target} inspected ${scanned} controls and found ${issueCount} issues.`;
+        const details = (Array.isArray(result.issues) ? result.issues : [])
+          .map((entry: { node_path?: string; issues?: string[] }) =>
+            `- ${entry.node_path ?? 'unknown node'}: ${(entry.issues ?? []).join('; ')}`);
+        return details.length ? `${summary}\n${details.join('\n')}` : summary;
       } catch (error) {
         throw new Error(`Failed to validate accessibility: ${(error as Error).message}`);
       }

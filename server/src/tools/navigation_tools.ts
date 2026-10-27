@@ -60,7 +60,9 @@ function formatNavigationRegions(regions: any[]): string {
         `Edge Connections: ${region.use_edge_connections}`,
       ];
 
-      if (region.resource) {
+      if (!region.resource) {
+        details.push('Resource: none (no navigation mesh assigned)');
+      } else {
         const resource = region.resource as Record<string, unknown>;
         details.push(
           'Resource:',
@@ -98,7 +100,6 @@ function formatNavigationAgents(agents: any[]): string {
         `Dimension: ${agent.dimension}`,
         `Radius: ${agent.radius}`,
         `Max Speed: ${agent.max_speed}`,
-        `Max Acceleration: ${agent.max_acceleration}`,
         `Avoidance Enabled: ${agent.avoidance_enabled}`,
         `Max Neighbors: ${agent.max_neighbors}`,
         `Neighbor Max Distance: ${agent.neighbor_max_distance}`,
@@ -201,7 +202,10 @@ export const navigationTools: MCPTool[] = [
         });
 
         const dimension = String(result.dimension ?? 'unknown');
-        return `Started ${dimension.toUpperCase()} navigation bake for ${result.node_path} (threaded: ${result.on_thread}).`;
+        if (result.on_thread) {
+          return `Started ${dimension.toUpperCase()} navigation bake for ${result.node_path} (threaded; check list_navigation_maps for the result).`;
+        }
+        return `Baked ${dimension.toUpperCase()} navigation for ${result.node_path}: ${result.polygon_count} polygon(s).${result.note ? ` ${result.note}` : ''}`;
       } catch (error) {
         throw new Error(`Failed to bake navigation region: ${(error as Error).message}`);
       }
@@ -319,15 +323,15 @@ export const navigationTools: MCPTool[] = [
   },
   {
     name: 'synchronize_navmesh_with_tilemap',
-    description: 'Rebake TileMap navigation layers and optional navigation regions to keep pathfinding in sync.',
+    description: 'Rebake TileMapLayer (or legacy TileMap) navigation layers and optional navigation regions to keep pathfinding in sync.',
     parameters: z.object({
       tilemap_path: z
         .string()
-        .describe('Path to the TileMap node whose navigation data should be synchronized.'),
+        .describe('Path to the TileMapLayer (or legacy TileMap) node whose navigation data should be synchronized.'),
       region_paths: z
         .array(z.string())
         .optional()
-        .describe('Optional navigation region node paths to rebake after updating the TileMap.'),
+        .describe('Optional navigation region node paths to rebake after updating the tile map layer.'),
       on_thread: z
         .boolean()
         .optional()
@@ -349,12 +353,14 @@ export const navigationTools: MCPTool[] = [
         const result = await godot.sendCommand<Record<string, unknown>>('synchronize_navmesh_with_tilemap', payload);
         const rebaked = Array.isArray(result.rebaked_regions) ? (result.rebaked_regions as string[]) : [];
         const invalid = Array.isArray(result.invalid_regions) ? (result.invalid_regions as string[]) : [];
+        const skipped = Array.isArray(result.skipped_regions) ? (result.skipped_regions as string[]) : [];
         const navigationUpdated = Boolean(result.navigation_map_updated);
 
         const lines: string[] = [
-          `Synchronized TileMap navigation for ${result.tilemap_path ?? tilemap_path}`,
+          `Synchronized tile map navigation for ${result.tilemap_path ?? tilemap_path}`,
           `Rebaked regions: ${rebaked.length > 0 ? rebaked.join(', ') : 'none'}`,
           `Invalid regions: ${invalid.length > 0 ? invalid.join(', ') : 'none'}`,
+          `Skipped regions: ${skipped.length > 0 ? skipped.join(', ') : 'none'}`,
           `Navigation map updated: ${navigationUpdated ? 'yes' : 'no'}`,
         ];
 

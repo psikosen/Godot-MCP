@@ -15,7 +15,7 @@ export const patchTools: MCPTool[] = [
         patch_id: preview.patchId,
         diff,
         files: preview.files,
-      }, null, 2);
+      });
     },
     metadata: {
       requiredRole: 'edit',
@@ -32,7 +32,7 @@ export const patchTools: MCPTool[] = [
       return JSON.stringify({
         patch_id: result.patchId,
         applied_files: result.appliedFiles,
-      }, null, 2);
+      });
     },
     metadata: {
       requiredRole: 'admin',
@@ -50,7 +50,7 @@ export const patchTools: MCPTool[] = [
       return JSON.stringify({
         patch_id,
         cancelled: true,
-      }, null, 2);
+      });
     },
     metadata: {
       requiredRole: 'edit',

@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { FastMCP } from 'fastmcp';
+import { FastMCP, type ContentResult } from 'fastmcp';
+import { z } from 'zod';
 import { nodeTools } from './tools/node_tools.js';
 import { scriptTools } from './tools/script_tools.js';
 import { sceneTools } from './tools/scene_tools.js';
@@ -14,10 +15,16 @@ import { xrTools } from './tools/xr_tools.js';
 import { multiplayerTools } from './tools/multiplayer_tools.js';
 import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
+import { workflowTools } from './tools/workflow_tools.js';
+import { builderTools } from './tools/builder_tools.js';
+import { featureTools } from './tools/feature_tools.js';
+import { assetTools } from './tools/asset_tools.js';
+import { polishTools } from './tools/polish_tools.js';
 import { getGodotConnection } from './utils/godot_connection.js';
 import { getGodotLauncher } from './utils/godot_launcher.js';
 import { commandGuard } from './utils/command_guard.js';
 import { MCPTool } from './utils/types.js';
+import { enabledToolsets, toolsetOf, TOOLSETS } from './utils/toolsets.js';
 
 // Import resources
 import { 
@@ -56,20 +63,44 @@ import { compressionSettingsResource } from './resources/compression_resources.j
  */
 async function main() {
   console.error('Starting Godot MCP server...');
+  const toolsets = enabledToolsets(process.env.GODOT_MCP_TOOLSETS);
+  const hiddenToolsets = toolsets ? TOOLSETS.filter(name => !toolsets.has(name)) : [];
 
   // Create FastMCP instance
   const server = new FastMCP({
     name: 'GodotMCP',
     version: '1.0.0',
+    instructions:
+      'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
+      'Read the godot/* resources or list/get tools before editing. ' +
+      'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
+      'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
+      (hiddenToolsets.length > 0 ? ` Hidden tool groups (GODOT_MCP_TOOLSETS): ${hiddenToolsets.join(', ')}.` : ''),
   });
+
+  // Resources whose content follows the live editor scene (notified after edit/admin tools).
+  const SCENE_STATE_RESOURCE_URIS = ['godot/scene/current', 'godot/editor/state'];
 
   // Register all tools
   const registerTool = <T>(tool: MCPTool<T>) => {
     server.addTool({
       ...tool,
-      async execute(args: T): Promise<string> {
+      // Every tool declares a role; only 'read' tools are side-effect free, so clients may auto-approve them.
+      annotations: { readOnlyHint: (tool.metadata?.requiredRole ?? 'read') === 'read' },
+      // The listed schema already says additionalProperties:false; enforce it so a wrong argument
+      // name (e.g. root_type for root_node_type) fails loudly instead of being silently dropped.
+      // ponytail: top-level objects only; refined (ZodEffects) schemas still strip unknown keys.
+      parameters: (tool.parameters instanceof z.ZodObject ? tool.parameters.strict() : tool.parameters) as z.ZodType<T>,
+      async execute(args: T): Promise<string | ContentResult> {
         await commandGuard.assertAllowed(tool, args);
-        return tool.execute(args);
+        const output = await tool.execute(args);
+        // FastMCP advertises resources.subscribe; tell subscribers the live scene may have changed.
+        if ((tool.metadata?.requiredRole ?? 'read') !== 'read') {
+          for (const uri of SCENE_STATE_RESOURCE_URIS) {
+            server.sendResourceUpdated(uri).catch(() => undefined);
+          }
+        }
+        return output;
       },
     });
   };
@@ -89,9 +120,16 @@ async function main() {
     ...multiplayerTools,
     ...compressionTools,
     ...renderingTools,
-  ].forEach(tool => {
-    registerTool(tool);
-  });
+    ...workflowTools,
+    ...builderTools,
+    ...featureTools,
+    ...assetTools,
+    ...polishTools,
+  ]
+    .filter(tool => toolsets === null || toolsets.has(toolsetOf(tool.name)))
+    .forEach(tool => {
+      registerTool(tool);
+    });
 
   // Register all resources
   // Static resources
@@ -116,20 +154,6 @@ async function main() {
   server.addResourceTemplate(scriptResourceTemplate);
   server.addResourceTemplate(scriptMetadataResourceTemplate);
 
-  // Ensure Godot is running - auto-launch if needed
-  try {
-    console.error('Checking if Godot is running...');
-    const launcher = getGodotLauncher();
-    await launcher.ensureGodotRunning();
-    console.error('Godot editor is ready!');
-  } catch (error) {
-    const err = error as Error;
-    console.error(`Failed to ensure Godot is running: ${err.message}`);
-    console.error('You may need to manually launch Godot with the project');
-    // Don't exit - continue with the server startup
-    // The connection will be retried when commands are executed
-  }
-
   // Handle cleanup
   const cleanup = () => {
     console.error('Shutting down Godot MCP server...');
@@ -147,8 +171,9 @@ async function main() {
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  // Start the server - CRITICAL: Must be last, and no console output after this
-  // Any console.log/error after this point will corrupt the stdio MCP protocol
+  // Start the transport first so the client handshake never waits on a Godot launch
+  // (that can take GODOT_STARTUP_TIMEOUT, longer than many clients' connect timeout).
+  // Only stdout is the protocol channel; console.error (stderr) stays safe after this.
   try {
     await server.start({
       transportType: 'stdio',
@@ -157,6 +182,17 @@ async function main() {
     console.error('Failed to start MCP server:', error);
     process.exit(1);
   }
+
+  // Ensure Godot is running - auto-launch if needed.
+  // Not awaited: tool calls retry the connection on their own.
+  console.error('Checking if Godot is running...');
+  getGodotLauncher()
+    .ensureGodotRunning()
+    .then(() => console.error('Godot editor is ready!'))
+    .catch((error: Error) => {
+      console.error(`Failed to ensure Godot is running: ${error.message}`);
+      console.error('You may need to manually launch Godot with the project');
+    });
 }
 
 // Start the server

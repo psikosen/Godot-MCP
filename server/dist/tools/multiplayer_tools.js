@@ -53,7 +53,7 @@ export var multiplayerTools = [
                             return [4 /*yield*/, godot.sendCommand('get_multiplayer_state', {})];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -78,6 +78,7 @@ export var multiplayerTools = [
             max_clients: z
                 .number()
                 .int()
+                .max(4095)
                 .optional()
                 .describe('Maximum concurrent clients when creating an ENet server.'),
             address: z
@@ -124,7 +125,7 @@ export var multiplayerTools = [
                             return [4 /*yield*/, godot.sendCommand('create_multiplayer_peer', payload)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -147,7 +148,7 @@ export var multiplayerTools = [
                             return [4 /*yield*/, godot.sendCommand('teardown_multiplayer_peer', {})];
                         case 1:
                             result = _a.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });
@@ -192,7 +193,7 @@ export var multiplayerTools = [
                             return [4 /*yield*/, godot.sendCommand('spawn_multiplayer_scene', payload)];
                         case 1:
                             result = _c.sent();
-                            return [2 /*return*/, JSON.stringify(result, null, 2)];
+                            return [2 /*return*/, JSON.stringify(result)];
                     }
                 });
             });

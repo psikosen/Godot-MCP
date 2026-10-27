@@ -146,7 +146,7 @@ var ProjectIndexer = /** @class */ (function () {
                         snapshot = _e.sent();
                         includeDirectories = (_c = options.includeDirectories) !== null && _c !== void 0 ? _c : true;
                         limit = Math.min((_d = options.limit) !== null && _d !== void 0 ? _d : 200, ENTRY_LIMIT);
-                        normalizedPatterns = patterns.map(function (pattern) { return _this.normalizePath(pattern); });
+                        normalizedPatterns = patterns.map(function (pattern) { return _this.normalizePath(pattern.replace(/^res:\/\//, '')); });
                         regexes = normalizedPatterns.map(function (pattern) { return _this.globToRegExp(pattern); });
                         results = [];
                         _loop_1 = function (entryPath, entry) {
@@ -371,10 +371,13 @@ var ProjectIndexer = /** @class */ (function () {
         return normalized.startsWith('./') ? normalized.slice(2) : normalized;
     };
     ProjectIndexer.prototype.globToRegExp = function (pattern) {
-        var escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+        var escaped = pattern.replace(/[.*?+^${}()|[\]\\]/g, '\\$&');
         var translated = escaped
+            // "**/" also matches zero directories, so "**/*.gd" finds root-level files.
+            .replace(/\\\*\\\*\//g, '§§DIRSTAR§§')
             .replace(/\\\*\\\*/g, '§§DOUBLESTAR§§')
             .replace(/\\\*/g, '[^/]*')
+            .replace(/§§DIRSTAR§§/g, '(?:.*/)?')
             .replace(/§§DOUBLESTAR§§/g, '.*')
             .replace(/\\\?/g, '[^/]');
         return new RegExp("^".concat(translated, "$"));

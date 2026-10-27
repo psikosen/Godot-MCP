@@ -1,6 +1,10 @@
 @tool
 extends EditorPlugin
 
+# Godot's default WebSocket buffers are 64 KB: larger replies (scene snapshots, project listings)
+# failed to send and the client waited out its 20s timeout; larger requests dropped the connection.
+const MESSAGE_BUFFER_BYTES := 16 * 1024 * 1024
+
 var tcp_server := TCPServer.new()
 var port := 9080
 var handshake_timeout := 3000 # ms
@@ -27,6 +31,8 @@ class WebSocketClient:
 	
 	func upgrade_to_websocket() -> bool:
 		ws = WebSocketPeer.new()
+		ws.inbound_buffer_size = MESSAGE_BUFFER_BYTES
+		ws.outbound_buffer_size = MESSAGE_BUFFER_BYTES
 		var err = ws.accept_stream(tcp)
 		return err == OK
 
@@ -37,6 +43,14 @@ var _jsonrpc_requests := {}
 func _enter_tree():
 	# Store plugin instance for EditorInterface access
 	Engine.set_meta("GodotMCPPlugin", self)
+
+	# Godot 4.5+ lets scripts receive engine errors; keep the recent ones for get_godot_errors and
+	# for compile checks in create_script/edit_script.
+	if ClassDB.class_exists("Logger") and not Engine.has_meta("GodotMCPErrorLog"):
+		var error_log = load("res://addons/godot_mcp/utils/error_log.gd").new()
+		# call() keeps this file loading on Godot 4.4, where OS has no add_logger.
+		OS.call("add_logger", error_log)
+		Engine.set_meta("GodotMCPErrorLog", error_log)
 	
 	print("\n=== MCP SERVER STARTING ===")
 	
@@ -74,7 +88,10 @@ func _exit_tree():
 	# Remove plugin instance from Engine metadata
 	if Engine.has_meta("GodotMCPPlugin"):
 		Engine.remove_meta("GodotMCPPlugin")
-	
+	if Engine.has_meta("GodotMCPErrorLog"):
+		OS.call("remove_logger", Engine.get_meta("GodotMCPErrorLog"))
+		Engine.remove_meta("GodotMCPErrorLog")
+
 	if tcp_server and tcp_server.is_listening():
 		tcp_server.stop()
 	
@@ -309,6 +326,13 @@ func send_response(client_id: int, response: Dictionary) -> int:
 	var result = client.ws.send_text(json_text)
 	if result != OK:
 		print("Error sending response to client %d: %d" % [client_id, result])
+		# Tell the client now instead of letting it wait for a reply that will never come.
+		if response.has("commandId"):
+			client.ws.send_text(JSON.stringify({
+				"status": "error",
+				"commandId": response["commandId"],
+				"message": "Response could not be sent (%d bytes, error %d); request less data" % [json_text.length(), result],
+			}))
 
 	return result
 

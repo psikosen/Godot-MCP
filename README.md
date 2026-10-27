@@ -23,6 +23,16 @@ A comprehensive integration between Godot Engine and AI assistants using the Mod
   - **Multiplayer Commands**: Spin up ENet/WebSocket/WebRTC peers and spawn network-ready scenes
   - **Compression Commands**: Manage GPU texture presets, import profiles, and batch reimports
 
+## Godot Versions
+
+The addon runs on Godot 4.4 and newer. It is built and tested on Godot 4.7, and checked to load on 4.4.1. Tools for features that arrived after 4.4 check the running engine and say which version they need:
+
+| Feature | Needs |
+|---|---|
+| `get_godot_errors`, stencil outlines, accessibility names, bone aim/copy constraints | Godot 4.5+ |
+| `setup_ik_chain` (TwoBoneIK3D, FABRIK3D, CCDIK3D, JacobianIK3D, SplineIK3D) | Godot 4.6+ |
+| `add_touch_controls` joystick (VirtualJoystick), `hdr_output` setting | Godot 4.7+ |
+
 ## Quick Setup
 
 ### 1. Clone the Repository
@@ -145,9 +155,77 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `list_node_groups` - List all groups the node currently belongs to
 - `list_nodes_in_group` - Enumerate nodes that are members of a group in the edited scene
 
+#### Workflow Commands
+- `describe_class` - Godot class reference (properties with types and defaults, methods, signals, enums) for engine classes and project `class_name` scripts
+- `search_project` - Search project text files for text or a regex; returns `file:line: text`
+- `replace_in_script` - Replace an exact piece of a `.gd`/`.gdshader` file (cheaper than rewriting it); reports compile errors
+- `list_signal_connections` / `disconnect_signal` - Show a node's connections in and out; remove one (undo-aware)
+- `manage_autoloads` - List, add or remove autoload singletons
+- `configure_game_settings` - Game name, main scene, icon, window size, stretch, background color, texture filter, gravity, physics engine (Jolt), physics rate and interpolation, renderer, vsync, HDR output, layer names
+- `set_control_layout` - UI anchor presets (full_rect, center, top_right, ...), margin, size, size flags (undo-aware)
+- `create_inherited_scene` - New scene inheriting another (Godot's "New Inherited Scene")
+- `save_branch_as_scene` - Godot's "Save Branch as Scene": the branch becomes its own scene and an instance takes its place, keeping its connections
+- `capture_scene_image` - PNG picture of the open scene (needs the editor window, not `--headless`)
+- `export_project` - Export for macOS, Windows, Linux or Web with the installed export templates (admin; creates a preset if needed)
+- `get_script_outline` - A script's extends, signals, exports, vars, consts, enums and funcs with line numbers
+- `move_project_file` - Move or rename a file with its `.import`/`.uid` and rewrite references to it
+- `configure_particles_2d` - Create or tune CPU/GPU 2D particles from a preset (dust, sparkle, rain, snow, confetti, burst) (undo-aware)
+- `manage_translations` - Translation CSV (keys x locales), registered translations and fallback locale
+- `select_in_editor` - Select a node and show it in the Inspector for the person at the editor
+- `run_game_tests` - Run `extends SceneTree` test scripts headless and report pass/fail (admin)
+- `capture_game_frame` - Run a scene in a game window, optionally holding inputs, and return a frame as a picture (admin)
+- `create_project` - New Godot project with a main scene and the MCP addon enabled (admin)
+- `check_project` - Health check: missing main scene/autoload files, links to missing files, scripts that do not compile, undefined input actions
+- `find_unused_files` - Assets, scenes, resources and scripts nothing refers to
+- `replace_in_project` - Find and replace across project files with a preview (dry run) and compile checks
+- `set_collision_layers` - Collision layer and mask by layer name or number
+- `fit_collision_shape` - Size a body's collision shape to its sprites, polygons or meshes (2D and 3D)
+- `create_canvas_shader` - 2D shader effects: outline, flash, dissolve, wave, grayscale
+- `generate_sfx` - Synthesized retro sound effects (jump, coin, hit, explosion, laser, powerup, blip, footstep) saved as WAV
+- `paint_tilemap_ascii` - Paint a TileMapLayer from text rows and a legend
+- `build_blockout_3d` - 3D level blockout: boxes, spheres, cylinders, capsules with materials and collision
+- `setup_2d_lighting` - CanvasModulate darkness plus PointLight2D glows
+- `profile_game` - Run a scene and report frame time, draw calls, nodes and memory (admin)
+- `import_asset_files` - Copy images, sounds, fonts or models from this computer into the project (admin)
+
+#### Newer Godot Features
+- `describe_skeleton` - A Skeleton3D's bone tree, its modifiers, and arm/leg chains ready for IK
+- `setup_ik_chain` - Inverse kinematics: two-bone (arms, legs) with auto-made target and pole markers, FABRIK, CCDIK, Jacobian, spline (4.6+)
+- `add_bone_constraint` - A bone aims at, copies, or smoothly looks at a node or another bone (aim/copy 4.5+, look_at 4.4+)
+- `setup_spring_bones` - Hair, tails and capes that swing (SpringBoneSimulator3D), with collision spheres on bones
+- `set_stencil_effect` - Outline a 3D object, or show it through walls (x-ray), with the stencil buffer (4.5+)
+- `create_spatial_shader` - 3D shader effects: toon, rim_glow, hologram, dissolve, wind_sway
+- `add_touch_controls` - Phone controls: VirtualJoystick bound to move actions plus round touch buttons; hidden on desktop
+- `set_accessibility_info` - Screen-reader names and descriptions on UI controls, or auto-fill the missing ones (4.5+)
+- `create_path` - Path2D/Path3D through points, smooth or closed
+- `place_along_path` - Copies of a scene along a path by count or spacing, turned to follow it
+- `snap_to_ground` - Drop nodes onto the ground below them (like Snap Object to Floor); can remove ones that land in the sea or on peaks
+- `build_mesh_library` - GridMap MeshLibrary from a scene of mesh tiles (with collision and navmesh), like Export As MeshLibrary
+
+#### Asset Pipeline
+- `inspect_model` - What a .glb/.gltf/.fbx/.blend/.obj model holds: meshes, materials, skeletons, animations, import settings
+- `configure_model_import` - Model import settings, then reimport: root type and scale, collision on meshes, looping animations, humanoid bone map (Mixamo, VRM, Unreal and Blender rigs share animations), import as animation library, extract materials, lightmap UVs
+- `add_animation_library` - Animations from a library or model onto an AnimationPlayer; reports how many tracks find their bones
+- `generate_mesh_collision` - Trimesh, convex or multiple-convex collision from 3D meshes
+- `sprite_to_polygon` - A Sprite2D's visible pixels traced into collision, a light occluder or a textured Polygon2D
+- `bake_csg` - CSG blockout to a plain mesh plus collision (4.4+)
+- `generate_terrain_3d` - Noise terrain colored by height, HeightMapShape3D collision, optional island and water
+- `generate_ui_theme` - A full UI Theme (buttons, panels, fields, sliders, tabs...) from a primary and a background color
+
+#### Polish and Prototyping
+- `create_ragdoll` - PhysicalBoneSimulator3D with capsule PhysicalBone3Ds per bone (Create Physical Skeleton), mass by bone length
+- `add_screen_effect` - Full-screen vignette, damage flash, CRT, pixelate, chromatic aberration, grayscale, blur, color grade; effects stack
+- `setup_day_night_cycle` - Looping sun, light color and sky colors from sunrise to night, with no script
+- `convert_to_multimesh` - Many copies of one mesh merged into a MultiMeshInstance3D (one draw call)
+- `configure_texture_import` - Image import presets (pixel_art, ui, 3d, normal_map), compression, mipmaps, size limit
+- `create_audio_randomizer` - AudioStreamRandomizer from several sounds with pitch and volume variation
+- `generate_placeholder_art` - Antialiased PNG sprites for prototypes: shapes, coin, star, heart, crate, beveled tile, character with eyes
+
 #### Script Commands
-- `create_script` - Create a new GDScript file and optionally attach it to a node
-- `edit_script` - Replace the contents of an existing script file
+- `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
+- `edit_script` - Replace the contents of an existing `.gd` script file
+
+Script paths must stay inside the project: anything that resolves outside `res://` (for example `res://../escape.gd`) is rejected. Check it headlessly with `godot --headless --path . --script res://test_script_path_guard.gd`.
 - `get_script` - Fetch a script by file path or by attached node
 - `create_script_template` - Generate a GDScript skeleton with common callbacks
 
@@ -243,7 +321,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Permission Commands
 - `list_permission_escalations` - List pending and resolved permission escalation requests
-- `resolve_permission_escalation` - Approve or deny a recorded escalation request (requires admin approval)
+- `resolve_permission_escalation` - Deny (withdraw) a recorded escalation request. It cannot approve; approval is human-only (see below)
 
 #### Editor Commands
 - `execute_editor_script` - Run arbitrary GDScript in the editor context (requires admin approval)
@@ -260,6 +338,15 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - **Rendering & Assets** *(delivered)*: `generate_material_variant`, `compile_shader_preview`, `unwrap_lightmap_uv2`, `optimize_mesh_lods`, `configure_environment`, `preview_environment_sun_settings`.
 - **Project & Editor Automation** *(delivered)*: `configure_project_setting`, `run_godot_headless`, `capture_editor_profile`, `manage_editor_plugins`, `snapshot_scene_state`.
 
+### Saving Tokens
+
+- Set `GODOT_MCP_TOOLSETS` to the tool groups your project needs, for example `2d,animation,ui`. Listing every tool costs about 69k tokens per session in clients that load all tool schemas; `core` alone is about 17k. Groups: `core` (always on), `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `procedural`, `assets`, `xr`, `multiplayer`. Unset or `all` keeps every tool.
+- `get_scene_tree` outlines a whole scene at about ten tokens per node.
+- Resource properties take a new built-in resource inline, so no file is needed: `"mesh": "BoxMesh"` or `"shape": {"type": "CapsuleShape3D", "radius": 0.4}`, nested too (`"material": {"type": "StandardMaterial3D", "albedo_color": "#ff0000"}`).
+- `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
+- `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`.
+- `get_godot_errors` reads Godot's recent errors and warnings (Godot 4.5+). `create_script` and `edit_script` report compile errors with line numbers.
+
 ### Command Roles & Escalations
 
 Every tool is tagged with a required role that indicates the level of trust needed to run it:
@@ -268,13 +355,34 @@ Every tool is tagged with a required role that indicates the level of trust need
 - **edit** – Commands that edit project files or the scene tree under the existing capability allowlist.
 - **admin** – High-risk commands that can execute arbitrary code or bypass guardrails.
 
-The MCP server automatically records an escalation request for any command whose required role is not in the default auto-approved set (currently `read` and `edit`). When an escalation is required, the tool returns the escalation identifier along with a suggested natural-language prompt that a human reviewer can use to approve the action. Reviewers can inspect and resolve queued requests via the `list_permission_escalations` and `resolve_permission_escalation` tools.
+The MCP server automatically records an escalation request for any command whose required role is not in the default auto-approved set (currently `read` and `edit`). When an escalation is required, the call fails and returns the escalation id. Requests are stored in `project-manager/permission_escalations.json` (next to `server/`, whatever directory the server was launched from).
+
+#### Approving an escalation (human only)
+
+The MCP client can never approve its own request. `resolve_permission_escalation` only denies. A human approves with the CLI:
+
+```bash
+cd server
+npm run approve                  # list pending requests with their tool and args
+npm run approve -- <id> [notes]  # approve one request
+```
+
+Then the client retries the same call within 10 minutes. An approval is single-use and only matches the exact tool and arguments that were recorded. A call with different arguments creates a new request. After use, the record gets a `consumedAt` timestamp, and the next identical call needs a new approval. Use `list_permission_escalations` to see requests and their status.
+
+The escalation store is inside the Godot project, so Godot tools can write to it. For that reason, editing the JSON file by hand does **not** approve anything. `npm run approve` signs each approval (HMAC-SHA256 over id, tool, role, args and approval time) with a secret key kept outside the project:
+
+- Default key path: `~/.config/godot-mcp/approval.key`. The first approval creates it with mode `0600`.
+- To use another path, set `GODOT_MCP_APPROVAL_KEY_PATH` for both the server and the CLI. Never put the key inside the Godot project, and keep the `.key` extension: Godot cannot load or save `.key` files, so editor tools cannot read or replace the key.
+- The server ignores any `"approved"` record without a valid signature. It also ignores all approvals if the key file is not exactly 64 hex characters.
+- To revoke all approvals, delete the key file and restart the server.
 
 Commands that currently require `admin` approval include:
 
 - `apply_patch`
 - `execute_editor_script`
-- `resolve_permission_escalation`
+- `run_godot_headless`
+- `manage_editor_plugins`
+- `configure_project_setting`
 
 ## Troubleshooting
 

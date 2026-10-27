@@ -1,3 +1,3 @@
-import { Resource } from 'fastmcp';
-export declare const animationStateMachinesResource: Resource;
-export declare const animationTracksResource: Resource;
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
+export declare const animationStateMachinesResource: Resource<FastMCPSessionAuth>;
+export declare const animationTracksResource: Resource<FastMCPSessionAuth>;

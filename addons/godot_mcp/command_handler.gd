@@ -56,6 +56,26 @@ const COMMAND_PROCESSOR_DEFINITIONS := [
 		"name": "MCPRenderingCommands",
 		"path": "res://addons/godot_mcp/commands/rendering_commands.gd",
 	},
+	{
+		"name": "MCPWorkflowCommands",
+		"path": "res://addons/godot_mcp/commands/workflow_commands.gd",
+	},
+	{
+		"name": "MCPBuilderCommands",
+		"path": "res://addons/godot_mcp/commands/builder_commands.gd",
+	},
+	{
+		"name": "MCPFeatureCommands",
+		"path": "res://addons/godot_mcp/commands/feature_commands.gd",
+	},
+	{
+		"name": "MCPAssetCommands",
+		"path": "res://addons/godot_mcp/commands/asset_commands.gd",
+	},
+	{
+		"name": "MCPPolishCommands",
+		"path": "res://addons/godot_mcp/commands/polish_commands.gd",
+	},
 ]
 
 var MCPNodeCommands
@@ -70,6 +90,11 @@ var MCPXRCommands
 var MCPMultiplayerCommands
 var MCPCompressionCommands
 var MCPRenderingCommands
+var MCPWorkflowCommands
+var MCPBuilderCommands
+var MCPFeatureCommands
+var MCPAssetCommands
+var MCPPolishCommands
 
 var _websocket_server
 var _command_processors: Array = []
@@ -152,6 +177,11 @@ func _initialize_processors() -> void:
 		MCPMultiplayerCommands,
 		MCPCompressionCommands,
 		MCPRenderingCommands,
+		MCPWorkflowCommands,
+		MCPBuilderCommands,
+		MCPFeatureCommands,
+		MCPAssetCommands,
+		MCPPolishCommands,
 	]
 	print("[MCP] Processor classes array has ", processor_classes.size(), " entries")
 

@@ -5,9 +5,32 @@ import { getGodotConnection } from '../utils/godot_connection.js';
 
 const ENTRY_LIMIT = 5000;
 
+// Fields must be listed: FastMCP 4 publishes objects with named fields as additionalProperties:false,
+// so passthrough-only fields would be invisible to clients. Mirrors _deserialize_input_event in
+// addons/godot_mcp/commands/project_commands.gd.
+const vec2Schema = z.object({ x: z.number(), y: z.number() });
+
 const inputEventSchema = z.object({
   type: z.string()
-    .describe('Input event type such as InputEventKey, key, InputEventMouseButton, mouse_button, etc.'),
+    .describe('Input event type: key, mouse_button, joypad_button, joypad_motion, mouse_motion (or the InputEvent* class name).'),
+  device: z.number().int().optional().describe('Device id (-1 = all devices).'),
+  keycode: z.number().int().optional().describe('key: Godot Key enum value (e.g. 65 for A, 32 for Space).'),
+  physical_keycode: z.number().int().optional().describe('key: physical key code.'),
+  unicode: z.number().int().optional().describe('key: unicode code point.'),
+  pressed: z.boolean().optional().describe('key/mouse_button/joypad_button: pressed state (default true).'),
+  alt_pressed: z.boolean().optional(),
+  ctrl_pressed: z.boolean().optional(),
+  shift_pressed: z.boolean().optional(),
+  meta_pressed: z.boolean().optional(),
+  button_index: z.number().int().optional().describe('mouse_button/joypad_button: button index.'),
+  double_click: z.boolean().optional().describe('mouse_button: double click.'),
+  pressure: z.number().optional().describe('joypad_button: pressure.'),
+  axis: z.number().int().optional().describe('joypad_motion: axis index.'),
+  axis_value: z.number().optional().describe('joypad_motion: axis value (-1 to 1).'),
+  position: vec2Schema.optional().describe('mouse_button/mouse_motion: position as {x, y}.'),
+  global_position: vec2Schema.optional().describe('mouse_button/mouse_motion: global position as {x, y}.'),
+  relative: vec2Schema.optional().describe('mouse_motion: relative motion as {x, y}.'),
+  velocity: vec2Schema.optional().describe('mouse_motion: velocity as {x, y}.'),
 }).passthrough();
 
 interface InputActionContextAction {
@@ -27,6 +50,27 @@ interface ConfigureInputActionContextParams {
 
 export const projectTools: MCPTool[] = [
   {
+    name: 'delete_project_file',
+    description: 'Move one project file (and its .import/.uid files) to the system Trash, where it can be restored. Lists files that still refer to it.',
+    parameters: z.object({
+      path: z.string().describe('res:// path of the file, e.g. "res://scenes/old_level.tscn"'),
+    }),
+    execute: async ({ path }: { path: string }): Promise<string> => {
+      const godot = getGodotConnection();
+      try {
+        const result = await godot.sendCommand<CommandResult>('delete_project_file', { path });
+        const refs = (result.still_referenced_by as string[]) ?? [];
+        const warning = refs.length > 0 ? ` Still referenced by: ${refs.join(', ')} (fix or delete those).` : '';
+        return `Moved to Trash: ${(result.trashed as string[]).join(', ')}.${warning}`;
+      } catch (error) {
+        throw new Error(`Failed to delete project file: ${(error as Error).message}`);
+      }
+    },
+    metadata: {
+      requiredRole: 'edit',
+    },
+  },
+  {
     name: 'refresh_project_index',
     description: 'Refresh the cached project structure index and return summary statistics.',
     parameters: z.object({}),
@@ -36,7 +80,7 @@ export const projectTools: MCPTool[] = [
         generated_at: snapshot.generatedAt,
         stats: snapshot.stats,
         root_entries: snapshot.root,
-      }, null, 2);
+      });
     },
     metadata: {
       requiredRole: 'edit',
@@ -79,7 +123,7 @@ export const projectTools: MCPTool[] = [
         patterns,
         count: matches.length,
         matches,
-      }, null, 2);
+      });
     },
     metadata: {
       requiredRole: 'read',
@@ -94,7 +138,7 @@ export const projectTools: MCPTool[] = [
 
       try {
         const result = await godot.sendCommand<CommandResult>('list_input_actions', {});
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(result);
       } catch (error) {
         throw new Error(`Failed to list input actions: ${(error as Error).message}`);
       }
@@ -112,7 +156,7 @@ export const projectTools: MCPTool[] = [
 
       try {
         const result = await godot.sendCommand<CommandResult>('list_audio_buses', {});
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(result);
       } catch (error) {
         throw new Error(`Failed to list audio buses: ${(error as Error).message}`);
       }
@@ -247,7 +291,7 @@ export const projectTools: MCPTool[] = [
 
       try {
         const result = await godot.sendCommand<CommandResult>('configure_audio_bus', payload);
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(result);
       } catch (error) {
         throw new Error(`Failed to configure audio bus: ${(error as Error).message}`);
       }
@@ -320,7 +364,7 @@ export const projectTools: MCPTool[] = [
         }
 
         const result = await godot.sendCommand<CommandResult>('configure_project_setting', payload);
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(result);
       } catch (error) {
         throw new Error(`Failed to configure project setting: ${(error as Error).message}`);
       }

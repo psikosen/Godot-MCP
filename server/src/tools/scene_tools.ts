@@ -36,6 +36,7 @@ interface CreateResourceParams {
   resource_type: string;
   resource_path: string;
   properties?: Record<string, any>;
+  overwrite?: boolean;
 }
 
 interface ConfigurePhysicsNodeParams {
@@ -456,7 +457,7 @@ export const sceneTools: MCPTool[] = [
       
       try {
         const result = await godot.sendCommand<CommandResult>('create_scene', { path, root_node_type });
-        return `Created new scene at ${result.scene_path} with root node type ${result.root_node_type}`;
+        return `Created new scene at ${result.scene_path} with root node type ${result.root_node_type}. It is now the open scene; use open_scene to go back.`;
       } catch (error) {
         throw new Error(`Failed to create scene: ${(error as Error).message}`);
       }
@@ -543,7 +544,7 @@ export const sceneTools: MCPTool[] = [
         const godotVersion = `${result.godot_version.major}.${result.godot_version.minor}.${result.godot_version.patch}`;
         
         let output = `Project Name: ${result.project_name}\n`;
-        output += `Project Version: ${result.project_version}\n`;
+        output += `Project Version: ${result.project_version || '(not set)'}\n`;
         output += `Project Path: ${result.project_path}\n`;
         output += `Godot Version: ${godotVersion}\n`;
         
@@ -572,9 +573,11 @@ export const sceneTools: MCPTool[] = [
       resource_path: z.string()
         .describe('Path where the resource will be saved (e.g. "res://resources/style.tres")'),
       properties: z.record(z.any()).optional()
-        .describe('Dictionary of property values to set on the resource'),
+        .describe('Dictionary of property values to set on the resource. For Curve2D/Curve3D, "points": [[x,y(,z)], ...] builds the curve.'),
+      overwrite: z.boolean().optional()
+        .describe('Replace the file if it already exists (default false: refuse).'),
     }),
-    execute: async ({ resource_type, resource_path, properties = {} }: CreateResourceParams): Promise<string> => {
+    execute: async ({ resource_type, resource_path, properties = {}, overwrite }: CreateResourceParams): Promise<string> => {
       const godot = getGodotConnection();
       
       try {
@@ -582,6 +585,7 @@ export const sceneTools: MCPTool[] = [
           resource_type,
           resource_path,
           properties,
+          overwrite: overwrite ?? false,
         });
         
         return `Created ${resource_type} resource at ${result.resource_path}`;
@@ -652,7 +656,7 @@ export const sceneTools: MCPTool[] = [
 
   {
     name: 'rollback_scene_transaction',
-    description: 'Rollback a pending or committed scene transaction',
+    description: 'Rollback a pending scene transaction (committed transactions cannot be rolled back; use the editor\'s Undo)',
     parameters: z.object({
       transaction_id: z.string()
         .describe('Identifier of the transaction to rollback'),

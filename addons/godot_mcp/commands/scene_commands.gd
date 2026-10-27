@@ -66,7 +66,6 @@ const AUDIO_STREAM_PLAYER_TYPES := [
 	"AudioStreamPlayer",
 	"AudioStreamPlayer2D",
 	"AudioStreamPlayer3D",
-	"AudioStreamPlayerMicrophone",
 ]
 
 
@@ -168,9 +167,9 @@ func _save_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	if path.is_empty():
 		return _send_error(client_id, "Scene path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	if not path.ends_with(".tscn"):
 		path += ".tscn"
@@ -185,7 +184,7 @@ func _save_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	if result != OK:
 		return _send_error(client_id, "Failed to pack scene: %d" % result, command_id)
 	
-	result = ResourceSaver.save(packed_scene, path)
+	result = _save_resource_contained(packed_scene, path)
 	if result != OK:
 		return _send_error(client_id, "Failed to save scene: %d" % result, command_id)
 	
@@ -200,9 +199,9 @@ func _open_scene(client_id: int, params: Dictionary, command_id: String) -> void
 	if path.is_empty():
 		return _send_error(client_id, "Scene path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	# Check if the file exists
 	if not FileAccess.file_exists(path):
@@ -358,7 +357,7 @@ func _get_physics_world_snapshot(client_id: int, _params: Dictionary, command_id
 	if edited_scene_root == null:
 		_log("No edited scene available; returning empty physics world snapshot", function_name, log_context)
 	else:
-		var scene_label := String(snapshot.get("scene_path", "EditedScene"))
+		var scene_label := str(snapshot.get("scene_path", "EditedScene"))
 		var space_total := int(overall.get("spaces", 0))
 		var body_total := int(overall.get("bodies", 0))
 		var area_total := int(overall.get("areas", 0))
@@ -381,9 +380,9 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 	if path.is_empty():
 		return _send_error(client_id, "Scene path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not path.begins_with("res://"):
-		path = "res://" + path
+	path = _contained_res_path(path)
+	if path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	# Ensure path ends with .tscn
 	if not path.ends_with(".tscn"):
@@ -435,7 +434,7 @@ func _create_scene(client_id: int, params: Dictionary, command_id: String) -> vo
 		return _send_error(client_id, "Failed to pack scene: %d" % result, command_id)
 	
 	# Save the packed scene to disk
-	result = ResourceSaver.save(packed_scene, path)
+	result = _save_resource_contained(packed_scene, path)
 	if result != OK:
 		root_node.free()
 		return _send_error(client_id, "Failed to save scene: %d" % result, command_id)
@@ -467,6 +466,9 @@ func _begin_scene_transaction(client_id: int, params: Dictionary, command_id: St
 	metadata["command_id"] = command_id
 	metadata["command"] = "begin_scene_transaction"
 
+	if not transaction_id.is_empty() and SceneTransactionManager.has_active(transaction_id):
+		return _send_error(client_id, "Transaction '%s' is already active; commit or roll it back first, or omit transaction_id" % transaction_id, command_id)
+
 	var transaction = SceneTransactionManager.begin_registered(transaction_id, action_name, metadata)
 	if not transaction:
 		return _send_error(client_id, "Unable to begin scene transaction", command_id)
@@ -481,9 +483,11 @@ func _commit_scene_transaction(client_id: int, params: Dictionary, command_id: S
 	if transaction_id.is_empty():
 		return _send_error(client_id, "Transaction ID is required to commit", command_id)
 
+	var transaction = SceneTransactionManager.get_transaction(transaction_id)
 	var result = SceneTransactionManager.commit_registered(transaction_id)
 	if not result:
-		return _send_error(client_id, "Failed to commit scene transaction: %s" % transaction_id, command_id)
+		var reason: String = transaction.commit_error if transaction else ""
+		return _send_error(client_id, reason if not reason.is_empty() else "Unknown transaction or commit failed: %s" % transaction_id, command_id)
 
 	_send_success(client_id, {
 		"transaction_id": transaction_id,
@@ -495,9 +499,14 @@ func _rollback_scene_transaction(client_id: int, params: Dictionary, command_id:
 	if transaction_id.is_empty():
 		return _send_error(client_id, "Transaction ID is required to rollback", command_id)
 
+	if SceneTransactionManager.is_committed(transaction_id):
+		return _send_error(client_id, "Transaction '%s' was already committed; use the editor's Undo" % transaction_id, command_id)
+	if not SceneTransactionManager.has_active(transaction_id):
+		return _send_error(client_id, "Unknown transaction '%s'" % transaction_id, command_id)
+
 	var result = SceneTransactionManager.rollback_registered(transaction_id)
 	if not result:
-		return _send_error(client_id, "Failed to rollback scene transaction: %s" % transaction_id, command_id)
+		return _send_error(client_id, "Rollback of transaction '%s' failed" % transaction_id, command_id)
 
 	_send_success(client_id, {
 		"transaction_id": transaction_id,
@@ -555,8 +564,8 @@ func _build_physics_world_snapshot(root: Node) -> Dictionary:
 		if classification.is_empty():
 			continue
 
-		var dimension := String(classification.get("dimension", ""))
-		var category := String(classification.get("category", ""))
+		var dimension := str(classification.get("dimension", ""))
+		var category := str(classification.get("category", ""))
 		if dimension.is_empty() or category.is_empty():
 			continue
 
@@ -607,9 +616,9 @@ func _build_physics_world_snapshot(root: Node) -> Dictionary:
 		"joints": counts["2d"].get("joints", 0) + counts["3d"].get("joints", 0),
 	}
 
-	var scene_path := String(root.scene_file_path)
+	var scene_path := str(root.scene_file_path)
 	if scene_path.is_empty():
-		scene_path = String(root.get_path())
+		scene_path = _to_mcp_path(root)
 		notes.append("Edited scene has not been saved to disk yet.")
 
 	var snapshot := {
@@ -737,7 +746,7 @@ func _collect_common_physics_node(node: Node) -> Dictionary:
 
 	var groups: Array = []
 	for group_name in node.get_groups():
-		groups.append(String(group_name))
+		groups.append(str(group_name))
 	if groups.size() > 0:
 		data["groups"] = groups
 
@@ -829,7 +838,7 @@ func _serialize_variant(value):
 		TYPE_BOOL, TYPE_INT, TYPE_FLOAT:
 			return value
 		TYPE_STRING, TYPE_STRING_NAME:
-			return String(value)
+			return str(value)
 		TYPE_VECTOR2:
 			var vector2: Vector2 = value
 			return {"x": vector2.x, "y": vector2.y}
@@ -861,7 +870,7 @@ func _serialize_variant(value):
 			var quat: Quaternion = value
 			return {"x": quat.x, "y": quat.y, "z": quat.z, "w": quat.w}
 		TYPE_NODE_PATH:
-			return String(value)
+			return str(value)
 		TYPE_RID:
 			return _serialize_rid(value)
 		TYPE_DICTIONARY:
@@ -878,7 +887,7 @@ func _serialize_variant(value):
 			var packed_strings: PackedStringArray = value
 			var string_array: Array = []
 			for element in packed_strings:
-				string_array.append(String(element))
+				string_array.append(str(element))
 			return string_array
 		TYPE_PACKED_VECTOR2_ARRAY:
 			var packed_vector2: PackedVector2Array = value
@@ -910,11 +919,11 @@ func _serialize_variant(value):
 				return resource_info
 			return value.get_class()
 		TYPE_TRANSFORM2D, TYPE_TRANSFORM3D, TYPE_BASIS, TYPE_PLANE, TYPE_AABB, TYPE_PROJECTION:
-			return String(value)
+			return str(value)
 		TYPE_CALLABLE, TYPE_SIGNAL:
-			return String(value)
+			return str(value)
 		_:
-			return String(value)
+			return str(value)
 
 func _prune_null_fields(data: Dictionary) -> Dictionary:
 	var cleaned := {}
@@ -950,11 +959,11 @@ func _sort_snapshot_entries(entries: Array) -> Array:
 	return sorted
 
 func _compare_snapshot_entries(a, b) -> bool:
-	var path_a := String(a.get("path", ""))
-	var path_b := String(b.get("path", ""))
+	var path_a := str(a.get("path", ""))
+	var path_b := str(b.get("path", ""))
 	if path_a == path_b:
-		var name_a := String(a.get("name", ""))
-		var name_b := String(b.get("name", ""))
+		var name_a := str(a.get("name", ""))
+		var name_b := str(b.get("name", ""))
 		return name_a < name_b
 	return path_a < path_b
 
@@ -993,8 +1002,8 @@ func _configure_physics_joint(client_id: int, params: Dictionary, command_id: St
 
 func _link_joint_bodies(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_link_joint_bodies"
-	var joint_path := String(params.get("joint_path", ""))
-	var transaction_id := String(params.get("transaction_id", ""))
+	var joint_path := str(params.get("joint_path", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 	var context := {
 		"command": "link_joint_bodies",
 		"client_id": client_id,
@@ -1022,7 +1031,7 @@ func _link_joint_bodies(client_id: int, params: Dictionary, command_id: String) 
 	var property_overrides: Dictionary = {}
 
 	if params.has("body_a_path"):
-		var body_a_path := String(params.get("body_a_path", ""))
+		var body_a_path := str(params.get("body_a_path", ""))
 		context["body_a_path"] = body_a_path
 
 		if body_a_path.is_empty():
@@ -1048,7 +1057,7 @@ func _link_joint_bodies(client_id: int, params: Dictionary, command_id: String) 
 			property_overrides["node_a"] = relative_path_a
 
 	if params.has("body_b_path"):
-		var body_b_path := String(params.get("body_b_path", ""))
+		var body_b_path := str(params.get("body_b_path", ""))
 		context["body_b_path"] = body_b_path
 
 		if body_b_path.is_empty():
@@ -1113,9 +1122,9 @@ func _configure_physics_node(
 	command_identifier: String,
 	function_name: String
 ) -> void:
-	var node_path := String(params.get("node_path", ""))
+	var node_path := str(params.get("node_path", ""))
 	var properties_param = params.get("properties", {})
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	if node_path.is_empty():
 		_log("Node path cannot be empty", function_name, {"command": command_identifier, "client_id": client_id}, true)
@@ -1164,6 +1173,16 @@ func _configure_physics_node(
 			true
 		)
 		return _send_error(client_id, "Node at path is not a physics %s" % expected_category, command_id)
+
+	# Joint node_a/node_b are NodePaths relative to the joint; an absolute MCP path ("/root/X") would never resolve.
+	if expected_category == "joint":
+		for key in ["node_a", "node_b"]:
+			var raw_ref := str(properties.get(key, ""))
+			if raw_ref.begins_with("/root"):
+				var target = _get_editor_node(raw_ref)
+				if not target:
+					return _send_error(client_id, "%s not found: %s" % [key, raw_ref], command_id)
+				properties[key] = node.get_path_to(target)
 
 	var transaction_metadata := {
 		"command": command_identifier,
@@ -1218,8 +1237,11 @@ func _configure_physics_node(
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
+		var value_error := _property_value_error(node, property_name, coerced_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 
-		if old_value == coerced_value:
+		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 
 		property_changes.append({
@@ -1311,11 +1333,11 @@ func _configure_physics_node(
 
 func _rebuild_physics_shapes(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_rebuild_physics_shapes"
-	var node_path := String(params.get("node_path", ""))
-	var mesh_node_path := String(params.get("mesh_node_path", ""))
-	var mesh_resource_path := String(params.get("mesh_resource_path", ""))
-	var shape_type := String(params.get("shape_type", "convex")).to_lower()
-	var transaction_id := String(params.get("transaction_id", ""))
+	var node_path := str(params.get("node_path", ""))
+	var mesh_node_path := str(params.get("mesh_node_path", ""))
+	var mesh_resource_path := str(params.get("mesh_resource_path", ""))
+	var shape_type := str(params.get("shape_type", "convex")).to_lower()
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	var context := {
 		"command": "rebuild_physics_shapes",
@@ -1554,12 +1576,12 @@ func _profile_physics_step(client_id: int, params: Dictionary, command_id: Strin
 
 func _author_audio_stream_player(client_id: int, params: Dictionary, command_id: String) -> void:
 	var function_name := "_author_audio_stream_player"
-	var requested_node_path := String(params.get("node_path", ""))
-	var parent_path := String(params.get("parent_path", ""))
-	var player_name := String(params.get("player_name", ""))
-	var player_type := String(params.get("player_type", "AudioStreamPlayer"))
-	var transaction_id := String(params.get("transaction_id", ""))
-	var provided_stream_path := String(params.get("stream_path", ""))
+	var requested_node_path := str(params.get("node_path", ""))
+	var parent_path := str(params.get("parent_path", ""))
+	var player_name := str(params.get("player_name", ""))
+	var player_type := str(params.get("player_type", "AudioStreamPlayer"))
+	var transaction_id := str(params.get("transaction_id", ""))
+	var provided_stream_path := str(params.get("stream_path", ""))
 	var create_if_missing := bool(params.get("create_if_missing", requested_node_path.is_empty()))
 	var properties_param = params.get("properties", {})
 
@@ -1576,7 +1598,7 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		_log("Requested audio stream player type does not exist", function_name, context, true)
 		return _send_error(client_id, "Unknown audio stream player type: %s" % player_type, command_id)
 
-	if not ClassDB.is_parent_class("Node", player_type):
+	if not ClassDB.is_parent_class(player_type, "Node"):
 		var context := {
 			"command": "author_audio_stream_player",
 			"player_type": player_type,
@@ -1646,6 +1668,9 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 	for property_key in inline_property_keys:
 		if params.has(property_key):
 			property_overrides[property_key] = params[property_key]
+
+	if property_overrides.has("bus") and AudioServer.get_bus_index(str(property_overrides["bus"])) < 0:
+		return _send_error(client_id, "Audio bus not found: %s (see list_audio_buses)" % str(property_overrides["bus"]), command_id)
 
 	var inline_stream_requested := false
 	var inline_stream_null := false
@@ -1736,6 +1761,10 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 			_log("Instantiated node is not an AudioStreamPlayer subtype", function_name, context, true)
 			return _send_error(client_id, "Audio stream player type must inherit from AudioStreamPlayer", command_id)
 
+		if not player_name.is_empty() and parent.has_node(NodePath(player_name)):
+			node.free()
+			return _send_error(client_id, "A node named '%s' already exists under %s" % [player_name, resolved_parent_path], command_id)
+
 		was_created = true
 		if player_name.is_empty():
 			player_name = player_type
@@ -1766,10 +1795,10 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 					_log("Inline stream override must be an AudioStream resource", function_name, context, true)
 					return _send_error(client_id, "Inline stream override must be an AudioStream resource", command_id)
 			TYPE_STRING, TYPE_STRING_NAME:
-				provided_stream_path = String(inline_stream_value)
+				provided_stream_path = str(inline_stream_value)
 				stream_null_requested = false
 			TYPE_DICTIONARY:
-				provided_stream_path = String(inline_stream_value.get("path", ""))
+				provided_stream_path = str(inline_stream_value.get("path", ""))
 				stream_null_requested = false
 			_:
 				stream_requested = false
@@ -1819,7 +1848,10 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
-		if old_value == coerced_value:
+		var value_error := _property_value_error(node, property_name, coerced_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
+		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 		property_changes.append({
 			"property": property_name,
@@ -1970,9 +2002,9 @@ func _author_audio_stream_player(client_id: int, params: Dictionary, command_id:
 	var fallback_node_path := node_lookup_path
 	if fallback_node_path.is_empty():
 		if resolved_parent_path.ends_with("/"):
-			fallback_node_path = resolved_parent_path + String(node.name)
+			fallback_node_path = resolved_parent_path + str(node.name)
 		else:
-			fallback_node_path = resolved_parent_path + "/" + String(node.name)
+			fallback_node_path = resolved_parent_path + "/" + str(node.name)
 
 	var resolved_node_path := fallback_node_path
 	if status == "committed":
@@ -2013,7 +2045,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 		)
 		return _send_error(client_id, "Interactive music module is not available in this project", command_id)
 
-	var resource_path := String(params.get("resource_path", ""))
+	var resource_path := str(params.get("resource_path", ""))
 	if resource_path.is_empty():
 		_log("Interactive music resource path is required", function_name, context, true)
 		return _send_error(client_id, "Interactive music resource path is required", command_id)
@@ -2071,7 +2103,7 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 			return _send_error(client_id, "Interactive music clip definitions must be dictionaries", command_id)
 		var clip_dict: Dictionary = (entry as Dictionary).duplicate(true)
 		clip_entries[i] = clip_dict
-		var clip_name := String(clip_dict.get("name", ""))
+		var clip_name := str(clip_dict.get("name", ""))
 		if not clip_name.is_empty():
 			clip_name_map[clip_name] = i
 			var trimmed_name := clip_name.strip_edges()
@@ -2083,6 +2115,13 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 	var requested_clip_count := clip_entries.size()
 	if requested_clip_count != previous_clip_count:
 		interactive_stream.set_clip_count(requested_clip_count)
+		# Shrinking can leave transitions pointing at removed clips; drop them so the saved resource has no dangling refs.
+		var stale_list := interactive_stream.get_transition_list()
+		for stale_i in range(0, stale_list.size(), 2):
+			var stale_from := int(stale_list[stale_i])
+			var stale_to := int(stale_list[stale_i + 1])
+			if stale_from >= requested_clip_count or stale_to >= requested_clip_count:
+				interactive_stream.erase_transition(stale_from, stale_to)
 
 	var clip_summaries: Array = []
 	var clip_display_names: Array = []
@@ -2093,13 +2132,13 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 			"index": i,
 		}
 
-		var clip_name := String(clip_config.get("name", ""))
+		var clip_name := str(clip_config.get("name", ""))
 		if not clip_name.is_empty():
 			interactive_stream.set_clip_name(i, clip_name)
 			clip_summary["name"] = clip_name
 			clip_display_names.append(clip_name)
 		else:
-			var existing_name := String(interactive_stream.get_clip_name(i))
+			var existing_name := str(interactive_stream.get_clip_name(i))
 			if not existing_name.is_empty():
 				clip_display_names.append(existing_name)
 				clip_summary["name"] = existing_name
@@ -2370,11 +2409,35 @@ func _author_interactive_music_graph(client_id: int, params: Dictionary, command
 		for removed_transition in removed_transitions:
 			transition_summaries.append(removed_transition)
 
-	var save_result := ResourceSaver.save(interactive_stream, normalized_path)
+	# Also list transitions this call did not touch so the output shows the whole saved graph.
+	var listed_keys: Dictionary = {}
+	for listed in transition_summaries:
+		listed_keys["%d->%d" % [listed.get("from_index", -2), listed.get("to_index", -2)]] = true
+	var final_list := interactive_stream.get_transition_list()
+	for final_i in range(0, final_list.size(), 2):
+		var f_from := int(final_list[final_i])
+		var f_to := int(final_list[final_i + 1])
+		if listed_keys.has("%d->%d" % [f_from, f_to]):
+			continue
+		transition_summaries.append({
+			"from_index": f_from,
+			"to_index": f_to,
+			"from_label": _interactive_clip_label(f_from, clip_display_names, clip_any_constant),
+			"to_label": _interactive_clip_label(f_to, clip_display_names, clip_any_constant),
+			"from_time": transition_from_maps.get("reverse", {}).get(int(interactive_stream.get_transition_from_time(f_from, f_to)), "?"),
+			"to_time": transition_to_maps.get("reverse", {}).get(int(interactive_stream.get_transition_to_time(f_from, f_to)), "?"),
+			"fade_mode": fade_mode_maps.get("reverse", {}).get(int(interactive_stream.get_transition_fade_mode(f_from, f_to)), "?"),
+			"fade_beats": interactive_stream.get_transition_fade_beats(f_from, f_to),
+			"use_filler_clip": interactive_stream.is_transition_using_filler_clip(f_from, f_to),
+			"hold_previous": interactive_stream.is_transition_holding_previous(f_from, f_to),
+			"status": "unchanged",
+		})
+
+	var save_result := _save_resource_contained(interactive_stream, normalized_path)
 	if save_result != OK:
 		context["save_error"] = save_result
 		_log("Failed to save AudioStreamInteractive resource", function_name, context, true)
-		return _send_error(client_id, "Failed to save interactive music resource: %s" % normalized_path, command_id)
+		return _send_error(client_id, "Failed to save interactive music resource: %s (%s; use a .tres or .res path)" % [normalized_path, error_string(save_result)], command_id)
 
 	var response := {
 		"resource_path": normalized_path,
@@ -2410,7 +2473,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		)
 		return _send_error(client_id, "Interactive music module is not available in this project", command_id)
 
-	var resource_path := String(params.get("resource_path", ""))
+	var resource_path := str(params.get("resource_path", ""))
 	if resource_path.is_empty():
 		_log("Interactive music resource path is required", function_name, context, true)
 		return _send_error(client_id, "Interactive music resource path is required", command_id)
@@ -2434,7 +2497,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 	var clip_display_names: Array = []
 
 	for i in clip_count:
-		var clip_name := String(interactive_stream.get_clip_name(i))
+		var clip_name := str(interactive_stream.get_clip_name(i))
 		if clip_name.is_empty():
 			clip_display_names.append(str(i))
 		else:
@@ -2446,7 +2509,8 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 				clip_name_map[trimmed.to_lower()] = i
 
 	var clip_any_constant := _get_interactive_clip_any_constant()
-	if clip_any_constant == -1:
+	# CLIP_ANY itself is -1 in Godot 4, so -1 cannot mean "unavailable".
+	if not ClassDB.class_has_integer_constant("AudioStreamInteractive", "CLIP_ANY"):
 		_log("Interactive music clip constants are unavailable", function_name, context, true)
 		return _send_error(client_id, "Interactive music clip metadata is unavailable", command_id)
 
@@ -2482,7 +2546,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		return _send_error(client_id, "Layer clip configuration must be a dictionary", command_id)
 
 	var layer_dict: Dictionary = (layer_options as Dictionary).duplicate(true)
-	var layer_name := String(layer_dict.get("name", ""))
+	var layer_name := str(layer_dict.get("name", ""))
 	var layer_index := -1
 
 	if layer_dict.has("reference"):
@@ -2502,7 +2566,7 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 			return _send_error(client_id, layer_result.get("error_message", "Invalid layer clip reference"), command_id)
 		layer_index = layer_result["index"]
 		if layer_name.is_empty():
-			layer_name = String(layer_result.get("label", ""))
+			layer_name = str(layer_result.get("label", ""))
 
 	if layer_index == -1 and not layer_name.is_empty():
 		var normalized_name := layer_name.strip_edges()
@@ -2729,11 +2793,11 @@ func _generate_dynamic_music_layer(client_id: int, params: Dictionary, command_i
 		context["initial_clip"] = layer_label
 		layer_summary["made_initial"] = true
 
-	var save_status := ResourceSaver.save(interactive_stream, normalized_path)
+	var save_status := _save_resource_contained(interactive_stream, normalized_path)
 	if save_status != OK:
 		context["save_error"] = save_status
 		_log("Failed to persist dynamic music layer", function_name, context, true)
-		return _send_error(client_id, "Failed to save interactive music resource: %s" % normalized_path, command_id)
+		return _send_error(client_id, "Failed to save interactive music resource: %s (%s; use a .tres or .res path)" % [normalized_path, error_string(save_status)], command_id)
 
 	var entry_summary := {
 		"from": base_summary["label"],
@@ -2786,7 +2850,7 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 		"system_section": "audio_analysis",
 	}
 
-	var resource_path := String(params.get("resource_path", ""))
+	var resource_path := str(params.get("resource_path", ""))
 	if resource_path.is_empty():
 		_log("Audio resource path is required for waveform analysis", function_name, context, true)
 		return _send_error(client_id, "Audio resource path is required", command_id)
@@ -2838,6 +2902,13 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 
 	if audio_stream is AudioStreamWAV:
 		var sample_stream: AudioStreamWAV = audio_stream
+		# Godot 4.3+ imports WAV files compressed (QOA) by default, which left nothing to analyze;
+		# decode the source file to PCM instead.
+		if not sample_stream.format in [AudioStreamWAV.FORMAT_8_BITS, AudioStreamWAV.FORMAT_16_BITS] and normalized_path.to_lower().ends_with(".wav"):
+			var decoded := AudioStreamWAV.load_from_file(ProjectSettings.globalize_path(normalized_path), {"compress/mode": 0})
+			if decoded != null:
+				sample_stream = decoded
+				metadata["decoded_from_source"] = true
 		var format := sample_stream.format
 		var pcm_supported := format == AudioStreamWAV.FORMAT_8_BITS or format == AudioStreamWAV.FORMAT_16_BITS
 		if not pcm_supported:
@@ -2907,7 +2978,7 @@ func _analyze_waveform(client_id: int, params: Dictionary, command_id: String) -
 						if format == AudioStreamWAV.FORMAT_16_BITS:
 							sample_value = clamp(buffer.get_16() / 32768.0, -1.0, 1.0)
 						else:
-							sample_value = (buffer.get_u8() - 128.0) / 128.0
+							sample_value = buffer.get_8() / 128.0  # AudioStreamWAV stores 8-bit PCM signed
 
 						var channel_stats: Dictionary = stats[channel_index]
 						channel_stats["samples"] += 1
@@ -3066,7 +3137,7 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 	for entry in assets_param:
 		match typeof(entry):
 			TYPE_STRING, TYPE_STRING_NAME:
-				asset_entries.append({"path": String(entry)})
+				asset_entries.append({"path": str(entry)})
 			TYPE_DICTIONARY:
 				asset_entries.append((entry as Dictionary).duplicate(true))
 			_:
@@ -3091,12 +3162,18 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 
 	for asset in asset_entries:
 		var asset_dict: Dictionary = asset
-		var raw_path := String(asset_dict.get("path", ""))
+		var raw_path := str(asset_dict.get("path", ""))
 		if raw_path.is_empty():
 			errors.append({"error": "Missing path", "asset": asset_dict.duplicate(true)})
 			continue
 
 		var normalized_path := _normalize_resource_path(raw_path)
+		if not normalized_path.get_extension().to_lower() in ["wav", "ogg", "mp3"]:
+			errors.append({
+				"error": "Not an audio file (expected .wav, .ogg or .mp3)",
+				"resource_path": normalized_path,
+			})
+			continue
 		if not ResourceLoader.exists(normalized_path):
 			errors.append({
 				"error": "Resource not found",
@@ -3108,7 +3185,7 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 
 		var asset_summary := {
 			"resource_path": normalized_path,
-			"preset": String(asset_dict.get("preset", "")),
+			"preset": str(asset_dict.get("preset", "")),
 			"options_applied": 0,
 			"config_status": "unchanged",
 		}
@@ -3146,7 +3223,7 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 					config.set_value("remap", "preset", preset_name)
 				if not options_dict.is_empty():
 					for option_key in options_dict.keys():
-						config.set_value("params", String(option_key), options_dict[option_key])
+						config.set_value("params", str(option_key), options_dict[option_key])
 					asset_summary["options_applied"] = options_dict.size()
 
 				var save_status := config.save(global_import_path)
@@ -3165,11 +3242,22 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 	if normalized_paths.is_empty():
 		context["errors"] = errors.duplicate(true)
 		_log("No valid audio assets resolved for reimport", function_name, context, true)
-		return _send_error(client_id, "No valid audio assets to import", command_id)
+		return _send_error(client_id, "No valid audio assets to import: %s" % JSON.stringify(errors), command_id)
 
 	filesystem.reimport_files(normalized_paths)
 
-	context["reimported"] = normalized_paths.size()
+	# reimport_files returns nothing, so check each file now loads as an AudioStream.
+	var reimported_count := 0
+	for asset_result in asset_results:
+		var reloaded = ResourceLoader.load(asset_result["resource_path"], "", ResourceLoader.CACHE_MODE_IGNORE)
+		if reloaded is AudioStream:
+			asset_result["reimport_status"] = "ok"
+			reimported_count += 1
+		else:
+			asset_result["reimport_status"] = "failed"
+			errors.append({"error": "Reimport did not produce an AudioStream", "resource_path": asset_result["resource_path"]})
+
+	context["reimported"] = reimported_count
 	context["config_updates"] = config_updates
 	context["error_count"] = errors.size()
 	if not errors.is_empty():
@@ -3178,7 +3266,7 @@ func _batch_import_audio_assets(client_id: int, params: Dictionary, command_id: 
 	_log("Triggered batch audio asset import", function_name, context)
 
 	var response := {
-		"reimported": normalized_paths.size(),
+		"reimported": reimported_count,
 		"assets": asset_results,
 		"config_updates": config_updates,
 	}
@@ -3228,7 +3316,7 @@ func _load_audio_stream_for_interactive_clip(stream_request, _resource_path: Str
 
 	match typeof(stream_request):
 		TYPE_STRING, TYPE_STRING_NAME:
-			var stream_path := String(stream_request)
+			var stream_path := str(stream_request)
 			if stream_path.is_empty():
 				return {
 					"ok": false,
@@ -3313,7 +3401,7 @@ func _parse_interactive_enum_value(value, enum_maps: Dictionary, field_name: Str
 
 	match typeof(value):
 		TYPE_STRING, TYPE_STRING_NAME:
-			var normalized_key := String(value).strip_edges().to_lower()
+			var normalized_key := str(value).strip_edges().to_lower()
 			if forward.has(normalized_key):
 				return {
 					"ok": true,
@@ -3397,7 +3485,7 @@ func _resolve_interactive_clip_reference(reference, clip_name_map: Dictionary, c
 				}
 			return _resolve_interactive_clip_reference(rounded, clip_name_map, clip_count, allow_any, clip_any_constant)
 		TYPE_STRING, TYPE_STRING_NAME:
-			var clip_name := String(reference)
+			var clip_name := str(reference)
 			var normalized = clip_name.strip_edges()
 			if allow_any and normalized.to_lower() == "any":
 				return {
@@ -3448,7 +3536,7 @@ func _interactive_clip_label(index: int, clip_display_names: Array, clip_any_con
 	if index == clip_any_constant:
 		return "any"
 	if index >= 0 and index < clip_display_names.size():
-		return String(clip_display_names[index])
+		return str(clip_display_names[index])
 	return str(index)
 
 func _get_interactive_auto_advance_maps() -> Dictionary:
@@ -3498,7 +3586,7 @@ func _build_interactive_enum_map(entries: Array) -> Dictionary:
 	for entry in entries:
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
-		var constant_name := String(entry.get("constant", ""))
+		var constant_name := str(entry.get("constant", ""))
 		if constant_name.is_empty():
 			continue
 		var labels = entry.get("labels", [])
@@ -3507,7 +3595,7 @@ func _build_interactive_enum_map(entries: Array) -> Dictionary:
 		var constant_value := ClassDB.class_get_integer_constant("AudioStreamInteractive", constant_name)
 		var primary_label := ""
 		for label in labels:
-			var normalized_label := String(label).strip_edges().to_lower()
+			var normalized_label := str(label).strip_edges().to_lower()
 			if normalized_label.is_empty():
 				continue
 			forward[normalized_label] = constant_value
@@ -3535,7 +3623,7 @@ func _material_has_property(material: Object, property_name: String) -> bool:
 	for property_info in property_list:
 		if typeof(property_info) != TYPE_DICTIONARY:
 			continue
-		if String(property_info.get("name", "")) == property_name:
+		if str(property_info.get("name", "")) == property_name:
 			return true
 	return false
 
@@ -3546,14 +3634,14 @@ func _resolve_material_input_value(raw_value) -> Dictionary:
 		TYPE_DICTIONARY:
 			var dict_value: Dictionary = raw_value
 			if dict_value.has("resource_path") or dict_value.has("path"):
-				var resource_path := String(dict_value.get("resource_path", dict_value.get("path", "")))
+				var resource_path := str(dict_value.get("resource_path", dict_value.get("path", "")))
 				resource_path = _normalize_resource_path(resource_path)
 				if resource_path.is_empty():
 					return {"ok": false, "error_message": "Resource path cannot be empty"}
 				var resource := ResourceLoader.load(resource_path)
 				if resource == null:
 					return {"ok": false, "error_message": "Resource not found: %s" % resource_path}
-				var expected_class := String(dict_value.get("expected_class", "")).strip_edges()
+				var expected_class := str(dict_value.get("expected_class", "")).strip_edges()
 				if not expected_class.is_empty() and not resource.is_class(expected_class):
 					return {
 						"ok": false,
@@ -3628,12 +3716,12 @@ func _is_supported_audio_stream_player(node: Node) -> bool:
 	if node is AudioStreamPlayer:
 		return true
 	var node_class := node.get_class()
-	return node_class == "AudioStreamPlayer2D" or node_class == "AudioStreamPlayer3D" or node_class == "AudioStreamPlayerMicrophone"
+	return node_class == "AudioStreamPlayer2D" or node_class == "AudioStreamPlayer3D"
 
 func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path := String(params.get("node_path", ""))
+	var node_path := str(params.get("node_path", ""))
 	var properties_param = params.get("properties", {})
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	if node_path.is_empty():
 		_log(
@@ -3768,8 +3856,11 @@ func _configure_csg_shape(client_id: int, params: Dictionary, command_id: String
 		var parsed_value = _parse_property_value(raw_value)
 		var old_value = node.get(property_name)
 		var coerced_value = _coerce_property_value(old_value, parsed_value)
+		var value_error := _property_value_error(node, property_name, coerced_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 
-		if old_value == coerced_value:
+		if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 			continue
 
 		property_changes.append({
@@ -3871,12 +3962,15 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 		"system_section": materials_section,
 	}
 
-	var resource_path := String(params.get("resource_path", ""))
+	var resource_path := str(params.get("resource_path", ""))
 	if resource_path.is_empty():
 		_log("Material resource path is required", function_name, log_context, true)
 		return _send_error(client_id, "Material resource path is required", command_id)
 
-	resource_path = _normalize_resource_path(resource_path)
+	resource_path = _contained_res_path(resource_path)
+	if resource_path.is_empty():
+		_log("Material resource path is outside the project", function_name, log_context, true)
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	if not resource_path.ends_with(".tres") and not resource_path.ends_with(".res"):
 		resource_path += ".tres"
 
@@ -3903,7 +3997,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			_log("Failed to load existing material resource", function_name, load_payload, true)
 			return _send_error(client_id, "Failed to load existing material resource", command_id)
 
-	var material_type := String(params.get("material_type", ""))
+	var material_type := str(params.get("material_type", ""))
 	var material: Material = null
 	var created_new := false
 
@@ -3954,7 +4048,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 
 	var requested_name = params.get("resource_name", null)
 	if requested_name != null:
-		var resolved_name := String(requested_name)
+		var resolved_name := str(requested_name)
 		if material.resource_name != resolved_name:
 			var old_name := material.resource_name
 			material.resource_name = resolved_name
@@ -3984,7 +4078,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			material.set_meta(meta_key, meta_value)
 			change_records.append({
 				"type": "metadata",
-				"property": String(meta_key),
+				"property": str(meta_key),
 				"input_value": _stringify_variant(meta_value),
 				"new_value": _stringify_variant(meta_value),
 				"old_value": _stringify_variant(existing_meta),
@@ -4001,7 +4095,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			return _send_error(client_id, "Material properties must be provided as a dictionary", command_id)
 		var properties_dict: Dictionary = material_properties_param
 		for property_name in properties_dict.keys():
-			var normalized_property := String(property_name)
+			var normalized_property := str(property_name)
 			if not _material_has_property(material, normalized_property):
 				var missing_payload := log_context.duplicate(true)
 				missing_payload["resource_path"] = resource_path
@@ -4016,11 +4110,14 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 				resolution_payload["property"] = normalized_property
 				resolution_payload["error_message"] = resolved_value.get("error_message", "resolution_failed")
 				_log("Failed to resolve material property value", function_name, resolution_payload, true)
-				return _send_error(client_id, String(resolution_payload["error_message"]), command_id)
+				return _send_error(client_id, str(resolution_payload["error_message"]), command_id)
 			var parsed_value = resolved_value.get("value", null)
 			var old_value = material.get(normalized_property)
 			var coerced_value = _coerce_property_value(old_value, parsed_value)
-			if old_value == coerced_value:
+			var value_error := _property_value_error(material, normalized_property, coerced_value)
+			if not value_error.is_empty():
+				return _send_error(client_id, value_error, command_id)
+			if typeof(old_value) == typeof(coerced_value) and old_value == coerced_value:
 				continue
 			material.set(normalized_property, coerced_value)
 			var change := {
@@ -4042,8 +4139,8 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 	var glslang_config = params.get("glslang_shader", {})
 	if typeof(glslang_config) != TYPE_DICTIONARY:
 		glslang_config = {}
-	var shader_code := String(glslang_config.get("code", params.get("shader_code", "")))
-	var shader_path := String(glslang_config.get("path", params.get("shader_path", "")))
+	var shader_code := str(glslang_config.get("code", params.get("shader_code", "")))
+	var shader_path := str(glslang_config.get("path", params.get("shader_path", "")))
 	var shader_resource: Shader = null
 
 	if not shader_path.is_empty():
@@ -4066,7 +4163,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 		shader_resource = (material as ShaderMaterial).shader
 		if shader_resource == null:
 			shader_resource = Shader.new()
-		var previous_code := String(shader_resource.code)
+		var previous_code := str(shader_resource.code)
 		if previous_code != shader_code:
 			shader_resource.code = shader_code
 			change_records.append({
@@ -4153,24 +4250,24 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			if not resolved.get("ok", false):
 				var resolution_payload := log_context.duplicate(true)
 				resolution_payload["resource_path"] = resource_path
-				resolution_payload["parameter"] = String(parameter_name)
+				resolution_payload["parameter"] = str(parameter_name)
 				resolution_payload["error_message"] = resolved.get("error_message", "resolution_failed")
 				_log("Failed to resolve shader parameter value", function_name, resolution_payload, true)
-				return _send_error(client_id, String(resolution_payload["error_message"]), command_id)
+				return _send_error(client_id, str(resolution_payload["error_message"]), command_id)
 			var parsed_value = resolved.get("value", null)
 			if not shader_material.shader.has_param(parameter_name):
 				var missing_payload := log_context.duplicate(true)
 				missing_payload["resource_path"] = resource_path
-				missing_payload["parameter"] = String(parameter_name)
+				missing_payload["parameter"] = str(parameter_name)
 				_log("Shader does not expose requested parameter", function_name, missing_payload, true)
-				return _send_error(client_id, "Shader does not expose parameter: %s" % String(parameter_name), command_id)
+				return _send_error(client_id, "Shader does not expose parameter: %s" % str(parameter_name), command_id)
 			var old_value = shader_material.get_shader_parameter(parameter_name)
 			if old_value == parsed_value:
 				continue
 			shader_material.set_shader_parameter(parameter_name, parsed_value)
 			var change := {
 				"type": "shader_parameter",
-				"parameter": String(parameter_name),
+				"parameter": str(parameter_name),
 				"input_value": _stringify_variant(raw_value),
 				"parsed_value": _stringify_variant(parsed_value),
 				"new_value": _stringify_variant(parsed_value),
@@ -4194,10 +4291,10 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 				if not resolved.get("ok", false):
 					var texture_payload := log_context.duplicate(true)
 					texture_payload["resource_path"] = resource_path
-					texture_payload["slot"] = String(slot_name)
+					texture_payload["slot"] = str(slot_name)
 					texture_payload["error_message"] = resolved.get("error_message", "resolution_failed")
 					_log("Failed to resolve lightmapper texture", function_name, texture_payload, true)
-					return _send_error(client_id, String(texture_payload["error_message"]), command_id)
+					return _send_error(client_id, str(texture_payload["error_message"]), command_id)
 				var texture_value = resolved.get("value", null)
 				var applied := false
 				if material is ShaderMaterial:
@@ -4205,9 +4302,9 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 					if not shader_material.shader.has_param(slot_name):
 						var shader_slot_payload := log_context.duplicate(true)
 						shader_slot_payload["resource_path"] = resource_path
-						shader_slot_payload["slot"] = String(slot_name)
+						shader_slot_payload["slot"] = str(slot_name)
 						_log("Shader does not expose requested lightmapper texture parameter", function_name, shader_slot_payload, true)
-						return _send_error(client_id, "Shader missing texture parameter: %s" % String(slot_name), command_id)
+						return _send_error(client_id, "Shader missing texture parameter: %s" % str(slot_name), command_id)
 					var previous_texture := shader_material.get_shader_parameter(slot_name)
 					if previous_texture == texture_value:
 						continue
@@ -4215,7 +4312,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 					applied = true
 					change_records.append({
 						"type": "lightmapper_texture",
-						"parameter": String(slot_name),
+						"parameter": str(slot_name),
 						"input_value": _stringify_variant(raw_value),
 						"parsed_value": _stringify_variant(texture_value),
 						"new_value": _stringify_variant(texture_value),
@@ -4225,15 +4322,15 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 						"resource_path": resolved.get("resource_path", ""),
 						"resource_class": resolved.get("resource_class", ""),
 					})
-				elif _material_has_property(material, String(slot_name)):
-					var old_value = material.get(String(slot_name))
+				elif _material_has_property(material, str(slot_name)):
+					var old_value = material.get(str(slot_name))
 					if old_value == texture_value:
 						continue
-					material.set(String(slot_name), texture_value)
+					material.set(str(slot_name), texture_value)
 					applied = true
 					var change := {
 						"type": "lightmapper_texture",
-						"property": String(slot_name),
+						"property": str(slot_name),
 						"input_value": _stringify_variant(raw_value),
 						"parsed_value": _stringify_variant(texture_value),
 						"new_value": _stringify_variant(texture_value),
@@ -4249,9 +4346,9 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 				else:
 					var texture_payload := log_context.duplicate(true)
 					texture_payload["resource_path"] = resource_path
-					texture_payload["slot"] = String(slot_name)
+					texture_payload["slot"] = str(slot_name)
 					_log("Material cannot accept requested lightmapper texture slot", function_name, texture_payload, true)
-					return _send_error(client_id, "Material cannot accept lightmapper texture slot: %s" % String(slot_name), command_id)
+					return _send_error(client_id, "Material cannot accept lightmapper texture slot: %s" % str(slot_name), command_id)
 				if applied:
 					continue
 
@@ -4263,10 +4360,10 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 				if not resolved_scalar.get("ok", false):
 					var scalar_payload := log_context.duplicate(true)
 					scalar_payload["resource_path"] = resource_path
-					scalar_payload["parameter"] = String(scalar_name)
+					scalar_payload["parameter"] = str(scalar_name)
 					scalar_payload["error_message"] = resolved_scalar.get("error_message", "resolution_failed")
 					_log("Failed to resolve lightmapper scalar", function_name, scalar_payload, true)
-					return _send_error(client_id, String(scalar_payload["error_message"]), command_id)
+					return _send_error(client_id, str(scalar_payload["error_message"]), command_id)
 				var scalar_value = resolved_scalar.get("value", null)
 				var handled := false
 				if material is ShaderMaterial:
@@ -4274,9 +4371,9 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 					if not shader_material.shader.has_param(scalar_name):
 						var scalar_slot_payload := log_context.duplicate(true)
 						scalar_slot_payload["resource_path"] = resource_path
-						scalar_slot_payload["parameter"] = String(scalar_name)
+						scalar_slot_payload["parameter"] = str(scalar_name)
 						_log("Shader does not expose requested lightmapper scalar parameter", function_name, scalar_slot_payload, true)
-						return _send_error(client_id, "Shader missing scalar parameter: %s" % String(scalar_name), command_id)
+						return _send_error(client_id, "Shader missing scalar parameter: %s" % str(scalar_name), command_id)
 					var previous_value := shader_material.get_shader_parameter(scalar_name)
 					if previous_value == scalar_value:
 						continue
@@ -4284,7 +4381,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 					handled = true
 					change_records.append({
 						"type": "lightmapper_scalar",
-						"parameter": String(scalar_name),
+						"parameter": str(scalar_name),
 						"input_value": _stringify_variant(raw_scalar),
 						"parsed_value": _stringify_variant(scalar_value),
 						"new_value": _stringify_variant(scalar_value),
@@ -4292,15 +4389,15 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 						"new_type": type_string(typeof(scalar_value)),
 						"old_type": type_string(typeof(previous_value)),
 					})
-				elif _material_has_property(material, String(scalar_name)):
-					var previous_value = material.get(String(scalar_name))
+				elif _material_has_property(material, str(scalar_name)):
+					var previous_value = material.get(str(scalar_name))
 					if previous_value == scalar_value:
 						continue
-					material.set(String(scalar_name), scalar_value)
+					material.set(str(scalar_name), scalar_value)
 					handled = true
 					change_records.append({
 						"type": "lightmapper_scalar",
-						"property": String(scalar_name),
+						"property": str(scalar_name),
 						"input_value": _stringify_variant(raw_scalar),
 						"parsed_value": _stringify_variant(scalar_value),
 						"new_value": _stringify_variant(scalar_value),
@@ -4311,9 +4408,9 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 				else:
 					var scalar_payload := log_context.duplicate(true)
 					scalar_payload["resource_path"] = resource_path
-					scalar_payload["parameter"] = String(scalar_name)
+					scalar_payload["parameter"] = str(scalar_name)
 					_log("Material cannot accept requested lightmapper scalar", function_name, scalar_payload, true)
-					return _send_error(client_id, "Material cannot accept lightmapper scalar: %s" % String(scalar_name), command_id)
+					return _send_error(client_id, "Material cannot accept lightmapper scalar: %s" % str(scalar_name), command_id)
 
 		var previous_lightmapper_meta := (material.get_meta("lightmapper_rd") if material.has_meta("lightmapper_rd") else {})
 		var sanitized_lightmapper_meta := _sanitize_metadata_dictionary(lightmapper_config)
@@ -4338,7 +4435,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 				if typeof(lod_entry) != TYPE_DICTIONARY:
 					continue
 				var lod_dict: Dictionary = lod_entry
-				var mesh_path := String(lod_dict.get("mesh_path", lod_dict.get("resource_path", lod_dict.get("path", ""))))
+				var mesh_path := str(lod_dict.get("mesh_path", lod_dict.get("resource_path", lod_dict.get("path", ""))))
 				mesh_path = _normalize_resource_path(mesh_path)
 				if mesh_path.is_empty():
 					continue
@@ -4393,7 +4490,7 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 			"status": "no_changes",
 		}, command_id)
 
-	var save_error := ResourceSaver.save(material, resource_path)
+	var save_error := _save_resource_contained(material, resource_path)
 	if save_error != OK:
 		var save_payload := log_context.duplicate(true)
 		save_payload["resource_path"] = resource_path
@@ -4418,9 +4515,9 @@ func _configure_material_resource(client_id: int, params: Dictionary, command_id
 	}, command_id)
 
 func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path := String(params.get("node_path", ""))
+	var node_path := str(params.get("node_path", ""))
 	var cells_param = params.get("cells", [])
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	if node_path.is_empty():
 		_log(
@@ -4665,7 +4762,7 @@ func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String
 					true
 				)
 				return _send_error(client_id, "GridMap has no MeshLibrary configured", command_id)
-			elif mesh_library.has_method("has_item") and not mesh_library.has_item(item_value):
+			elif item_value != GridMap.INVALID_CELL_ITEM and not item_value in mesh_library.get_item_list():  # MeshLibrary has no has_item() in Godot 4
 				if transaction_id.is_empty():
 					transaction.rollback()
 				_log(
@@ -4783,9 +4880,9 @@ func _paint_gridmap_cells(client_id: int, params: Dictionary, command_id: String
 	}, command_id)
 
 func _clear_gridmap_cells(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path := String(params.get("node_path", ""))
+	var node_path := str(params.get("node_path", ""))
 	var cells_param = params.get("cells", [])
-	var transaction_id := String(params.get("transaction_id", ""))
+	var transaction_id := str(params.get("transaction_id", ""))
 
 	if node_path.is_empty():
 		_log(
@@ -5045,14 +5142,19 @@ func _classify_physics_node(node: Node) -> Dictionary:
 func _coerce_property_value(old_value, new_value):
 	var target_type := typeof(old_value)
 	match target_type:
+		# Unconvertible input is returned unchanged so _property_value_error refuses it.
 		TYPE_BOOL:
-			return _convert_to_bool(new_value, old_value)
+			var as_bool = _convert_to_bool(new_value, null)
+			return new_value if as_bool == null else as_bool
 		TYPE_INT:
-			return _convert_to_int(new_value, old_value)
+			var as_int = _convert_to_int(new_value, null)
+			return new_value if as_int == null else as_int
 		TYPE_FLOAT:
-			return _convert_to_float(new_value, old_value)
-		TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I:
-			return new_value
+			var as_float = _convert_to_float(new_value, null)
+			return new_value if as_float == null else as_float
+		TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_COLOR:
+			# JSON gives {"x":..}, [..] or "#hex"; build the real type so callers can compare it.
+			return _coerce_value_to_match(old_value, new_value)
 		TYPE_NODE_PATH:
 			if typeof(new_value) == TYPE_STRING:
 				return NodePath(new_value)
@@ -5084,7 +5186,7 @@ func _convert_to_int(value, fallback):
 		TYPE_BOOL:
 			return (1 if value else 0)
 		TYPE_STRING:
-			return int(value)
+			return value.to_int() if value.strip_edges().is_valid_int() else fallback
 		_:
 			return fallback
 
@@ -5097,7 +5199,7 @@ func _convert_to_float(value, fallback):
 		TYPE_BOOL:
 			return (1.0 if value else 0.0)
 		TYPE_STRING:
-			return float(value)
+			return value.to_float() if value.strip_edges().is_valid_float() else fallback
 		_:
 			return fallback
 
@@ -5125,7 +5227,7 @@ func _has_property(target: Object, property_name: String) -> bool:
 	var property_list = target.get_property_list()
 	for property_info in property_list:
 		if typeof(property_info) == TYPE_DICTIONARY and property_info.has("name"):
-			if String(property_info["name"]) == property_name:
+			if str(property_info["name"]) == property_name:
 				return true
 	return false
 
@@ -5140,7 +5242,7 @@ func _to_int(value) -> Variant:
 		TYPE_BOOL:
 			return (1 if value else 0)
 		TYPE_STRING, TYPE_STRING_NAME:
-			var text := String(value).strip_edges()
+			var text := str(value).strip_edges()
 			if text.is_empty():
 				return null
 			if text.is_valid_int():
@@ -5191,12 +5293,10 @@ func _parse_gridmap_position(data) -> Dictionary:
 func _vector3i_to_dictionary(vector: Vector3i) -> Dictionary:
 	return {"x": vector.x, "y": vector.y, "z": vector.z}
 
+# Report paths the way clients address them (/root/...), not the editor-internal tree path.
 func _node_path_to_string(node: Node, fallback: String) -> String:
 	if node:
-		var node_path_value = node.get_path()
-		if typeof(node_path_value) == TYPE_NODE_PATH:
-			return String(node_path_value)
-		return str(node_path_value)
+		return _to_mcp_path(node)
 	return fallback
 
 

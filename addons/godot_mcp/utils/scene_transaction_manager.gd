@@ -7,6 +7,8 @@ const DEFAULT_SYSTEM_SECTION := "scene_transaction"
 
 static var _transactions: Dictionary = {}
 static var _id_counter: int = 0
+# Ids of committed transactions; their undo actions live in the editor history, so rollback is refused.
+static var _committed_ids: Dictionary = {}
 
 class SceneTransaction extends RefCounted:
 	var transaction_id: String
@@ -18,10 +20,16 @@ class SceneTransaction extends RefCounted:
 	var _do_properties: Array = []
 	var _undo_properties: Array = []
 	var _do_references: Array = []
+	var _undo_references: Array = []
 	var _commit_callbacks: Array = []
 	var _rollback_callbacks: Array = []
 	var _is_active: bool = false
 	var _is_committed: bool = false
+	# MCP paths ("/root/...") of nodes this transaction will create, rename or move, so later steps of
+	# the same transaction can address them before commit (they reported "Node not found").
+	var pending_paths: Dictionary = {}
+	# Why the last commit() returned false, for the commit tool's error message.
+	var commit_error: String = ""
 
 	func _init(action_name: String, metadata: Dictionary = {}):
 		transaction_id = MCPSceneTransactionManager._generate_transaction_id()
@@ -62,6 +70,11 @@ class SceneTransaction extends RefCounted:
 	func add_undo_method(target: Object, method: StringName, args: Array = []) -> void:
 		if not is_ready():
 			return
+		# Freeing a created node on undo left redo nothing to put back (about 40 tools did this).
+		# Hold it as a do-reference instead: UndoRedo frees it once that redo is dropped.
+		if method in [&"queue_free", &"free"] and target is Node:
+			add_do_reference(target)
+			return
 		_undo_methods.append({"target": target, "method": method, "args": args})
 
 	func add_do_property(target: Object, property: StringName, value) -> void:
@@ -79,6 +92,13 @@ class SceneTransaction extends RefCounted:
 			return
 		if target and not _do_references.has(target):
 			_do_references.append(target)
+
+	# For a node the do step removes and undo puts back: freed only when that undo is dropped.
+	func add_undo_reference(target: Object) -> void:
+		if not is_ready():
+			return
+		if target and not _undo_references.has(target):
+			_undo_references.append(target)
 
 	func register_on_commit(callback: Callable) -> void:
 		_commit_callbacks.append(callback)
@@ -109,7 +129,26 @@ class SceneTransaction extends RefCounted:
 			_is_committed = false
 			return true
 
-		_undo_redo.create_action(action_name)
+		# A named transaction stays open between calls. If its nodes were freed meanwhile (the scene
+		# was closed or reloaded), committing would replay steps on dead objects and run on-commit
+		# callbacks that read them, so the whole transaction is dropped instead.
+		var freed := 0
+		for entry in _do_methods + _undo_methods + _do_properties + _undo_properties:
+			if not is_instance_valid(entry.target):
+				freed += 1
+		if freed > 0:
+			commit_error = "Transaction '%s' cannot commit: %d of its steps target nodes that no longer exist (deleted, or the scene was closed or reloaded). Nothing was applied; redo the edits in a new transaction." % [transaction_id, freed]
+			MCPSceneTransactionManager._log(commit_error, "SceneTransaction.commit", {"transaction_id": transaction_id}, true)
+			_is_active = false
+			return false
+
+		# Pin the action to the edited scene's history. Without a context Godot picks the history from
+		# the first object touched; resource edits (animations) then logged "UndoRedo history mismatch".
+		var scene_root = EditorInterface.get_edited_scene_root()
+		if scene_root != null:
+			_undo_redo.create_action(action_name, UndoRedo.MERGE_DISABLE, scene_root)
+		else:
+			_undo_redo.create_action(action_name)
 		if metadata.size() > 0:
 			# Godot EditorUndoRedoManager does not expose metadata APIs in every version.
 			# Preserve compatibility by applying metadata only when the method exists.
@@ -149,6 +188,8 @@ class SceneTransaction extends RefCounted:
 			_undo_redo.add_undo_property(entry.target, entry.property, entry.value)
 		for reference in _do_references:
 			_undo_redo.add_do_reference(reference)
+		for reference in _undo_references:
+			_undo_redo.add_undo_reference(reference)
 
 		_undo_redo.commit_action()
 		_is_active = false
@@ -268,6 +309,8 @@ static func commit_registered(transaction_id: String) -> bool:
 
 	var result := transaction.commit()
 	_transactions.erase(transaction_id)
+	if result:
+		_committed_ids[transaction_id] = true
 	return result
 
 static func rollback_registered(transaction_id: String) -> bool:
@@ -284,6 +327,20 @@ static func rollback_registered(transaction_id: String) -> bool:
 	var result := transaction.rollback()
 	_transactions.erase(transaction_id)
 	return result
+
+# Node staged under `path` by any open registered transaction, or null.
+static func find_pending_node(path: String) -> Node:
+	for transaction in _transactions.values():
+		var node = transaction.pending_paths.get(path)
+		if node != null and is_instance_valid(node):
+			return node
+	return null
+
+static func is_committed(transaction_id: String) -> bool:
+	return _committed_ids.has(transaction_id)
+
+static func has_active(transaction_id: String) -> bool:
+	return _transactions.has(transaction_id)
 
 static func list_transactions() -> Array:
 	return _transactions.keys()

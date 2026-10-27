@@ -47,11 +47,23 @@ func _configure_texture_compression(client_id: int, params: Dictionary, command_
 	if typeof(settings) != TYPE_DICTIONARY:
 		return _send_error(client_id, "settings must be a dictionary", command_id)
 
+	# Godot stores one flat setting per option (vram_compression/import_etc2_astc); a platform
+	# override is the same name with a ".<platform>" feature-tag suffix.
+	var base := "rendering/textures/vram_compression"
+	var platforms := ["android", "ios", "macos", "windows", "linuxbsd", "web"]
 	var applied := {}
 	for key in settings.keys():
-		var path := "rendering/textures/vram_compression/%s/%s" % [platform, key]
-		ProjectSettings.set_setting(path, settings[key])
+		var path := "%s/%s/%s" % [base, platform, key]
+		if not ProjectSettings.has_setting(path):
+			var flat := "%s/%s" % [base, key]
+			if not ProjectSettings.has_setting(flat):
+				return _send_error(client_id, "Unknown compression setting: %s (see list_texture_compression_settings for valid keys)" % flat, command_id)
+			if not platform in platforms:
+				return _send_error(client_id, "Unknown platform '%s' (expected one of %s)" % [platform, ", ".join(platforms)], command_id)
+			path = "%s.%s" % [flat, platform]
 		applied[path] = settings[key]
+	for path in applied:
+		ProjectSettings.set_setting(path, applied[path])
 
 	if params.get("save", true):
 		ProjectSettings.save()
@@ -64,6 +76,7 @@ func _configure_texture_compression(client_id: int, params: Dictionary, command_
 		"platform": platform,
 		"applied": applied,
 		"saved": params.get("save", true),
+		"note": "" if params.get("save", true) else "save=false only skips writing project.godot now; the in-memory values stay and will be written by any later ProjectSettings.save() (including the editor's own).",
 	}, command_id)
 
 func _batch_reimport_textures(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -75,12 +88,26 @@ func _batch_reimport_textures(client_id: int, params: Dictionary, command_id: St
 	if filesystem == null:
 		return _send_error(client_id, "EditorFileSystem is not available", command_id)
 
-	filesystem.reimport_files(paths)
+	var existing := PackedStringArray()
+	var missing: Array = []
+	var image_extensions := ["png", "jpg", "jpeg", "webp", "bmp", "tga", "svg", "svgz", "exr", "hdr", "dds", "ktx", "tif", "tiff"]
+	for path in paths:
+		if not str(path).get_extension().to_lower() in image_extensions:
+			return _send_error(client_id, "Not a texture/image file: %s (expected one of %s)" % [path, ", ".join(image_extensions)], command_id)
+		if FileAccess.file_exists(str(path)):
+			existing.append(str(path))
+		else:
+			missing.append(path)
+	if existing.is_empty():
+		return _send_error(client_id, "None of the paths exist: %s" % str(missing), command_id)
 
-	_log_event("_batch_reimport_textures", "Triggered texture reimport", {"count": paths.size()})
+	filesystem.reimport_files(existing)
+
+	_log_event("_batch_reimport_textures", "Triggered texture reimport", {"count": existing.size()})
 	_send_success(client_id, {
-		"paths": paths,
-		"reimported": paths.size(),
+		"paths": existing,
+		"missing": missing,
+		"reimported": existing.size(),
 	}, command_id)
 
 func _create_texture_import_preset(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -114,11 +141,16 @@ func _list_texture_compression_settings(client_id: int, command_id: String) -> v
 	var result := {}
 	var categories := ["rendering/textures/vram_compression", "import/presets/texture"]
 
+	# Settings are stored as individual keys, not one dictionary per section.
+	var setting_names: Array = []
+	for property in ProjectSettings.get_property_list():
+		setting_names.append(str(property.get("name", "")))
 	for base_path in categories:
 		var section := {}
-		var section_keys := ProjectSettings.get_setting(base_path, null)
-		if typeof(section_keys) == TYPE_DICTIONARY:
-			section = section_keys.duplicate(true)
+		var prefix: String = base_path + "/"
+		for setting_name in setting_names:
+			if setting_name.begins_with(prefix):
+				section[setting_name.substr(prefix.length())] = ProjectSettings.get_setting(setting_name)
 		result[base_path] = section
 
 	_log_event("_list_texture_compression_settings", "Collected compression settings snapshot", {"categories": result.keys()})

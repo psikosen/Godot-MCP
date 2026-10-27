@@ -19,6 +19,11 @@ static func create_new_script(class_name_str: String = "", extends_type: String 
 
 # Create a new script file with basic template content
 static func create_script_file(path: String, class_name_str: String = "", extends_type: String = "Node") -> bool:
+	var contained := ResourceUtils.contained_res_path(path)
+	if contained.is_empty():
+		push_error("Refusing to write outside the project (res://): " + path)
+		return false
+	path = contained
 	# Make sure directory exists
 	var dir_path = path.get_base_dir()
 	if not DirAccess.dir_exists_absolute(dir_path):

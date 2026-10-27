@@ -22,7 +22,7 @@ export const compressionTools: MCPTool[] = [
       save: z
         .boolean()
         .optional()
-        .describe('Persist settings to project.godot when true (default).'),
+        .describe('Write project.godot now when true (default). When false the values still stay in memory and any later ProjectSettings.save() persists them.'),
     }),
     async execute({ platform, settings, save }): Promise<string> {
       const godot = getGodotConnection();
@@ -36,7 +36,7 @@ export const compressionTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('configure_texture_compression', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -54,7 +54,7 @@ export const compressionTools: MCPTool[] = [
     async execute({ paths }): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('batch_reimport_textures', { paths });
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -97,7 +97,7 @@ export const compressionTools: MCPTool[] = [
       }
 
       const result = await godot.sendCommand<CommandResult>('create_texture_import_preset', payload);
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'edit',
@@ -110,7 +110,7 @@ export const compressionTools: MCPTool[] = [
     async execute(): Promise<string> {
       const godot = getGodotConnection();
       const result = await godot.sendCommand<CommandResult>('list_texture_compression_settings', {});
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(result);
     },
     metadata: {
       requiredRole: 'read',

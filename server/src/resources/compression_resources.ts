@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const compressionSettingsResource: Resource = {
+export const compressionSettingsResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/assets/compression-presets',
   name: 'Godot Texture Compression Presets',
   mimeType: 'application/json',
@@ -9,7 +9,7 @@ export const compressionSettingsResource: Resource = {
     const godot = getGodotConnection();
     const result = await godot.sendCommand('list_texture_compression_settings', {});
     return {
-      text: JSON.stringify(result, null, 2),
+      text: JSON.stringify(result),
     };
   },
 };

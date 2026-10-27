@@ -72,15 +72,19 @@ export class PermissionManager {
     return rules.some(rule => this.matchesRule(relativePath, rule));
   }
 
+  // macOS and Windows file systems ignore case: "server/DIST/index.js" is server/dist/index.js,
+  // so a case-sensitive match let it slip past the deny list.
   private matchesRule(relativePath: string, rule: PathRule): boolean {
+    const target = relativePath.toLowerCase();
+    const value = rule.value.toLowerCase();
     if (rule.type === 'directory') {
-      return relativePath === rule.value || relativePath.startsWith(`${rule.value}/`);
+      return target === value || target.startsWith(`${value}/`);
     }
     if (rule.type === 'file') {
-      return relativePath === rule.value;
+      return target === value;
     }
     if (rule.type === 'extension') {
-      return relativePath.endsWith(rule.value);
+      return target.endsWith(value);
     }
     return false;
   }

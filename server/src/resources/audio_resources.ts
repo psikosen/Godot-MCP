@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const audioBusResource: Resource = {
+export const audioBusResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/audio/buses',
   name: 'Godot Audio Bus Layout',
   mimeType: 'application/json',
@@ -11,7 +11,7 @@ export const audioBusResource: Resource = {
     try {
       const result = await godot.sendCommand('list_audio_buses', {});
       return {
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       };
     } catch (error) {
       console.error('Error fetching audio buses:', error);

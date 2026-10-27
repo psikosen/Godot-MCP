@@ -39,6 +39,12 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 		"query_nodes":
 			_query_nodes(client_id, params, command_id)
 			return true
+		"batch_update_nodes":
+			_batch_update_nodes(client_id, params, command_id)
+			return true
+		"get_scene_tree":
+			_get_scene_tree(client_id, params, command_id)
+			return true
 		"bulk_update_node_properties":
 			_bulk_update_node_properties(client_id, params, command_id)
 			return true
@@ -302,7 +308,7 @@ func process_command(client_id: int, command_type: String, params: Dictionary, c
 func _duplicate_node(client_id: int, params: Dictionary, command_id: String) -> void:
 	var source_path: String = params.get("source_path", "")
 	var parent_path: String = params.get("parent_path", "")
-	var requested_name: String = String(params.get("new_name", "")).strip_edges()
+	var requested_name: String = str(params.get("new_name", "")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var duplicate_groups: bool = params.get("duplicate_groups", true)
 	var duplicate_signals: bool = params.get("duplicate_signals", true)
@@ -353,7 +359,7 @@ func _duplicate_node(client_id: int, params: Dictionary, command_id: String) -> 
 	if not duplicated_node:
 		return _send_error(client_id, "Failed to duplicate node at %s" % source_path, command_id)
 
-	var base_name := requested_name if not requested_name.is_empty() else "%sCopy" % String(source_node.name)
+	var base_name := requested_name if not requested_name.is_empty() else "%sCopy" % str(source_node.name)
 	var final_name := _resolve_unique_child_name(target_parent, base_name)
 	duplicated_node.name = final_name
 
@@ -425,7 +431,7 @@ func _duplicate_node(client_id: int, params: Dictionary, command_id: String) -> 
 func _reparent_node(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path: String = params.get("node_path", "")
 	var new_parent_path: String = params.get("new_parent_path", "")
-	var requested_name: String = String(params.get("new_name", "")).strip_edges()
+	var requested_name: String = str(params.get("new_name", "")).strip_edges()
 	var child_index_variant = params.get("child_index", null)
 	var keep_global_transform: bool = params.get("keep_global_transform", true)
 	var transaction_id: String = params.get("transaction_id", "")
@@ -465,7 +471,7 @@ func _reparent_node(client_id: int, params: Dictionary, command_id: String) -> v
 
 	var old_parent_path: String = _to_mcp_path(old_parent)
 	var old_index: int = old_parent.get_children().find(node)
-	var old_name: String = String(node.name)
+	var old_name: String = str(node.name)
 	var has_parent_change: bool = old_parent != new_parent
 	var has_child_index: bool = child_index_variant != null
 	var target_index := -1
@@ -546,6 +552,8 @@ func _reparent_node(client_id: int, params: Dictionary, command_id: String) -> v
 		"previous_index": old_index,
 		"transaction_id": transaction.transaction_id,
 	}
+	if not transaction_id.is_empty():
+		transaction.pending_paths[str(response["node_path"])] = node
 
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
@@ -596,7 +604,9 @@ func _move_node_in_parent(client_id: int, params: Dictionary, command_id: String
 
 	var old_index: int = parent.get_children().find(node)
 	var max_index: int = max(0, parent.get_child_count() - 1)
-	var clamped_target_index: int = int(clamp(target_index, 0, max_index))
+	if target_index > max_index:
+		return _send_error(client_id, "Index %d is out of range (0-%d)" % [target_index, max_index], command_id)
+	var clamped_target_index: int = target_index
 	if old_index == clamped_target_index:
 		return _send_success(client_id, {
 			"node_path": node_path,
@@ -662,7 +672,7 @@ func _move_node_in_parent(client_id: int, params: Dictionary, command_id: String
 func _instantiate_scene(client_id: int, params: Dictionary, command_id: String) -> void:
 	var scene_path: String = params.get("scene_path", "")
 	var parent_path: String = params.get("parent_path", "/root")
-	var requested_name: String = String(params.get("node_name", "")).strip_edges()
+	var requested_name: String = str(params.get("node_name", "")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 
 	if scene_path.is_empty():
@@ -687,16 +697,32 @@ func _instantiate_scene(client_id: int, params: Dictionary, command_id: String) 
 	if not packed_resource or not (packed_resource is PackedScene):
 		return _send_error(client_id, "Failed to load PackedScene at %s" % scene_path, command_id)
 
-	var scene_instance = packed_resource.instantiate()
+	# GEN_EDIT_STATE_INSTANCE keeps the link to the source scene. Without it the saved scene stored
+	# every base property, group and signal connection as an override (connections then ran twice).
+	var scene_instance = packed_resource.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	if not scene_instance or not (scene_instance is Node):
 		return _send_error(client_id, "Failed to instantiate scene at %s" % scene_path, command_id)
 
 	var instance_node: Node = scene_instance
-	var base_name := requested_name if not requested_name.is_empty() else String(instance_node.name)
+	var base_name := requested_name if not requested_name.is_empty() else str(instance_node.name)
 	if base_name.is_empty():
 		base_name = "InstancedScene"
 	var final_name := _resolve_unique_child_name(parent, base_name)
 	instance_node.name = final_name
+
+	# Optional starting values (position, exported vars) so placing an instance takes one call.
+	# The node is new, so they are set directly; undoing the instancing removes them with it.
+	var properties_param = params.get("properties", {})
+	if typeof(properties_param) != TYPE_DICTIONARY:
+		instance_node.free()
+		return _send_error(client_id, "properties must be an object", command_id)
+	if not (properties_param as Dictionary).is_empty():
+		var plan := _stage_property_updates(instance_node, final_name, (properties_param as Dictionary).duplicate(true))
+		if plan.has("error"):
+			instance_node.free()
+			return _send_error(client_id, plan["error"], command_id)
+		for base_property in plan["staged"]:
+			instance_node.set(base_property, plan["staged"][base_property])
 
 	var parent_mcp_path: String = _to_mcp_path(parent)
 	var expected_path := _join_mcp_path(parent_mcp_path, final_name)
@@ -764,9 +790,9 @@ func _instantiate_scene(client_id: int, params: Dictionary, command_id: String) 
 
 func _query_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
 	var root_path: String = params.get("root_path", "/root")
-	var name_contains: String = String(params.get("name_contains", "")).strip_edges().to_lower()
-	var node_type: String = String(params.get("node_type", "")).strip_edges()
-	var group_name: String = String(params.get("group_name", "")).strip_edges()
+	var name_contains: String = str(params.get("name_contains", "")).strip_edges().to_lower()
+	var node_type: String = str(params.get("node_type", "")).strip_edges()
+	var group_name: String = str(params.get("group_name", "")).strip_edges()
 	var include_root: bool = params.get("include_root", true)
 	var include_internal: bool = params.get("include_internal", false)
 	var max_results: int = int(params.get("max_results", 500))
@@ -821,76 +847,17 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 		return _send_error(client_id, "Node path cannot be empty", command_id)
 	if typeof(properties_param) != TYPE_DICTIONARY:
 		return _send_error(client_id, "Properties must be provided as a dictionary", command_id)
-
-	var properties: Dictionary = (properties_param as Dictionary).duplicate(true)
-	if properties.is_empty():
+	if (properties_param as Dictionary).is_empty():
 		return _send_error(client_id, "Properties dictionary cannot be empty", command_id)
 
 	var node = _get_editor_node(node_path)
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 
-	var staged_base_values: Dictionary = {}
-	var original_base_values: Dictionary = {}
-	var leaf_changes: Array = []
-	var property_paths: Array = properties.keys()
-	property_paths.sort()
-
-	for key in property_paths:
-		var property_path: String = String(key)
-		if property_path.strip_edges().is_empty():
-			return _send_error(client_id, "Property names cannot be empty", command_id)
-
-		var raw_value = properties[key]
-		if raw_value == null:
-			return _send_error(client_id, "Property value for %s cannot be null" % property_path, command_id)
-
-		var property_segments: PackedStringArray = property_path.split(".")
-		for segment in property_segments:
-			if String(segment).is_empty():
-				return _send_error(client_id, "Invalid property path: %s" % property_path, command_id)
-
-		var base_property_name: String = property_segments[0]
-		if not base_property_name in node:
-			return _send_error(client_id, "Property %s does not exist on node %s" % [base_property_name, node_path], command_id)
-
-		var current_base_value = staged_base_values.get(base_property_name, node.get(base_property_name))
-		var conversion_result: Dictionary
-		if property_segments.size() == 1:
-			var parsed_value = _convert_property_value(node, base_property_name, raw_value)
-			conversion_result = {
-				"ok": true,
-				"value": parsed_value,
-				"leaf_previous": current_base_value,
-				"leaf_value": parsed_value,
-			}
-		else:
-			var nested_path: Array = []
-			for i in range(1, property_segments.size()):
-				nested_path.append(property_segments[i])
-			conversion_result = _apply_nested_property_value(current_base_value, nested_path, raw_value)
-			if not conversion_result.get("ok", false):
-				return _send_error(
-					client_id,
-					"Failed to update %s: %s" % [property_path, conversion_result.get("error", "Invalid nested property update")],
-					command_id
-				)
-
-		var updated_base_value = conversion_result.get("value")
-		if current_base_value == updated_base_value:
-			continue
-
-		if not original_base_values.has(base_property_name):
-			original_base_values[base_property_name] = node.get(base_property_name)
-
-		staged_base_values[base_property_name] = updated_base_value
-		leaf_changes.append({
-			"property_path": property_path,
-			"base_property": base_property_name,
-			"previous_value": var_to_str(conversion_result.get("leaf_previous")),
-			"new_value": var_to_str(conversion_result.get("leaf_value")),
-		})
-
+	var plan := _stage_property_updates(node, node_path, (properties_param as Dictionary).duplicate(true))
+	if plan.has("error"):
+		return _send_error(client_id, plan["error"], command_id)
+	var leaf_changes: Array = plan["changes"]
 	if leaf_changes.is_empty():
 		return _send_success(client_id, {
 			"node_path": node_path,
@@ -917,12 +884,7 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for bulk property updates", command_id)
 
-	var base_properties: Array = staged_base_values.keys()
-	base_properties.sort()
-	for base_property in base_properties:
-		var base_property_name: String = String(base_property)
-		transaction.add_do_property(node, base_property_name, staged_base_values[base_property_name])
-		transaction.add_undo_property(node, base_property_name, original_base_values[base_property_name])
+	_add_staged_properties(transaction, node, plan)
 
 	var commit_changes := leaf_changes.duplicate(true)
 	transaction.register_on_commit(func():
@@ -951,6 +913,163 @@ func _bulk_update_node_properties(client_id: int, params: Dictionary, command_id
 		response["status"] = "pending"
 
 	_send_success(client_id, response, command_id)
+
+
+# Sets properties on many nodes in one undo step. Every update is converted and checked before
+# anything changes, so one bad value leaves the scene untouched.
+func _batch_update_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
+	var updates = params.get("updates", [])
+	var transaction_id: String = params.get("transaction_id", "")
+	if typeof(updates) != TYPE_ARRAY or (updates as Array).is_empty():
+		return _send_error(client_id, "updates must be a non-empty list of {node_path, properties}", command_id)
+
+	var plans: Array = []
+	var change_count := 0
+	for i in range((updates as Array).size()):
+		var entry = updates[i]
+		if typeof(entry) != TYPE_DICTIONARY:
+			return _send_error(client_id, "updates[%d] must be an object with node_path and properties" % i, command_id)
+		var node_path := str(entry.get("node_path", ""))
+		var properties = entry.get("properties", {})
+		if node_path.is_empty() or typeof(properties) != TYPE_DICTIONARY or (properties as Dictionary).is_empty():
+			return _send_error(client_id, "updates[%d] needs a node_path and a non-empty properties object" % i, command_id)
+		var node = _get_editor_node(node_path)
+		if not node:
+			return _send_error(client_id, "updates[%d]: Node not found: %s" % [i, node_path], command_id)
+		var plan := _stage_property_updates(node, node_path, (properties as Dictionary).duplicate(true))
+		if plan.has("error"):
+			return _send_error(client_id, "updates[%d] (%s): %s" % [i, node_path, plan["error"]], command_id)
+		if not (plan["changes"] as Array).is_empty():
+			plan["node"] = node
+			plan["node_path"] = node_path
+			plans.append(plan)
+			change_count += (plan["changes"] as Array).size()
+
+	if plans.is_empty():
+		return _send_success(client_id, {"updated_nodes": 0, "change_count": 0, "status": "no_change"}, command_id)
+
+	var transaction_metadata := {
+		"command": "batch_update_nodes",
+		"node_count": plans.size(),
+		"change_count": change_count,
+		"client_id": client_id,
+		"command_id": command_id,
+	}
+	var transaction
+	if transaction_id.is_empty():
+		transaction = SceneTransactionManager.begin_inline("Batch Update Nodes", transaction_metadata)
+	else:
+		transaction = SceneTransactionManager.get_transaction(transaction_id)
+		if not transaction:
+			transaction = SceneTransactionManager.begin_registered(transaction_id, "Batch Update Nodes", transaction_metadata)
+	if not transaction:
+		return _send_error(client_id, "Failed to obtain scene transaction for batch node updates", command_id)
+
+	var updated_paths: Array = []
+	for plan in plans:
+		_add_staged_properties(transaction, plan["node"], plan)
+		updated_paths.append(plan["node_path"])
+	transaction.register_on_commit(func():
+		_mark_scene_modified()
+		_log("Applied batch node updates", "_batch_update_nodes", {
+			"node_count": updated_paths.size(),
+			"change_count": change_count,
+			"transaction_id": transaction.transaction_id,
+			"system_section": DEFAULT_SYSTEM_SECTION,
+			"line_num": 0,
+		})
+	)
+
+	var response := {
+		"updated_nodes": updated_paths.size(),
+		"change_count": change_count,
+		"node_paths": updated_paths,
+		"transaction_id": transaction.transaction_id,
+	}
+	if transaction_id.is_empty():
+		if not transaction.commit():
+			transaction.rollback()
+			return _send_error(client_id, "Failed to commit batch node updates", command_id)
+		response["status"] = "committed"
+	else:
+		response["status"] = "pending"
+	_send_success(client_id, response, command_id)
+
+
+# Converts and checks a property map ("position", "position.x", ...) for one node without
+# changing it. Returns {"error": String}, or {"staged": {base: new}, "original": {base: old},
+# "changes": [...]} where unchanged values are left out.
+func _stage_property_updates(node: Object, node_path: String, properties: Dictionary) -> Dictionary:
+	var staged_base_values: Dictionary = {}
+	var original_base_values: Dictionary = {}
+	var leaf_changes: Array = []
+	var property_paths: Array = properties.keys()
+	property_paths.sort()
+
+	for key in property_paths:
+		var property_path: String = str(key)
+		if property_path.strip_edges().is_empty():
+			return {"error": "Property names cannot be empty"}
+
+		var raw_value = properties[key]
+		if raw_value == null:
+			return {"error": "Property value for %s cannot be null" % property_path}
+
+		var property_segments: PackedStringArray = property_path.split(".")
+		for segment in property_segments:
+			if str(segment).is_empty():
+				return {"error": "Invalid property path: %s" % property_path}
+
+		var base_property_name: String = property_segments[0]
+		if not base_property_name in node:
+			return {"error": "Property %s does not exist on node %s" % [base_property_name, node_path]}
+		_ensure_saved_override(node)
+
+		var current_base_value = staged_base_values.get(base_property_name, node.get(base_property_name))
+		var conversion_result: Dictionary
+		if property_segments.size() == 1:
+			var parsed_value = _convert_property_value(node, base_property_name, raw_value)
+			var value_error := _property_value_error(node, base_property_name, parsed_value)
+			if not value_error.is_empty():
+				return {"error": value_error}
+			conversion_result = {
+				"ok": true,
+				"value": parsed_value,
+				"leaf_previous": current_base_value,
+				"leaf_value": parsed_value,
+			}
+		else:
+			var nested_path: Array = []
+			for i in range(1, property_segments.size()):
+				nested_path.append(property_segments[i])
+			conversion_result = _apply_nested_property_value(current_base_value, nested_path, raw_value)
+			if not conversion_result.get("ok", false):
+				return {"error": "Failed to update %s: %s" % [property_path, conversion_result.get("error", "Invalid nested property update")]}
+
+		var updated_base_value = conversion_result.get("value")
+		if current_base_value == updated_base_value:
+			continue
+
+		if not original_base_values.has(base_property_name):
+			original_base_values[base_property_name] = node.get(base_property_name)
+
+		staged_base_values[base_property_name] = updated_base_value
+		leaf_changes.append({
+			"property_path": property_path,
+			"base_property": base_property_name,
+			"previous_value": var_to_str(conversion_result.get("leaf_previous")),
+			"new_value": var_to_str(conversion_result.get("leaf_value")),
+		})
+
+	return {"staged": staged_base_values, "original": original_base_values, "changes": leaf_changes}
+
+
+func _add_staged_properties(transaction, node: Object, plan: Dictionary) -> void:
+	var base_properties: Array = (plan["staged"] as Dictionary).keys()
+	base_properties.sort()
+	for base_property in base_properties:
+		transaction.add_do_property(node, str(base_property), plan["staged"][base_property])
+		transaction.add_undo_property(node, str(base_property), plan["original"][base_property])
 
 
 func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
@@ -988,8 +1107,8 @@ func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String)
 			return _send_error(client_id, "nodes[%d] must be a dictionary" % index, command_id)
 
 		var entry: Dictionary = entry_raw
-		var node_type: String = String(entry.get("node_type", "")).strip_edges()
-		var requested_name: String = String(entry.get("node_name", "")).strip_edges()
+		var node_type: String = str(entry.get("node_type", "")).strip_edges()
+		var requested_name: String = str(entry.get("node_name", "")).strip_edges()
 		var properties_param = entry.get("properties", {})
 
 		if node_type.is_empty():
@@ -1014,15 +1133,27 @@ func _batch_create_nodes(client_id: int, params: Dictionary, command_id: String)
 				return _send_error(client_id, "nodes[%d].properties must be a dictionary" % index, command_id)
 			var properties_dict: Dictionary = properties_param
 			for property_key in properties_dict.keys():
-				var property_name: String = String(property_key)
+				var property_name: String = str(property_key)
 				if property_name.strip_edges().is_empty():
 					return _send_error(client_id, "nodes[%d] contains an empty property name" % index, command_id)
-				if not property_name in node_instance:
-					return _send_error(client_id, "Property %s does not exist on node type %s" % [property_name, node_type], command_id)
+				# Dotted paths ("position.x") work here as they do in bulk_update_node_properties.
+				var segments: PackedStringArray = property_name.split(".")
+				var base_property: String = segments[0]
+				if not base_property in node_instance:
+					return _send_error(client_id, "nodes[%d]: property %s does not exist on node type %s" % [index, base_property, node_type], command_id)
 				var raw_value = properties_dict[property_key]
 				if raw_value == null:
 					return _send_error(client_id, "Property %s for nodes[%d] cannot be null" % [property_name, index], command_id)
+				if segments.size() > 1:
+					var nested: Dictionary = _apply_nested_property_value(node_instance.get(base_property), Array(segments.slice(1)), raw_value)
+					if not nested.get("ok", false):
+						return _send_error(client_id, "nodes[%d]: %s: %s" % [index, property_name, nested.get("error", "invalid value")], command_id)
+					node_instance.set(base_property, nested.get("value"))
+					continue
 				var converted_value = _convert_property_value(node_instance, property_name, raw_value)
+				var value_error := _property_value_error(node_instance, property_name, converted_value)
+				if not value_error.is_empty():
+					return _send_error(client_id, "nodes[%d]: %s" % [index, value_error], command_id)
 				node_instance.set(property_name, converted_value)
 
 		pending_nodes.append(node_instance)
@@ -1130,14 +1261,14 @@ func _batch_delete_nodes(client_id: int, params: Dictionary, command_id: String)
 
 	var unique_paths: Dictionary = {}
 	for path_value in node_paths:
-		var requested_path: String = String(path_value).strip_edges()
+		var requested_path: String = str(path_value).strip_edges()
 		if requested_path.is_empty():
 			return _send_error(client_id, "node_paths cannot contain empty values", command_id)
 		unique_paths[requested_path] = true
 
 	var selected_nodes: Array = []
 	for requested_path in unique_paths.keys():
-		var node = _get_editor_node(String(requested_path))
+		var node = _get_editor_node(str(requested_path))
 		if not node:
 			return _send_error(client_id, "Node not found: %s" % requested_path, command_id)
 		if node == edited_scene_root:
@@ -1193,13 +1324,7 @@ func _batch_delete_nodes(client_id: int, params: Dictionary, command_id: String)
 	for node in nodes_to_delete:
 		var parent = node.get_parent()
 		var child_index = parent.get_children().find(node)
-		var previous_owner = node.owner
-		transaction.add_do_method(parent, "remove_child", [node])
-		transaction.add_do_method(node, "queue_free")
-		transaction.add_undo_method(parent, "add_child", [node])
-		transaction.add_undo_method(parent, "move_child", [node, child_index])
-		transaction.add_undo_property(node, "owner", previous_owner)
-		transaction.add_do_reference(node)
+		_remove_with_undo(transaction, node)
 		deleted_entries.append({
 			"node_path": _to_mcp_path(node),
 			"parent_path": _to_mcp_path(parent),
@@ -1245,7 +1370,7 @@ func _set_node_script(client_id: int, params: Dictionary, command_id: String) ->
 	var node_path: String = params.get("node_path", "")
 	var script_path: String = params.get("script_path", "")
 	var create_script: bool = params.get("create_script", false)
-	var extends_type: String = String(params.get("extends_type", "")).strip_edges()
+	var extends_type: String = str(params.get("extends_type", "")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 
 	if node_path.is_empty():
@@ -1259,13 +1384,27 @@ func _set_node_script(client_id: int, params: Dictionary, command_id: String) ->
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 
+	var created_new_script := false
 	if create_script and not FileAccess.file_exists(script_path):
 		var script_extends := extends_type if not extends_type.is_empty() else node.get_class()
+		if script_path.get_extension() != "gd":
+			return _send_error(client_id, "create_script only writes GDScript; script_path must end in .gd", command_id)
+		var extends_is_global_class := false
+		for global_class in ProjectSettings.get_global_class_list():
+			if str(global_class.get("class", "")) == script_extends:
+				extends_is_global_class = true
+				break
+		if not ClassDB.class_exists(script_extends) and not extends_is_global_class and not (script_extends.begins_with("res://") and FileAccess.file_exists(script_extends)):
+			return _send_error(client_id, "extends_type '%s' is not a known class or script path" % script_extends, command_id)
 		if not ScriptUtils.create_script_file(script_path, "", script_extends):
 			return _send_error(client_id, "Failed to create script at %s" % script_path, command_id)
+		created_new_script = true
 
 	var script_resource = ResourceLoader.load(script_path, "Script", ResourceLoader.CACHE_MODE_REPLACE)
 	if not script_resource or not (script_resource is Script):
+		if created_new_script:
+			# Don't leave a broken orphan behind.
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(script_path))
 		return _send_error(client_id, "Failed to load script at %s" % script_path, command_id)
 
 	var new_script: Script = script_resource
@@ -1557,6 +1696,9 @@ func _paint_tilemap_cells_2d(client_id: int, params: Dictionary, command_id: Str
 			return _send_error(client_id, "cells[%d]: invalid atlas_coords" % idx, command_id)
 		var atlas_coords: Vector2i = atlas_result.get("value")
 		var alternative_tile: int = int(entry.get("alternative_tile", 0))
+		var tile_error := _validate_tilemap_tile(node, source_id, atlas_coords)
+		if not tile_error.is_empty():
+			return _send_error(client_id, "cells[%d]: %s" % [idx, tile_error], command_id)
 
 		var new_cell := _make_tilemap_cell_data(source_id, atlas_coords, alternative_tile)
 		var previous_cell := _get_tilemap_cell_data(node, layer, coords)
@@ -1932,7 +2074,7 @@ func _configure_camera2d_follow(client_id: int, params: Dictionary, command_id: 
 
 func _set_animation_tree_state(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path: String = params.get("node_path", "")
-	var state_name: String = String(params.get("state_name", "")).strip_edges()
+	var state_name: String = str(params.get("state_name", "")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 
 	if node_path.is_empty():
@@ -1952,9 +2094,13 @@ func _set_animation_tree_state(client_id: int, params: Dictionary, command_id: S
 		return _send_error(client_id, "AnimationTree does not expose AnimationNodeStateMachine playback at parameters/playback", command_id)
 
 	var state_machine_playback: AnimationNodeStateMachinePlayback = playback
+	# travel() to an unknown state silently does nothing; the tool reported it as committed.
+	var state_machine := tree.tree_root as AnimationNodeStateMachine
+	if state_machine != null and not state_machine.has_node(StringName(state_name)) and not state_name in ["Start", "End"]:
+		return _send_error(client_id, "State machine has no state %s" % state_name, command_id)
 	var previous_state: String = ""
 	if state_machine_playback.has_method("get_current_node"):
-		previous_state = String(state_machine_playback.get_current_node())
+		previous_state = str(state_machine_playback.get_current_node())
 
 	var pending_changes: Array = []
 	if params.has("active"):
@@ -2036,7 +2182,7 @@ func _set_animation_tree_state(client_id: int, params: Dictionary, command_id: S
 		"node_path": _to_mcp_path(tree),
 		"state_name": state_name,
 		"previous_state": previous_state,
-		"current_state": String(current_state),
+		"current_state": str(current_state),
 		"changes": serialized_changes,
 		"transaction_id": transaction.transaction_id,
 	}
@@ -2045,7 +2191,7 @@ func _set_animation_tree_state(client_id: int, params: Dictionary, command_id: S
 			transaction.rollback()
 			return _send_error(client_id, "Failed to commit AnimationTree state update", command_id)
 		var committed_state = state_machine_playback.get_current_node() if state_machine_playback.has_method("get_current_node") else state_name
-		response["current_state"] = String(committed_state)
+		response["current_state"] = str(committed_state)
 		response["status"] = "committed"
 	else:
 		response["status"] = "pending"
@@ -2075,12 +2221,19 @@ func _set_animation_tree_parameters(client_id: int, params: Dictionary, command_
 	var tree: AnimationTree = node
 	var pending_changes: Array = []
 	for raw_key in parameter_values.keys():
-		var parameter_path: String = String(raw_key).strip_edges()
+		var parameter_path: String = str(raw_key).strip_edges()
 		if parameter_path.is_empty():
 			return _send_error(client_id, "Parameter key cannot be empty", command_id)
-		var new_value = parameter_values[raw_key]
+		if not parameter_path.begins_with("parameters/"):
+			parameter_path = "parameters/%s" % parameter_path
+		if _get_property_info(tree, parameter_path).is_empty():
+			return _send_error(client_id, "AnimationTree has no parameter: %s" % parameter_path, command_id)
+		var new_value = _convert_property_value(tree, parameter_path, parameter_values[raw_key])
+		var value_error := _property_value_error(tree, parameter_path, new_value)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
 		var previous_value = tree.get(parameter_path)
-		if previous_value == new_value:
+		if typeof(previous_value) == typeof(new_value) and previous_value == new_value:
 			continue
 		pending_changes.append({
 			"property": parameter_path,
@@ -2154,13 +2307,13 @@ func _set_animation_tree_parameters(client_id: int, params: Dictionary, command_
 
 func _build_wave_spawner_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var spawner_name: String = String(params.get("spawner_name", "WaveSpawner2D")).strip_edges()
+	var spawner_name: String = str(params.get("spawner_name", "WaveSpawner2D")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var spawn_points_raw = params.get("spawn_points", [])
 	var create_timer: bool = bool(params.get("create_timer", true))
-	var timer_name: String = String(params.get("timer_name", "WaveTimer")).strip_edges()
+	var timer_name: String = str(params.get("timer_name", "WaveTimer")).strip_edges()
 	var create_spawn_nodes: bool = bool(params.get("create_spawn_nodes", true))
-	var spawn_nodes_parent_name: String = String(params.get("spawn_nodes_parent_name", "SpawnPoints")).strip_edges()
+	var spawn_nodes_parent_name: String = str(params.get("spawn_nodes_parent_name", "SpawnPoints")).strip_edges()
 
 	if spawner_name.is_empty():
 		spawner_name = "WaveSpawner2D"
@@ -2218,7 +2371,7 @@ func _build_wave_spawner_2d(client_id: int, params: Dictionary, command_id: Stri
 		var timer := Timer.new()
 		timer.name = _resolve_unique_child_name(spawner_root, timer_name)
 		timer.one_shot = false
-		timer.autostart = false
+		timer.autostart = bool(params.get("auto_start", false))  # was stored only as metadata
 		timer.wait_time = max(0.01, float(params.get("wave_interval", 2.0)))
 		attach_plans.append({"parent": spawner_root, "node": timer})
 		created_nodes.append(timer)
@@ -2232,7 +2385,7 @@ func _build_wave_spawner_2d(client_id: int, params: Dictionary, command_id: Stri
 	meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_spawn_point_cursor", 0))
 	meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_spawn_points_2d", serialized_spawn_points))
 	meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_auto_start", bool(params.get("auto_start", false))))
-	var enemy_scene_path: String = String(params.get("enemy_scene_path", "")).strip_edges()
+	var enemy_scene_path: String = str(params.get("enemy_scene_path", "")).strip_edges()
 	if not enemy_scene_path.is_empty():
 		meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_enemy_scene_path", enemy_scene_path))
 
@@ -2320,13 +2473,13 @@ func _build_wave_spawner_2d(client_id: int, params: Dictionary, command_id: Stri
 
 func _build_wave_spawner_3d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var spawner_name: String = String(params.get("spawner_name", "WaveSpawner3D")).strip_edges()
+	var spawner_name: String = str(params.get("spawner_name", "WaveSpawner3D")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var spawn_points_raw = params.get("spawn_points", [])
 	var create_timer: bool = bool(params.get("create_timer", true))
-	var timer_name: String = String(params.get("timer_name", "WaveTimer")).strip_edges()
+	var timer_name: String = str(params.get("timer_name", "WaveTimer")).strip_edges()
 	var create_spawn_nodes: bool = bool(params.get("create_spawn_nodes", true))
-	var spawn_nodes_parent_name: String = String(params.get("spawn_nodes_parent_name", "SpawnPoints")).strip_edges()
+	var spawn_nodes_parent_name: String = str(params.get("spawn_nodes_parent_name", "SpawnPoints")).strip_edges()
 
 	if spawner_name.is_empty():
 		spawner_name = "WaveSpawner3D"
@@ -2384,7 +2537,7 @@ func _build_wave_spawner_3d(client_id: int, params: Dictionary, command_id: Stri
 		var timer := Timer.new()
 		timer.name = _resolve_unique_child_name(spawner_root, timer_name)
 		timer.one_shot = false
-		timer.autostart = false
+		timer.autostart = bool(params.get("auto_start", false))  # was stored only as metadata
 		timer.wait_time = max(0.01, float(params.get("wave_interval", 2.0)))
 		attach_plans.append({"parent": spawner_root, "node": timer})
 		created_nodes.append(timer)
@@ -2398,7 +2551,7 @@ func _build_wave_spawner_3d(client_id: int, params: Dictionary, command_id: Stri
 	meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_spawn_point_cursor", 0))
 	meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_spawn_points_3d", serialized_spawn_points))
 	meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_auto_start", bool(params.get("auto_start", false))))
-	var enemy_scene_path: String = String(params.get("enemy_scene_path", "")).strip_edges()
+	var enemy_scene_path: String = str(params.get("enemy_scene_path", "")).strip_edges()
 	if not enemy_scene_path.is_empty():
 		meta_changes.append_array(_capture_meta_change(spawner_root, "mcp_enemy_scene_path", enemy_scene_path))
 
@@ -2519,12 +2672,24 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 	var next_cursor: int = posmod(cursor + spawn_count, spawn_points_count)
 	var next_wave: int = current_wave + 1 if advance_wave else current_wave
 	var reached_limit: bool = next_wave >= max_waves
+	if advance_wave and current_wave >= max_waves:
+		return _send_success(client_id, {
+			"spawner_path": spawner_path,
+			"current_wave": current_wave,
+			"next_wave": current_wave,
+			"reached_wave_limit": true,
+			"spawn_count": 0,
+			"spawned_count": 0,
+			"spawned_nodes": [],
+			"status": "wave_limit_reached",
+		}, command_id)
 
 	var instantiate_enemy: bool = bool(params.get("instantiate_enemy", false))
-	var enemy_scene_path: String = String(params.get("enemy_scene_path", spawner.get_meta("mcp_enemy_scene_path") if spawner.has_meta("mcp_enemy_scene_path") else "")).strip_edges()
+	var enemy_scene_path: String = str(params.get("enemy_scene_path", spawner.get_meta("mcp_enemy_scene_path") if spawner.has_meta("mcp_enemy_scene_path") else "")).strip_edges()
 	var spawned_nodes: Array = []
 	var created_nodes: Array = []
 	var attach_plans: Array = []
+	var pending_names: Dictionary = {}
 
 	if instantiate_enemy:
 		if enemy_scene_path.is_empty():
@@ -2536,12 +2701,16 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 			return _send_error(client_id, "Failed to load PackedScene at %s" % enemy_scene_path, command_id)
 		for idx in range(selected_points.size()):
 			var point: Vector2 = selected_points[idx]
-			var instance = (packed_scene as PackedScene).instantiate()
+			var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 			if not instance or not (instance is Node2D):
 				return _send_error(client_id, "Spawned scene instance must inherit Node2D for wave spawner 2D", command_id)
 			var enemy_instance: Node2D = instance
-			enemy_instance.name = _resolve_unique_child_name(spawner.get_parent(), String(enemy_instance.name))
-			enemy_instance.global_position = point
+			enemy_instance.name = _resolve_unique_child_name_pending(spawner.get_parent(), str(enemy_instance.name), pending_names)
+			# Spawn points are local to the spawner (its markers sit there). The instance is not in
+			# the tree yet, so global_position was ignored with an engine error; set a local position.
+			var spawn_parent_node: Node = spawner.get_parent()
+			var world_point = spawner.to_global(point)
+			enemy_instance.position = spawn_parent_node.to_local(world_point) if spawn_parent_node is Node2D else world_point
 			attach_plans.append({
 				"parent": spawner.get_parent(),
 				"node": enemy_instance,
@@ -2550,7 +2719,9 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 			spawned_nodes.append(enemy_instance)
 
 	var meta_changes: Array = []
-	meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
+	# A preview (instantiate_enemy false) spawns nothing, so it must not use up spawn points.
+	if instantiate_enemy:
+		meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
 	if advance_wave:
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_current_wave", next_wave))
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_wave_complete", reached_limit))
@@ -2643,6 +2814,7 @@ func _simulate_wave_spawner_step_2d(client_id: int, params: Dictionary, command_
 		"reached_wave_limit": reached_limit,
 		"spawn_positions": serialized_points,
 		"spawn_count": serialized_points.size(),
+		"spawned_count": spawned_paths.size(),
 		"spawned_nodes": spawned_paths,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -2693,12 +2865,24 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 	var next_cursor: int = posmod(cursor + spawn_count, spawn_points_count)
 	var next_wave: int = current_wave + 1 if advance_wave else current_wave
 	var reached_limit: bool = next_wave >= max_waves
+	if advance_wave and current_wave >= max_waves:
+		return _send_success(client_id, {
+			"spawner_path": spawner_path,
+			"current_wave": current_wave,
+			"next_wave": current_wave,
+			"reached_wave_limit": true,
+			"spawn_count": 0,
+			"spawned_count": 0,
+			"spawned_nodes": [],
+			"status": "wave_limit_reached",
+		}, command_id)
 
 	var instantiate_enemy: bool = bool(params.get("instantiate_enemy", false))
-	var enemy_scene_path: String = String(params.get("enemy_scene_path", spawner.get_meta("mcp_enemy_scene_path") if spawner.has_meta("mcp_enemy_scene_path") else "")).strip_edges()
+	var enemy_scene_path: String = str(params.get("enemy_scene_path", spawner.get_meta("mcp_enemy_scene_path") if spawner.has_meta("mcp_enemy_scene_path") else "")).strip_edges()
 	var spawned_nodes: Array = []
 	var created_nodes: Array = []
 	var attach_plans: Array = []
+	var pending_names: Dictionary = {}
 
 	if instantiate_enemy:
 		if enemy_scene_path.is_empty():
@@ -2710,12 +2894,16 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 			return _send_error(client_id, "Failed to load PackedScene at %s" % enemy_scene_path, command_id)
 		for idx in range(selected_points.size()):
 			var point: Vector3 = selected_points[idx]
-			var instance = (packed_scene as PackedScene).instantiate()
+			var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 			if not instance or not (instance is Node3D):
 				return _send_error(client_id, "Spawned scene instance must inherit Node3D for wave spawner 3D", command_id)
 			var enemy_instance: Node3D = instance
-			enemy_instance.name = _resolve_unique_child_name(spawner.get_parent(), String(enemy_instance.name))
-			enemy_instance.global_position = point
+			enemy_instance.name = _resolve_unique_child_name_pending(spawner.get_parent(), str(enemy_instance.name), pending_names)
+			# Spawn points are local to the spawner (its markers sit there). The instance is not in
+			# the tree yet, so global_position was ignored with an engine error; set a local position.
+			var spawn_parent_node: Node = spawner.get_parent()
+			var world_point = spawner.to_global(point)
+			enemy_instance.position = spawn_parent_node.to_local(world_point) if spawn_parent_node is Node3D else world_point
 			attach_plans.append({
 				"parent": spawner.get_parent(),
 				"node": enemy_instance,
@@ -2724,7 +2912,9 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 			spawned_nodes.append(enemy_instance)
 
 	var meta_changes: Array = []
-	meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
+	# A preview (instantiate_enemy false) spawns nothing, so it must not use up spawn points.
+	if instantiate_enemy:
+		meta_changes.append_array(_capture_meta_change(spawner, "mcp_spawn_point_cursor", next_cursor))
 	if advance_wave:
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_current_wave", next_wave))
 		meta_changes.append_array(_capture_meta_change(spawner, "mcp_wave_complete", reached_limit))
@@ -2817,6 +3007,7 @@ func _simulate_wave_spawner_step_3d(client_id: int, params: Dictionary, command_
 		"reached_wave_limit": reached_limit,
 		"spawn_positions": serialized_points,
 		"spawn_count": serialized_points.size(),
+		"spawned_count": spawned_paths.size(),
 		"spawned_nodes": spawned_paths,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -2978,7 +3169,11 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 	var target_h_offset: float = offset_x_delta
 	var target_v_offset: float = offset_y_delta
 	var target_rotation: Vector3 = Vector3(camera.rotation.x, camera.rotation.y, roll_delta)
-	var target_fov: float = camera.fov + fov_delta
+	# Pulse from a remembered base fov so repeated shakes don't ratchet it up; re-base if fov was changed since.
+	var base_fov: float = camera.fov
+	if camera.has_meta("mcp_shake_base_fov") and camera.has_meta("mcp_shake_applied_fov") and is_equal_approx(camera.fov, float(camera.get_meta("mcp_shake_applied_fov"))):
+		base_fov = float(camera.get_meta("mcp_shake_base_fov"))
+	var target_fov: float = base_fov + fov_delta
 	if add_to_existing:
 		target_h_offset += camera.h_offset
 		target_v_offset += camera.v_offset
@@ -2988,7 +3183,7 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 	pending_changes.append_array(_capture_property_change(camera, "h_offset", target_h_offset))
 	pending_changes.append_array(_capture_property_change(camera, "v_offset", target_v_offset))
 	pending_changes.append_array(_capture_property_change(camera, "rotation", target_rotation))
-	if fov_pulse > 0.0:
+	if fov_pulse > 0.0 or not is_equal_approx(target_fov, camera.fov):
 		pending_changes.append_array(_capture_property_change(camera, "fov", target_fov))
 
 	if pending_changes.is_empty():
@@ -2997,6 +3192,8 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 			"status": "no_change",
 			"h_offset": camera.h_offset,
 			"v_offset": camera.v_offset,
+			"rotation": _vector3_to_dict(camera.rotation),
+			"fov": camera.fov,
 		}, command_id)
 
 	var transaction_metadata := {
@@ -3032,6 +3229,8 @@ func _simulate_camera3d_shake(client_id: int, params: Dictionary, command_id: St
 		})
 
 	transaction.register_on_commit(func():
+		camera.set_meta("mcp_shake_base_fov", base_fov)
+		camera.set_meta("mcp_shake_applied_fov", target_fov)
 		_mark_scene_modified()
 		_log("Simulated Camera3D shake", "_simulate_camera3d_shake", {
 			"node_path": _to_mcp_path(camera),
@@ -3177,7 +3376,7 @@ func _configure_animated_sprite_2d(client_id: int, params: Dictionary, command_i
 	var new_frames: SpriteFrames = null
 
 	if params.has("sprite_frames_path"):
-		var sprite_frames_path: String = String(params.get("sprite_frames_path", "")).strip_edges()
+		var sprite_frames_path: String = str(params.get("sprite_frames_path", "")).strip_edges()
 		if sprite_frames_path.is_empty():
 			return _send_error(client_id, "sprite_frames_path cannot be empty", command_id)
 		if not sprite_frames_path.begins_with("res://"):
@@ -3189,7 +3388,7 @@ func _configure_animated_sprite_2d(client_id: int, params: Dictionary, command_i
 		pending_changes.append_array(_capture_property_change(sprite, "sprite_frames", new_frames))
 
 	if params.has("animation"):
-		var animation_name: String = String(params.get("animation", "")).strip_edges()
+		var animation_name: String = str(params.get("animation", "")).strip_edges()
 		if animation_name.is_empty():
 			return _send_error(client_id, "animation cannot be empty when provided", command_id)
 		var frames_source: SpriteFrames = new_frames if new_frames != null else sprite.sprite_frames
@@ -3200,7 +3399,7 @@ func _configure_animated_sprite_2d(client_id: int, params: Dictionary, command_i
 		pending_changes.append_array(_capture_property_change(sprite, "animation", animation_name))
 
 	if params.has("autoplay"):
-		pending_changes.append_array(_capture_property_change(sprite, "autoplay", String(params.get("autoplay", ""))))
+		pending_changes.append_array(_capture_property_change(sprite, "autoplay", str(params.get("autoplay", ""))))
 	if params.has("speed_scale"):
 		pending_changes.append_array(_capture_property_change(sprite, "speed_scale", float(params.get("speed_scale"))))
 	if params.has("centered"):
@@ -3299,7 +3498,7 @@ func _configure_sprite_2d(client_id: int, params: Dictionary, command_id: String
 	var pending_changes: Array = []
 
 	if params.has("texture_path"):
-		var texture_path: String = String(params.get("texture_path", "")).strip_edges()
+		var texture_path: String = str(params.get("texture_path", "")).strip_edges()
 		if texture_path.is_empty():
 			pending_changes.append_array(_capture_property_change(sprite, "texture", null))
 		else:
@@ -3676,6 +3875,9 @@ func _fill_tilemap_rect_2d(client_id: int, params: Dictionary, command_id: Strin
 	var size: Vector2i = size_result.get("value")
 	if size.x <= 0 or size.y <= 0:
 		return _send_error(client_id, "size must be greater than zero on both axes", command_id)
+	# ponytail: fixed cap; per-cell undo work froze the editor at 90k cells. Raise if batching lands.
+	if size.x * size.y > 10000:
+		return _send_error(client_id, "Fill covers %d cells; the limit is 10000 per call (split the rect)" % (size.x * size.y), command_id)
 
 	var clear: bool = params.get("clear", false)
 	var source_id: int = -1
@@ -3690,6 +3892,9 @@ func _fill_tilemap_rect_2d(client_id: int, params: Dictionary, command_id: Strin
 			return _send_error(client_id, "atlas_coords must be Vector2i-compatible", command_id)
 		atlas_coords = atlas_result.get("value")
 		alternative_tile = int(params.get("alternative_tile", 0))
+		var tile_error := _validate_tilemap_tile(node, source_id, atlas_coords)
+		if not tile_error.is_empty():
+			return _send_error(client_id, tile_error, command_id)
 
 	var target_cell = _make_tilemap_cell_data(source_id, atlas_coords, alternative_tile)
 	var pending_changes: Array = []
@@ -3843,6 +4048,9 @@ func _generate_tilemap_noise_2d(client_id: int, params: Dictionary, command_id: 
 		return _send_error(client_id, "atlas_coords must be Vector2i-compatible", command_id)
 	var atlas_coords: Vector2i = atlas_result.get("value")
 	var alternative_tile: int = int(params.get("alternative_tile", 0))
+	var tile_error := _validate_tilemap_tile(node, source_id, atlas_coords)
+	if not tile_error.is_empty():
+		return _send_error(client_id, tile_error, command_id)
 	var target_cell := _make_tilemap_cell_data(source_id, atlas_coords, alternative_tile)
 	var empty_cell := _make_tilemap_cell_data(-1, Vector2i(-1, -1), -1)
 
@@ -4010,9 +4218,9 @@ func _generate_tilemap_noise_2d(client_id: int, params: Dictionary, command_id: 
 
 
 func _tilemap_terrain_autopaint_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path: String = String(params.get("node_path", "")).strip_edges()
+	var node_path: String = str(params.get("node_path", "")).strip_edges()
 	var requested_layer: int = int(params.get("layer", 0))
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var preview_only: bool = bool(params.get("preview_only", false))
 	var clear_unselected: bool = bool(params.get("clear_unselected", false))
 
@@ -4023,7 +4231,7 @@ func _tilemap_terrain_autopaint_2d(client_id: int, params: Dictionary, command_i
 	if not params.has("terrain"):
 		return _send_error(client_id, "terrain is required", command_id)
 
-	var mode: String = String(params.get("mode", "connect")).strip_edges().to_lower()
+	var mode: String = str(params.get("mode", "connect")).strip_edges().to_lower()
 	if mode != "connect" and mode != "path":
 		return _send_error(client_id, "mode must be connect or path", command_id)
 
@@ -4044,6 +4252,14 @@ func _tilemap_terrain_autopaint_2d(client_id: int, params: Dictionary, command_i
 
 	var terrain_set: int = int(params.get("terrain_set", 0))
 	var terrain: int = int(params.get("terrain", 0))
+	# Missing terrains make set_cells_terrain_* paint nothing, so reject them up front.
+	var tile_set: TileSet = node.tile_set
+	if tile_set == null:
+		return _send_error(client_id, "%s has no TileSet" % node.name, command_id)
+	if terrain_set < 0 or terrain_set >= tile_set.get_terrain_sets_count():
+		return _send_error(client_id, "TileSet has no terrain set %d (count %d)" % [terrain_set, tile_set.get_terrain_sets_count()], command_id)
+	if terrain < -1 or terrain >= tile_set.get_terrains_count(terrain_set):  # -1 erases
+		return _send_error(client_id, "Terrain set %d has no terrain %d (count %d)" % [terrain_set, terrain, tile_set.get_terrains_count(terrain_set)], command_id)
 	var ignore_empty_terrains: bool = bool(params.get("ignore_empty_terrains", true))
 	var neighbor_margin: int = max(0, int(params.get("neighbor_margin", 1)))
 
@@ -4365,6 +4581,8 @@ func _generate_heightmap_gridmap_3d(client_id: int, params: Dictionary, command_
 	if not (node is GridMap):
 		return _send_error(client_id, "Node at %s is not a GridMap" % node_path, command_id)
 	var gridmap: GridMap = node
+	if gridmap.mesh_library == null:
+		return _send_error(client_id, "GridMap has no MeshLibrary configured", command_id)
 
 	var origin_result := _parse_vector3i_with_default(params.get("origin", null), Vector3i.ZERO)
 	if not origin_result.get("ok", false):
@@ -4380,14 +4598,14 @@ func _generate_heightmap_gridmap_3d(client_id: int, params: Dictionary, command_
 	var item_id: int = int(params.get("item_id", -1))
 	if item_id < 0:
 		return _send_error(client_id, "item_id must be >= 0", command_id)
+	if not item_id in gridmap.mesh_library.get_item_list():
+		return _send_error(client_id, "MeshLibrary has no item %d" % item_id, command_id)
 	var orientation: int = int(params.get("orientation", 0))
 
 	var min_height: int = int(params.get("min_height", 0))
 	var max_height: int = int(params.get("max_height", 4))
 	if max_height < min_height:
-		var swapped := min_height
-		min_height = max_height
-		max_height = swapped
+		return _send_error(client_id, "min_height (%d) must not exceed max_height (%d)" % [min_height, max_height], command_id)
 	var local_min_y: int = origin.y + min_height
 	var local_max_y: int = origin.y + max_height
 
@@ -4570,7 +4788,7 @@ func _generate_heightmap_gridmap_3d(client_id: int, params: Dictionary, command_
 
 func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var scene_path: String = String(params.get("scene_path", "")).strip_edges()
+	var scene_path: String = str(params.get("scene_path", "")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 
 	if scene_path.is_empty():
@@ -4584,7 +4802,7 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var min_distance: float = max(0.0, float(params.get("min_distance", 0.0)))
 	var max_attempts: int = max(count, int(params.get("max_attempts", count * 24)))
 	var require_full_count: bool = bool(params.get("require_full_count", false))
-	var name_prefix: String = String(params.get("name_prefix", "Scatter2D")).strip_edges()
+	var name_prefix: String = str(params.get("name_prefix", "Scatter2D")).strip_edges()
 	if name_prefix.is_empty():
 		name_prefix = "Scatter2D"
 
@@ -4594,6 +4812,8 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var rotation_max: float = max(rotation_range.x, rotation_range.y)
 	var random_scale: bool = bool(params.get("random_scale", false))
 	var scale_range: Vector2 = _parse_vector2_param(params.get("scale_range", Vector2.ONE))
+	if params.has("scale_range") and (scale_range.x <= 0.0 or scale_range.y <= 0.0):
+		return _send_error(client_id, "scale_range values must be greater than zero (got %s, %s)" % [scale_range.x, scale_range.y], command_id)
 	var scale_min: float = max(0.001, min(scale_range.x, scale_range.y))
 	var scale_max: float = max(scale_min, max(scale_range.x, scale_range.y))
 
@@ -4615,6 +4835,8 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var parent = _get_editor_node(parent_path)
 	if not parent:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
+	if not (parent is CanvasItem):
+		return _send_error(client_id, "Parent %s is a %s, not a 2D/CanvasItem node; pass parent_path of a Node2D or Control" % [parent_path, parent.get_class()], command_id)
 
 	var packed_scene = ResourceLoader.load(scene_path, "PackedScene", ResourceLoader.CACHE_MODE_REPLACE)
 	if not packed_scene or not (packed_scene is PackedScene):
@@ -4657,7 +4879,7 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 	var created_nodes: Array = []
 	for idx in range(accepted_points.size()):
 		var point: Vector2 = accepted_points[idx]
-		var instance = (packed_scene as PackedScene).instantiate()
+		var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 		if not instance or not (instance is Node2D):
 			return _send_error(client_id, "Scene at %s must instantiate to Node2D for 2D scattering" % scene_path, command_id)
 		var node_2d: Node2D = instance
@@ -4768,7 +4990,7 @@ func _scatter_scene_instances_2d(client_id: int, params: Dictionary, command_id:
 
 func _scatter_scene_instances_3d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var scene_path: String = String(params.get("scene_path", "")).strip_edges()
+	var scene_path: String = str(params.get("scene_path", "")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 
 	if scene_path.is_empty():
@@ -4782,14 +5004,15 @@ func _scatter_scene_instances_3d(client_id: int, params: Dictionary, command_id:
 	var min_distance: float = max(0.0, float(params.get("min_distance", 0.0)))
 	var max_attempts: int = max(count, int(params.get("max_attempts", count * 24)))
 	var require_full_count: bool = bool(params.get("require_full_count", false))
-	var name_prefix: String = String(params.get("name_prefix", "Scatter3D")).strip_edges()
+	var name_prefix: String = str(params.get("name_prefix", "Scatter3D")).strip_edges()
 	if name_prefix.is_empty():
 		name_prefix = "Scatter3D"
 
 	var origin: Vector3 = _parse_vector3_param(params.get("origin", Vector3.ZERO))
 	var size: Vector3 = _parse_vector3_param(params.get("size", Vector3.ZERO))
-	if size.x <= 0.0 or size.y <= 0.0 or size.z <= 0.0:
-		return _send_error(client_id, "size must be greater than zero on all axes", command_id)
+	# size.y may be 0 to scatter on a flat XZ area.
+	if size.x <= 0.0 or size.y < 0.0 or size.z <= 0.0:
+		return _send_error(client_id, "size.x and size.z must be greater than zero and size.y at least zero", command_id)
 
 	var random_yaw: bool = bool(params.get("random_yaw", false))
 	var yaw_range: Vector2 = _parse_vector2_param(params.get("yaw_range_degrees", Vector2(-180.0, 180.0)))
@@ -4854,7 +5077,7 @@ func _scatter_scene_instances_3d(client_id: int, params: Dictionary, command_id:
 	var created_nodes: Array = []
 	for idx in range(accepted_points.size()):
 		var point: Vector3 = accepted_points[idx]
-		var instance = (packed_scene as PackedScene).instantiate()
+		var instance = (packed_scene as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 		if not instance or not (instance is Node3D):
 			return _send_error(client_id, "Scene at %s must instantiate to Node3D for 3D scattering" % scene_path, command_id)
 		var node_3d: Node3D = instance
@@ -5109,9 +5332,18 @@ func _configure_camera3d_rig(client_id: int, params: Dictionary, command_id: Str
 	if params.has("projection"):
 		pending_changes.append_array(_capture_property_change(camera, "projection", int(params.get("projection"))))
 	if params.has("fov"):
-		pending_changes.append_array(_capture_property_change(camera, "fov", float(params.get("fov"))))
+		var fov_value: float = float(params.get("fov"))
+		if fov_value < 1.0 or fov_value > 179.0:
+			return _send_error(client_id, "fov must be between 1 and 179 degrees (got %s)" % fov_value, command_id)
+		pending_changes.append_array(_capture_property_change(camera, "fov", fov_value))
 	if params.has("size"):
 		pending_changes.append_array(_capture_property_change(camera, "size", float(params.get("size"))))
+	if params.has("near") or params.has("far"):
+		var new_near: float = float(params.get("near", camera.near))
+		var new_far: float = float(params.get("far", camera.far))
+		# Same rule as the build path: far must clear near by at least 1 unit.
+		if new_far < new_near + 1.0:
+			return _send_error(client_id, "far (%s) must be at least near + 1 (near=%s)" % [new_far, new_near], command_id)
 	if params.has("near"):
 		pending_changes.append_array(_capture_property_change(camera, "near", float(params.get("near"))))
 	if params.has("far"):
@@ -5127,7 +5359,7 @@ func _configure_camera3d_rig(client_id: int, params: Dictionary, command_id: Str
 	if params.has("doppler_tracking"):
 		pending_changes.append_array(_capture_property_change(camera, "doppler_tracking", int(params.get("doppler_tracking"))))
 	if params.has("environment_path"):
-		var environment_path: String = String(params.get("environment_path", "")).strip_edges()
+		var environment_path: String = str(params.get("environment_path", "")).strip_edges()
 		var environment_resource = null
 		if not environment_path.is_empty():
 			if not environment_path.begins_with("res://"):
@@ -5226,7 +5458,7 @@ func _configure_springarm3d(client_id: int, params: Dictionary, command_id: Stri
 	if params.has("collision_mask"):
 		pending_changes.append_array(_capture_property_change(spring_arm, "collision_mask", int(params.get("collision_mask"))))
 	if params.has("shape_path"):
-		var shape_path: String = String(params.get("shape_path", "")).strip_edges()
+		var shape_path: String = str(params.get("shape_path", "")).strip_edges()
 		var shape_resource = null
 		if not shape_path.is_empty():
 			if not shape_path.begins_with("res://"):
@@ -5752,6 +5984,10 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Node at %s is not a PathFollow2D" % node_path, command_id)
 
 	var path_follow: PathFollow2D = node
+	# Same rule as configure_path2d_followers: progress on a zero-length curve silently stays 0.
+	var follow_parent := path_follow.get_parent()
+	if not (follow_parent is Path2D) or follow_parent.curve == null or follow_parent.curve.get_baked_length() <= 0.0:
+		return _send_error(client_id, "Path curve has zero length; add curve points before advancing the follower", command_id)
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 
@@ -5762,6 +5998,12 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 	var speed: float = float(params.get("speed", stored_speed))
 	var progress_delta: float = float(params.get("progress_delta", speed * delta)) * direction_multiplier
 	var progress_ratio_delta: float = float(params.get("progress_ratio_delta", 0.0)) * direction_multiplier
+
+	# Apply loop first so an explicit progress wraps/clamps against the new loop setting.
+	if params.has("loop"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
+	if params.has("cubic_interp"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
 
 	if params.has("progress"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "progress", float(params.get("progress"))))
@@ -5777,10 +6019,6 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 			_capture_property_change(path_follow, "progress_ratio", path_follow.progress_ratio + progress_ratio_delta)
 		)
 
-	if params.has("loop"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
-	if params.has("cubic_interp"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
 	if params.has("rotates"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "rotates", bool(params.get("rotates"))))
 	if params.has("h_offset"):
@@ -5861,8 +6099,8 @@ func _advance_pathfollow2d(client_id: int, params: Dictionary, command_id: Strin
 
 	var response := {
 		"node_path": _to_mcp_path(path_follow),
-		"progress": path_follow.progress + progress_delta,
-		"progress_ratio": path_follow.progress_ratio + progress_ratio_delta,
+		"progress": float(params.get("progress")) if params.has("progress") else path_follow.progress + progress_delta,
+		"progress_ratio": float(params.get("progress_ratio")) if params.has("progress_ratio") else path_follow.progress_ratio + progress_ratio_delta,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -5894,6 +6132,10 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Node at %s is not a PathFollow3D" % node_path, command_id)
 
 	var path_follow: PathFollow3D = node
+	# Same rule as configure_path3d_followers: progress on a zero-length curve silently stays 0.
+	var follow_parent := path_follow.get_parent()
+	if not (follow_parent is Path3D) or follow_parent.curve == null or follow_parent.curve.get_baked_length() <= 0.0:
+		return _send_error(client_id, "Path curve has zero length; add curve points before advancing the follower", command_id)
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 
@@ -5904,6 +6146,12 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 	var speed: float = float(params.get("speed", stored_speed))
 	var progress_delta: float = float(params.get("progress_delta", speed * delta)) * direction_multiplier
 	var progress_ratio_delta: float = float(params.get("progress_ratio_delta", 0.0)) * direction_multiplier
+
+	# Apply loop first so an explicit progress wraps/clamps against the new loop setting.
+	if params.has("loop"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
+	if params.has("cubic_interp"):
+		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
 
 	if params.has("progress"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "progress", float(params.get("progress"))))
@@ -5919,10 +6167,6 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 			_capture_property_change(path_follow, "progress_ratio", path_follow.progress_ratio + progress_ratio_delta)
 		)
 
-	if params.has("loop"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "loop", bool(params.get("loop"))))
-	if params.has("cubic_interp"):
-		pending_property_changes.append_array(_capture_property_change(path_follow, "cubic_interp", bool(params.get("cubic_interp"))))
 	if params.has("rotation_mode"):
 		pending_property_changes.append_array(_capture_property_change(path_follow, "rotation_mode", int(params.get("rotation_mode"))))
 	if params.has("tilt_enabled"):
@@ -6003,8 +6247,8 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 
 	var response := {
 		"node_path": _to_mcp_path(path_follow),
-		"progress": path_follow.progress + progress_delta,
-		"progress_ratio": path_follow.progress_ratio + progress_ratio_delta,
+		"progress": float(params.get("progress")) if params.has("progress") else path_follow.progress + progress_delta,
+		"progress_ratio": float(params.get("progress_ratio")) if params.has("progress_ratio") else path_follow.progress_ratio + progress_ratio_delta,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"transaction_id": transaction.transaction_id,
@@ -6023,8 +6267,8 @@ func _advance_pathfollow3d(client_id: int, params: Dictionary, command_id: Strin
 
 
 func _configure_path2d_followers(client_id: int, params: Dictionary, command_id: String) -> void:
-	var path_path: String = String(params.get("path_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var path_path: String = str(params.get("path_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if path_path.is_empty():
 		return _send_error(client_id, "path_path cannot be empty", command_id)
 
@@ -6044,7 +6288,7 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 
 	var follower_count: int = max(0, int(params.get("follower_count", 0)))
 	var create_missing: bool = bool(params.get("create_missing", true))
-	var base_name: String = String(params.get("base_name", "PathFollower2D")).strip_edges()
+	var base_name: String = str(params.get("base_name", "PathFollower2D")).strip_edges()
 	if base_name.is_empty():
 		base_name = "PathFollower2D"
 
@@ -6056,6 +6300,17 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 	for child in path_node.get_children():
 		if child is PathFollow2D:
 			followers.append(child)
+
+	# Godot rejects progress on a curve with no length, so fail loudly instead of reporting an update.
+	if path_node.curve == null or path_node.curve.get_baked_length() <= 0.0:
+		var wants_progress: bool = params.has("spacing") or params.has("start_progress") or params.has("use_progress_ratio")
+		var override_list = params.get("followers", [])
+		if typeof(override_list) == TYPE_ARRAY:
+			for override_entry in override_list:
+				if typeof(override_entry) == TYPE_DICTIONARY and (override_entry.has("progress") or override_entry.has("progress_ratio")):
+					wants_progress = true
+		if wants_progress:
+			return _send_error(client_id, "Path curve has zero length; add curve points before setting follower progress", command_id)
 
 	var created_followers: Array = []
 	if follower_count > followers.size():
@@ -6113,7 +6368,7 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 
 			var follower_target: PathFollow2D = null
 			if override.has("node_path"):
-				var explicit_node_path: String = String(override.get("node_path", "")).strip_edges()
+				var explicit_node_path: String = str(override.get("node_path", "")).strip_edges()
 				if explicit_node_path.is_empty():
 					return _send_error(client_id, "followers.node_path cannot be empty", command_id)
 				var explicit_node = _get_editor_node(explicit_node_path)
@@ -6126,13 +6381,18 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 					return _send_error(client_id, "followers.index out of range: %d" % target_index, command_id)
 				follower_target = followers[target_index]
 			elif override.has("name"):
-				var target_name: String = String(override.get("name", "")).strip_edges()
+				var target_name: String = str(override.get("name", "")).strip_edges()
 				for follower_entry in followers:
-					if String((follower_entry as PathFollow2D).name) == target_name:
+					if str((follower_entry as PathFollow2D).name) == target_name:
 						follower_target = follower_entry
 						break
 				if follower_target == null:
-					return _send_error(client_id, "No PathFollow2D child named %s" % target_name, command_id)
+					if not create_missing or target_name.is_empty() or path_node.has_node(NodePath(target_name)):
+						return _send_error(client_id, "No PathFollow2D child named %s" % target_name, command_id)
+					follower_target = PathFollow2D.new()
+					follower_target.name = target_name
+					created_followers.append(follower_target)
+					followers.append(follower_target)
 			else:
 				return _send_error(client_id, "Each followers entry must include node_path, index, or name", command_id)
 
@@ -6247,13 +6507,14 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 		if follower_node.is_inside_tree():
 			predicted_paths.append(_to_mcp_path(follower_node))
 		else:
-			predicted_paths.append(_join_mcp_path(path_mcp_path, String(follower_node.name)))
+			predicted_paths.append(_join_mcp_path(path_mcp_path, str(follower_node.name)))
 
 	var response := {
 		"path_path": path_mcp_path,
 		"follower_count": predicted_paths.size(),
 		"created_count": created_followers.size(),
-		"updated_count": serialized_property_changes.size() + serialized_meta_changes.size(),
+		"updated_count": _count_updated_followers(pending_property_changes + pending_meta_changes, created_followers),
+		"change_count": serialized_property_changes.size() + serialized_meta_changes.size(),
 		"follower_paths": predicted_paths,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
@@ -6277,8 +6538,8 @@ func _configure_path2d_followers(client_id: int, params: Dictionary, command_id:
 
 
 func _configure_path3d_followers(client_id: int, params: Dictionary, command_id: String) -> void:
-	var path_path: String = String(params.get("path_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var path_path: String = str(params.get("path_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if path_path.is_empty():
 		return _send_error(client_id, "path_path cannot be empty", command_id)
 
@@ -6298,7 +6559,7 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 
 	var follower_count: int = max(0, int(params.get("follower_count", 0)))
 	var create_missing: bool = bool(params.get("create_missing", true))
-	var base_name: String = String(params.get("base_name", "PathFollower3D")).strip_edges()
+	var base_name: String = str(params.get("base_name", "PathFollower3D")).strip_edges()
 	if base_name.is_empty():
 		base_name = "PathFollower3D"
 
@@ -6310,6 +6571,17 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 	for child in path_node.get_children():
 		if child is PathFollow3D:
 			followers.append(child)
+
+	# Godot rejects progress on a curve with no length, so fail loudly instead of reporting an update.
+	if path_node.curve == null or path_node.curve.get_baked_length() <= 0.0:
+		var wants_progress: bool = params.has("spacing") or params.has("start_progress") or params.has("use_progress_ratio")
+		var override_list = params.get("followers", [])
+		if typeof(override_list) == TYPE_ARRAY:
+			for override_entry in override_list:
+				if typeof(override_entry) == TYPE_DICTIONARY and (override_entry.has("progress") or override_entry.has("progress_ratio")):
+					wants_progress = true
+		if wants_progress:
+			return _send_error(client_id, "Path curve has zero length; add curve points before setting follower progress", command_id)
 
 	var created_followers: Array = []
 	if follower_count > followers.size():
@@ -6367,7 +6639,7 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 
 			var follower_target: PathFollow3D = null
 			if override.has("node_path"):
-				var explicit_node_path: String = String(override.get("node_path", "")).strip_edges()
+				var explicit_node_path: String = str(override.get("node_path", "")).strip_edges()
 				if explicit_node_path.is_empty():
 					return _send_error(client_id, "followers.node_path cannot be empty", command_id)
 				var explicit_node = _get_editor_node(explicit_node_path)
@@ -6380,13 +6652,18 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 					return _send_error(client_id, "followers.index out of range: %d" % target_index, command_id)
 				follower_target = followers[target_index]
 			elif override.has("name"):
-				var target_name: String = String(override.get("name", "")).strip_edges()
+				var target_name: String = str(override.get("name", "")).strip_edges()
 				for follower_entry in followers:
-					if String((follower_entry as PathFollow3D).name) == target_name:
+					if str((follower_entry as PathFollow3D).name) == target_name:
 						follower_target = follower_entry
 						break
 				if follower_target == null:
-					return _send_error(client_id, "No PathFollow3D child named %s" % target_name, command_id)
+					if not create_missing or target_name.is_empty() or path_node.has_node(NodePath(target_name)):
+						return _send_error(client_id, "No PathFollow3D child named %s" % target_name, command_id)
+					follower_target = PathFollow3D.new()
+					follower_target.name = target_name
+					created_followers.append(follower_target)
+					followers.append(follower_target)
 			else:
 				return _send_error(client_id, "Each followers entry must include node_path, index, or name", command_id)
 
@@ -6501,13 +6778,14 @@ func _configure_path3d_followers(client_id: int, params: Dictionary, command_id:
 		if follower_node.is_inside_tree():
 			predicted_paths.append(_to_mcp_path(follower_node))
 		else:
-			predicted_paths.append(_join_mcp_path(path_mcp_path, String(follower_node.name)))
+			predicted_paths.append(_join_mcp_path(path_mcp_path, str(follower_node.name)))
 
 	var response := {
 		"path_path": path_mcp_path,
 		"follower_count": predicted_paths.size(),
 		"created_count": created_followers.size(),
-		"updated_count": serialized_property_changes.size() + serialized_meta_changes.size(),
+		"updated_count": _count_updated_followers(pending_property_changes + pending_meta_changes, created_followers),
+		"change_count": serialized_property_changes.size() + serialized_meta_changes.size(),
 		"follower_paths": predicted_paths,
 		"changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
@@ -6619,12 +6897,12 @@ func _configure_topdown_movement_2d(client_id: int, params: Dictionary, command_
 			return _send_error(client_id, "input_actions must be a dictionary", command_id)
 		var user_input_actions: Dictionary = input_actions_value
 		for key in user_input_actions.keys():
-			input_actions_data[String(key)] = user_input_actions[key]
+			input_actions_data[str(key)] = user_input_actions[key]
 	if not input_actions_data.is_empty():
 		var normalized_actions: Dictionary = {}
 		for direction in ["up", "down", "left", "right"]:
 			if input_actions_data.has(direction):
-				var action_name: String = String(input_actions_data.get(direction, "")).strip_edges()
+				var action_name: String = str(input_actions_data.get(direction, "")).strip_edges()
 				if action_name.is_empty():
 					return _send_error(client_id, "input_actions.%s cannot be empty" % direction, command_id)
 				normalized_actions[direction] = action_name
@@ -6735,14 +7013,15 @@ func _simulate_characterbody2d_movement(client_id: int, params: Dictionary, comm
 
 	var speed: float = float(params.get("speed", body.get_meta("mcp_topdown_speed") if body.has_meta("mcp_topdown_speed") else 200.0))
 	var acceleration: float = float(params.get("acceleration", body.get_meta("mcp_topdown_acceleration") if body.has_meta("mcp_topdown_acceleration") else speed * 7.0))
-	var deceleration: float = float(params.get("deceleration", body.get_meta("mcp_topdown_deceleration") if body.has_meta("mcp_topdown_deceleration") else speed * 9.0))
+	# Base the default on the current speed too so speed=0 still brakes instead of getting a zero rate.
+	var deceleration: float = float(params.get("deceleration", body.get_meta("mcp_topdown_deceleration") if body.has_meta("mcp_topdown_deceleration") else maxf(speed, body.velocity.length()) * 9.0))
 	var delta: float = max(0.0001, float(params.get("delta", 1.0 / 60.0)))
 	var set_rotation: bool = bool(params.get("set_rotation", false))
 	var flip_sprite_h: bool = bool(params.get("flip_sprite_h", true))
 
 	var current_velocity: Vector2 = body.velocity
 	var target_velocity: Vector2 = direction * speed
-	var interpolation: float = (acceleration if direction.length() > 0.001 else deceleration) * delta
+	var interpolation: float = (acceleration if target_velocity.length() > 0.001 else deceleration) * delta
 	var new_velocity: Vector2 = current_velocity.move_toward(target_velocity, interpolation)
 	var new_position: Vector2 = body.position + new_velocity * delta
 
@@ -6753,7 +7032,7 @@ func _simulate_characterbody2d_movement(client_id: int, params: Dictionary, comm
 	if set_rotation and direction.length() > 0.001:
 		pending_changes.append_array(_capture_property_change(body, "rotation", direction.angle()))
 
-	var sprite_path: String = String(params.get("sprite_path", "")).strip_edges()
+	var sprite_path: String = str(params.get("sprite_path", "")).strip_edges()
 	var sprite_node = _resolve_sprite_node_for_movement(body, sprite_path)
 	if sprite_node and flip_sprite_h and absf(direction.x) > 0.001 and (sprite_node is Sprite2D or sprite_node is AnimatedSprite2D):
 		pending_changes.append_array(_capture_property_change(sprite_node, "flip_h", direction.x < 0.0))
@@ -6765,7 +7044,7 @@ func _simulate_characterbody2d_movement(client_id: int, params: Dictionary, comm
 		var animation_map: Dictionary = animation_map_raw
 		var animation_key := "move" if direction.length() > 0.001 else "idle"
 		if animation_map.has(animation_key):
-			var animation_name: String = String(animation_map.get(animation_key, "")).strip_edges()
+			var animation_name: String = str(animation_map.get(animation_key, "")).strip_edges()
 			if not animation_name.is_empty():
 				pending_changes.append_array(_capture_property_change(sprite_node, "animation", animation_name))
 				if bool(params.get("play_animation", true)):
@@ -6979,9 +7258,9 @@ func _simulate_characterbody3d_movement(client_id: int, params: Dictionary, comm
 
 
 func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var agent_path: String = String(params.get("agent_path", "")).strip_edges()
-	var body_path: String = String(params.get("body_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var agent_path: String = str(params.get("agent_path", "")).strip_edges()
+	var body_path: String = str(params.get("body_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 
 	if agent_path.is_empty():
 		return _send_error(client_id, "agent_path cannot be empty", command_id)
@@ -7012,7 +7291,7 @@ func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, comm
 	var speed: float = float(params.get("speed", speed_default))
 	var acceleration_default = body.get_meta("mcp_enemy_acceleration") if body.has_meta("mcp_enemy_acceleration") else speed * 8.0
 	var acceleration: float = float(params.get("acceleration", acceleration_default))
-	var deceleration: float = float(params.get("deceleration", speed * 10.0))
+	var deceleration: float = float(params.get("deceleration", maxf(speed, body.velocity.length()) * 10.0))
 	var stop_distance: float = max(0.0, float(params.get("stop_distance", agent.path_desired_distance)))
 	var set_rotation: bool = bool(params.get("set_rotation", false))
 	var update_agent_velocity: bool = bool(params.get("update_agent_velocity", true))
@@ -7028,13 +7307,16 @@ func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, comm
 	var navigation_finished: bool = agent.is_navigation_finished()
 
 	var direction := Vector2.ZERO
-	if distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
+	# Without a computed path (no baked/synced navmesh), get_next_path_position() is meaningless and
+	# steered the body away from the target; only trust it when a path exists.
+	var has_path: bool = agent.get_current_navigation_path().size() > 0
+	if has_path and distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
 		direction = to_next / distance_to_next
 	elif allow_direct_fallback and distance_to_target > stop_distance:
 		direction = to_target / distance_to_target
 
 	var target_velocity: Vector2 = direction * speed
-	var interpolation: float = (acceleration if direction.length() > 0.001 else deceleration) * delta
+	var interpolation: float = (acceleration if target_velocity.length() > 0.001 else deceleration) * delta
 	var new_velocity: Vector2 = body.velocity.move_toward(target_velocity, interpolation)
 	var new_global_position: Vector2 = body.global_position + new_velocity * delta
 
@@ -7148,9 +7430,9 @@ func _simulate_navigation_chase_step_2d(client_id: int, params: Dictionary, comm
 
 
 func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var agent_path: String = String(params.get("agent_path", "")).strip_edges()
-	var body_path: String = String(params.get("body_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var agent_path: String = str(params.get("agent_path", "")).strip_edges()
+	var body_path: String = str(params.get("body_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 
 	if agent_path.is_empty():
 		return _send_error(client_id, "agent_path cannot be empty", command_id)
@@ -7181,7 +7463,7 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 	var speed: float = float(params.get("speed", speed_default))
 	var acceleration_default = body.get_meta("mcp_enemy_acceleration") if body.has_meta("mcp_enemy_acceleration") else speed * 8.0
 	var acceleration: float = float(params.get("acceleration", acceleration_default))
-	var deceleration: float = float(params.get("deceleration", speed * 10.0))
+	var deceleration: float = float(params.get("deceleration", maxf(speed, body.velocity.length()) * 10.0))
 	var stop_distance: float = max(0.0, float(params.get("stop_distance", agent.path_desired_distance)))
 	var planar_only: bool = bool(params.get("planar_only", true))
 	var preserve_vertical_velocity: bool = bool(params.get("preserve_vertical_velocity", true))
@@ -7203,13 +7485,16 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 	var navigation_finished: bool = agent.is_navigation_finished()
 
 	var direction := Vector3.ZERO
-	if distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
+	# Without a computed path (no baked/synced navmesh), get_next_path_position() is meaningless and
+	# steered the body away from the target; only trust it when a path exists.
+	var has_path: bool = agent.get_current_navigation_path().size() > 0
+	if has_path and distance_to_next > stop_distance and (not stop_on_navigation_finished or not navigation_finished):
 		direction = to_next / distance_to_next
 	elif allow_direct_fallback and distance_to_target > stop_distance:
 		direction = to_target / distance_to_target
 
 	var target_velocity: Vector3 = direction * speed
-	var interpolation: float = (acceleration if direction.length() > 0.001 else deceleration) * delta
+	var interpolation: float = (acceleration if target_velocity.length() > 0.001 else deceleration) * delta
 	var current_velocity: Vector3 = body.velocity
 	var new_velocity: Vector3
 	if planar_only:
@@ -7221,6 +7506,12 @@ func _simulate_navigation_chase_step_3d(client_id: int, params: Dictionary, comm
 	else:
 		new_velocity = current_velocity.move_toward(target_velocity, interpolation)
 
+	# Never step past the target: scale the step (and velocity) down to the remaining distance.
+	var step_vector: Vector3 = new_velocity * delta
+	if planar_only:
+		step_vector.y = 0.0
+	if step_vector.length() > distance_to_target and step_vector.length() > 0.0:
+		new_velocity *= distance_to_target / step_vector.length()
 	var new_global_position: Vector3 = body.global_position + new_velocity * delta
 	var pending_changes: Array = []
 	pending_changes.append_array(_capture_property_change(body, "velocity", new_velocity))
@@ -7571,8 +7862,8 @@ func _set_navigation_target_to_node_3d(client_id: int, params: Dictionary, comma
 
 
 func _configure_light_node(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path: String = String(params.get("node_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var node_path: String = str(params.get("node_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if node_path.is_empty():
 		return _send_error(client_id, "node_path cannot be empty", command_id)
 
@@ -7581,6 +7872,10 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Light node not found: %s" % node_path, command_id)
 	if not (node is Light2D or node is Light3D):
 		return _send_error(client_id, "Node at %s must inherit Light2D or Light3D" % node_path, command_id)
+
+	for energy_key in ["energy", "indirect_energy", "volumetric_fog_energy"]:
+		if params.has(energy_key) and float(params.get(energy_key)) < 0.0:
+			return _send_error(client_id, "%s must be >= 0" % energy_key, command_id)
 
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
@@ -7610,7 +7905,7 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		}
 		for param_key in light2d_float_map.keys():
 			if params.has(param_key):
-				pending_property_changes.append_array(_capture_property_change(node, String(light2d_float_map[param_key]), float(params.get(param_key))))
+				pending_property_changes.append_array(_capture_property_change(node, str(light2d_float_map[param_key]), float(params.get(param_key))))
 
 		var light2d_int_map := {
 			"blend_mode": "blend_mode",
@@ -7623,7 +7918,7 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		}
 		for int_key in light2d_int_map.keys():
 			if params.has(int_key):
-				pending_property_changes.append_array(_capture_property_change(node, String(light2d_int_map[int_key]), int(params.get(int_key))))
+				pending_property_changes.append_array(_capture_property_change(node, str(light2d_int_map[int_key]), int(params.get(int_key))))
 
 		if params.has("shadow_enabled"):
 			pending_property_changes.append_array(_capture_property_change(node, "shadow_enabled", bool(params.get("shadow_enabled"))))
@@ -7654,7 +7949,7 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		}
 		for float_key in light3d_float_map.keys():
 			if params.has(float_key):
-				pending_property_changes.append_array(_capture_property_change(node, String(light3d_float_map[float_key]), float(params.get(float_key))))
+				pending_property_changes.append_array(_capture_property_change(node, str(light3d_float_map[float_key]), float(params.get(float_key))))
 
 		if params.has("shadow_enabled"):
 			pending_property_changes.append_array(_capture_property_change(node, "shadow_enabled", bool(params.get("shadow_enabled"))))
@@ -7663,7 +7958,7 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		if params.has("cull_mask"):
 			pending_property_changes.append_array(_capture_property_change(node, "cull_mask", int(params.get("cull_mask"))))
 		if params.has("projector_path"):
-			var projector_path: String = String(params.get("projector_path", "")).strip_edges()
+			var projector_path: String = str(params.get("projector_path", "")).strip_edges()
 			if projector_path.is_empty():
 				pending_property_changes.append_array(_capture_property_change(node, "light_projector", null))
 			else:
@@ -7672,7 +7967,7 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 					return _send_error(client_id, "projector_path must point to a Texture2D resource", command_id)
 				pending_property_changes.append_array(_capture_property_change(node, "light_projector", projector_resource))
 
-	var profile_name: String = String(params.get("profile_name", "")).strip_edges()
+	var profile_name: String = str(params.get("profile_name", "")).strip_edges()
 	if not profile_name.is_empty():
 		pending_meta_changes.append_array(_capture_meta_change(node, "mcp_light_profile_name", profile_name))
 	pending_meta_changes.append_array(_capture_meta_change(node, "mcp_light_last_config_command", "configure_light_node"))
@@ -7681,6 +7976,8 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 		return _send_success(client_id, {
 			"node_path": _to_mcp_path(node),
 			"light_type": node.get_class(),
+			"enabled": node.get("enabled") if node is Light2D else node.get("light_enabled"),
+			"energy": float(node.get("energy") if node is Light2D else node.get("light_energy")),
 			"status": "no_change",
 		}, command_id)
 
@@ -7776,9 +8073,9 @@ func _configure_light_node(client_id: int, params: Dictionary, command_id: Strin
 
 
 func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var smoke_name: String = String(params.get("smoke_name", "SmokeEffect2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var smoke_name: String = str(params.get("smoke_name", "SmokeEffect2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 	var area_size: Vector2 = _parse_vector2_param(params.get("area_size", Vector2(960.0, 540.0)))
 	if area_size.x <= 0.0 or area_size.y <= 0.0:
@@ -7882,7 +8179,7 @@ func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: Stri
 
 	var smoke_particles := GPUParticles2D.new()
 	smoke_particles.name = _resolve_unique_child_name(smoke_root, "SmokeParticles")
-	smoke_particles.position = Vector2(area_size.x * 0.5, area_size.y + 24.0)
+	smoke_particles.position = area_size * 0.5  # emit inside the area (it sat 24 px below it)
 	smoke_particles.one_shot = false
 	smoke_particles.local_coords = false
 	smoke_particles.fixed_fps = int(params.get("particle_fixed_fps", 24))
@@ -7935,7 +8232,7 @@ func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: Stri
 		_configure_control_full_rect(overlay_root)
 		overlay_layer.add_child(overlay_root)
 		created_nodes.append(overlay_root)
-		predicted_paths["overlay_root_path"] = _join_mcp_path(String(predicted_paths["overlay_layer_path"]), overlay_root.name)
+		predicted_paths["overlay_root_path"] = _join_mcp_path(str(predicted_paths["overlay_layer_path"]), overlay_root.name)
 
 		overlay_rect = ColorRect.new()
 		overlay_rect.name = "SmokeOverlay"
@@ -7943,10 +8240,10 @@ func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: Stri
 		overlay_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var overlay_tint: Color = overlay_color
 		overlay_tint.a = clampf(overlay_density * intensity, 0.0, 0.92)
-		overlay_rect.color = _convert_property_value(overlay_rect, "color", overlay_tint)
+		_assign_converted(overlay_rect, "color", overlay_tint)
 		overlay_root.add_child(overlay_rect)
 		created_nodes.append(overlay_rect)
-		predicted_paths["overlay_rect_path"] = _join_mcp_path(String(predicted_paths["overlay_root_path"]), overlay_rect.name)
+		predicted_paths["overlay_rect_path"] = _join_mcp_path(str(predicted_paths["overlay_root_path"]), overlay_rect.name)
 
 	smoke_root.set_meta("mcp_smoke_particles_node_name", smoke_particles.name)
 	smoke_root.set_meta("mcp_smoke_overlay_layer_name", overlay_layer.name if overlay_layer else "")
@@ -8043,8 +8340,8 @@ func _build_smoke_effect_2d(client_id: int, params: Dictionary, command_id: Stri
 
 
 func _configure_particles_3d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var node_path: String = String(params.get("node_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var node_path: String = str(params.get("node_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if node_path.is_empty():
 		return _send_error(client_id, "node_path cannot be empty", command_id)
 
@@ -8070,7 +8367,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 	}
 	for float_key in particles_float_map.keys():
 		if params.has(float_key):
-			pending_property_changes.append_array(_capture_property_change(particles, String(particles_float_map[float_key]), float(params.get(float_key))))
+			pending_property_changes.append_array(_capture_property_change(particles, str(particles_float_map[float_key]), float(params.get(float_key))))
 
 	var particles_int_map := {
 		"amount": "amount",
@@ -8079,7 +8376,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 	}
 	for int_key in particles_int_map.keys():
 		if params.has(int_key):
-			pending_property_changes.append_array(_capture_property_change(particles, String(particles_int_map[int_key]), int(params.get(int_key))))
+			pending_property_changes.append_array(_capture_property_change(particles, str(particles_int_map[int_key]), int(params.get(int_key))))
 
 	if params.has("emitting"):
 		pending_property_changes.append_array(_capture_property_change(particles, "emitting", bool(params.get("emitting"))))
@@ -8124,7 +8421,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 		pending_property_changes.append_array(_capture_property_change(particles, "visibility_aabb", parsed_aabb))
 
 	if params.has("draw_pass_1_path"):
-		var mesh_path: String = String(params.get("draw_pass_1_path", "")).strip_edges()
+		var mesh_path: String = str(params.get("draw_pass_1_path", "")).strip_edges()
 		if mesh_path.is_empty():
 			pending_property_changes.append_array(_capture_property_change(particles, "draw_pass_1", null))
 		else:
@@ -8180,7 +8477,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 		}
 		for float_key in material_float_map.keys():
 			if params.has(float_key):
-				pending_property_changes.append_array(_capture_property_change(particle_material, String(material_float_map[float_key]), float(params.get(float_key))))
+				pending_property_changes.append_array(_capture_property_change(particle_material, str(material_float_map[float_key]), float(params.get(float_key))))
 
 		if params.has("direction"):
 			pending_property_changes.append_array(_capture_property_change(particle_material, "direction", _parse_vector3_param(params.get("direction"))))
@@ -8196,7 +8493,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 				return _send_error(client_id, "color must be a valid Color-compatible value", command_id)
 			pending_property_changes.append_array(_capture_property_change(particle_material, "color", particles_color))
 		if params.has("color_ramp_path"):
-			var ramp_path: String = String(params.get("color_ramp_path", "")).strip_edges()
+			var ramp_path: String = str(params.get("color_ramp_path", "")).strip_edges()
 			if ramp_path.is_empty():
 				pending_property_changes.append_array(_capture_property_change(particle_material, "color_ramp", null))
 			else:
@@ -8205,7 +8502,7 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 					return _send_error(client_id, "color_ramp_path must point to a Texture2D resource", command_id)
 				pending_property_changes.append_array(_capture_property_change(particle_material, "color_ramp", ramp_resource))
 
-	var profile_name: String = String(params.get("profile_name", "")).strip_edges()
+	var profile_name: String = str(params.get("profile_name", "")).strip_edges()
 	if not profile_name.is_empty():
 		pending_meta_changes.append_array(_capture_meta_change(particles, "mcp_particles_profile_name", profile_name))
 	pending_meta_changes.append_array(_capture_meta_change(particles, "mcp_particles_last_config_command", "configure_particles_3d"))
@@ -8301,9 +8598,9 @@ func _configure_particles_3d(client_id: int, params: Dictionary, command_id: Str
 
 
 func _build_smoke_effect_3d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var smoke_name: String = String(params.get("smoke_name", "SmokeEffect3D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var smoke_name: String = str(params.get("smoke_name", "SmokeEffect3D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var position: Vector3 = _parse_vector3_param(params.get("position", Vector3.ZERO))
 	var volume_size: Vector3 = _parse_vector3_param(params.get("volume_size", Vector3(8.0, 5.0, 8.0)))
 	if volume_size.x <= 0.0 or volume_size.y <= 0.0 or volume_size.z <= 0.0:
@@ -8555,9 +8852,9 @@ func _build_smoke_effect_3d(client_id: int, params: Dictionary, command_id: Stri
 
 
 func _build_light_occluder_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var occluder_name: String = String(params.get("occluder_name", "LightOccluder2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var occluder_name: String = str(params.get("occluder_name", "LightOccluder2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var position: Vector2 = _parse_vector2_param(params.get("position", Vector2.ZERO))
 
 	if occluder_name.is_empty():
@@ -8603,6 +8900,9 @@ func _build_light_occluder_2d(client_id: int, params: Dictionary, command_id: St
 	if params.has("sdf_collision"):
 		light_occluder.sdf_collision = bool(params.get("sdf_collision"))
 
+	# A self-intersecting polygon cannot be triangulated (engine errors, broken shadows).
+	if polygon_points.size() >= 3 and Geometry2D.triangulate_polygon(polygon_points).is_empty():
+		return _send_error(client_id, "Occluder polygon is not a simple shape (edges cross); reorder the points", command_id)
 	var occluder_polygon := OccluderPolygon2D.new()
 	occluder_polygon.polygon = polygon_points
 	occluder_polygon.closed = bool(params.get("closed", true))
@@ -8675,8 +8975,8 @@ func _build_light_occluder_2d(client_id: int, params: Dictionary, command_id: St
 
 
 func _edit_light_occluder_polygon_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var occluder_path: String = String(params.get("occluder_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var occluder_path: String = str(params.get("occluder_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if occluder_path.is_empty():
 		return _send_error(client_id, "occluder_path cannot be empty", command_id)
 
@@ -8731,14 +9031,17 @@ func _edit_light_occluder_polygon_2d(client_id: int, params: Dictionary, command
 	if polygon_modified:
 		if next_polygon.size() < 3:
 			return _send_error(client_id, "Resulting polygon must contain at least 3 points", command_id)
+		if Geometry2D.triangulate_polygon(next_polygon).is_empty():
+			return _send_error(client_id, "Resulting polygon is not a simple shape (edges cross); reorder the points", command_id)
 		pending_property_changes.append_array(_capture_property_change(occluder_polygon, "polygon", next_polygon))
+		pending_meta_changes.append_array(_capture_meta_change(occluder_node, "mcp_light_occluder_point_count", next_polygon.size()))
 
 	if params.has("closed"):
 		pending_property_changes.append_array(_capture_property_change(occluder_polygon, "closed", bool(params.get("closed"))))
 	if params.has("cull_mode"):
 		pending_property_changes.append_array(_capture_property_change(occluder_polygon, "cull_mode", int(params.get("cull_mode"))))
 
-	var profile_name: String = String(params.get("profile_name", "")).strip_edges()
+	var profile_name: String = str(params.get("profile_name", "")).strip_edges()
 	if not profile_name.is_empty():
 		pending_meta_changes.append_array(_capture_meta_change(occluder_node, "mcp_light_occluder_profile", profile_name))
 	pending_meta_changes.append_array(_capture_meta_change(occluder_node, "mcp_light_occluder_last_edit_command", "edit_light_occluder_polygon_2d"))
@@ -8830,9 +9133,9 @@ func _edit_light_occluder_polygon_2d(client_id: int, params: Dictionary, command
 
 
 func _build_subviewport_minimap(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var minimap_name: String = String(params.get("minimap_name", "MiniMap")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var minimap_name: String = str(params.get("minimap_name", "MiniMap")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if minimap_name.is_empty():
 		minimap_name = "MiniMap"
 
@@ -8841,7 +9144,7 @@ func _build_subviewport_minimap(client_id: int, params: Dictionary, command_id: 
 	panel_size.y = max(64.0, panel_size.y)
 	var panel_size_i := Vector2i(int(round(panel_size.x)), int(round(panel_size.y)))
 	var margin: float = max(0.0, float(params.get("margin", 16.0)))
-	var anchor_mode: String = String(params.get("anchor", "top_right")).strip_edges().to_lower()
+	var anchor_mode: String = str(params.get("anchor", "top_right")).strip_edges().to_lower()
 	if anchor_mode != "top_left" and anchor_mode != "top_right" and anchor_mode != "bottom_left" and anchor_mode != "bottom_right":
 		return _send_error(client_id, "anchor must be one of top_left, top_right, bottom_left, bottom_right", command_id)
 
@@ -8857,10 +9160,10 @@ func _build_subviewport_minimap(client_id: int, params: Dictionary, command_id: 
 	if not parent:
 		return _send_error(client_id, "Parent node not found: %s" % parent_path, command_id)
 
-	var target_path: String = String(params.get("target_path", "")).strip_edges()
+	var target_path: String = str(params.get("target_path", "")).strip_edges()
 	var target_node = _get_editor_node(target_path) if not target_path.is_empty() else null
 
-	var requested_mode: String = String(params.get("mode", "auto")).strip_edges().to_lower()
+	var requested_mode: String = str(params.get("mode", "auto")).strip_edges().to_lower()
 	var resolved_mode: String = requested_mode
 	if resolved_mode == "auto":
 		if target_node and target_node is Node3D:
@@ -9004,7 +9307,7 @@ func _build_subviewport_minimap(client_id: int, params: Dictionary, command_id: 
 		"viewport_path": _join_mcp_path(predicted_minimap_path, "%s/%s/%s/%s" % [ui_root.name, frame.name, viewport_container.name, minimap_viewport.name]),
 	}
 	if camera_node:
-		predicted_paths["camera_path"] = _join_mcp_path(String(predicted_paths["viewport_path"]), String(camera_node.name))
+		predicted_paths["camera_path"] = _join_mcp_path(str(predicted_paths["viewport_path"]), str(camera_node.name))
 
 	var transaction_metadata := {
 		"command": "build_subviewport_minimap",
@@ -9085,15 +9388,15 @@ func _build_subviewport_minimap(client_id: int, params: Dictionary, command_id: 
 
 
 func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var weather_name: String = String(params.get("weather_name", "WeatherSystem2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var weather_name: String = str(params.get("weather_name", "WeatherSystem2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 	var area_size: Vector2 = _parse_vector2_param(params.get("area_size", Vector2(1280.0, 720.0)))
 	if area_size.x <= 0.0 or area_size.y <= 0.0:
 		return _send_error(client_id, "area_size must be greater than zero on both axes", command_id)
 
-	var requested_preset: String = String(params.get("preset", "rain")).strip_edges()
+	var requested_preset: String = str(params.get("preset", "rain")).strip_edges()
 	var normalized_preset: String = _mcp_normalize_weather_preset_2d(requested_preset)
 	if normalized_preset.is_empty():
 		return _send_error(client_id, "Unsupported weather preset: %s" % requested_preset, command_id)
@@ -9118,22 +9421,27 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 	if not enable_precipitation and not enable_fog and not enable_ambient_modulate and not enable_lightning_overlay:
 		return _send_error(client_id, "Enable at least one weather subsystem", command_id)
 
-	var precipitation_mode: String = String(params.get("precipitation_mode", String(preset_profile.get("precipitation_mode", "none")))).strip_edges().to_lower()
+	var precipitation_mode: String = str(params.get("precipitation_mode", str(preset_profile.get("precipitation_mode", "none")))).strip_edges().to_lower()
 	if not _mcp_is_valid_weather_precipitation_mode_2d(precipitation_mode):
-		precipitation_mode = String(preset_profile.get("precipitation_mode", "none"))
+		precipitation_mode = str(preset_profile.get("precipitation_mode", "none"))
+	# A precipitation_mode unlike the preset's (ash on a snow preset) takes its particle look from the
+	# preset that uses that mode; the override used to keep the snow color and gravity.
+	var look_profile: Dictionary = preset_profile
+	if precipitation_mode != str(preset_profile.get("precipitation_mode", "none")) and precipitation_mode in ["rain", "snow", "ash"]:
+		look_profile = _mcp_weather_profile_2d(precipitation_mode)
 	var precipitation_intensity_scale: float = clampf(
 		float(params.get("precipitation_intensity_scale", float(preset_profile.get("precipitation_intensity", 1.0)))),
 		0.0,
 		2.0
 	)
 	var max_particles: int = clampi(int(params.get("max_particles", 2200)), 0, 50000)
-	var particle_lifetime: float = max(0.05, float(params.get("particle_lifetime", float(preset_profile.get("particle_lifetime", 1.8)))))
-	var particle_speed_min: float = max(0.0, float(params.get("particle_speed_min", float(preset_profile.get("particle_speed_min", 260.0)))))
-	var particle_speed_max: float = max(particle_speed_min, float(params.get("particle_speed_max", float(preset_profile.get("particle_speed_max", 560.0)))))
-	var spread_degrees: float = clampf(float(params.get("spread_degrees", float(preset_profile.get("spread_degrees", 4.0)))), 0.0, 180.0)
-	var gravity_strength: float = max(0.0, float(params.get("gravity_strength", float(preset_profile.get("gravity_strength", 980.0)))))
-	var particle_scale_min: Vector2 = _parse_vector2_param(params.get("particle_scale_min", preset_profile.get("particle_scale_min", Vector2(0.7, 5.2))))
-	var particle_scale_max: Vector2 = _parse_vector2_param(params.get("particle_scale_max", preset_profile.get("particle_scale_max", Vector2(1.2, 12.0))))
+	var particle_lifetime: float = max(0.05, float(params.get("particle_lifetime", float(look_profile.get("particle_lifetime", 1.8)))))
+	var particle_speed_min: float = max(0.0, float(params.get("particle_speed_min", float(look_profile.get("particle_speed_min", 260.0)))))
+	var particle_speed_max: float = max(particle_speed_min, float(params.get("particle_speed_max", float(look_profile.get("particle_speed_max", 560.0)))))
+	var spread_degrees: float = clampf(float(params.get("spread_degrees", float(look_profile.get("spread_degrees", 4.0)))), 0.0, 180.0)
+	var gravity_strength: float = max(0.0, float(params.get("gravity_strength", float(look_profile.get("gravity_strength", 980.0)))))
+	var particle_scale_min: Vector2 = _parse_vector2_param(params.get("particle_scale_min", look_profile.get("particle_scale_min", Vector2(0.7, 5.2))))
+	var particle_scale_max: Vector2 = _parse_vector2_param(params.get("particle_scale_max", look_profile.get("particle_scale_max", Vector2(1.2, 12.0))))
 	particle_scale_min.x = max(0.01, particle_scale_min.x)
 	particle_scale_min.y = max(0.01, particle_scale_min.y)
 	particle_scale_max.x = max(particle_scale_min.x, particle_scale_max.x)
@@ -9146,9 +9454,9 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 	var ambient_color = _coerce_color(params.get("ambient_color", preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))))
 	if ambient_color == null:
 		ambient_color = preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
-	var precipitation_color = _coerce_color(params.get("precipitation_color", preset_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))))
+	var precipitation_color = _coerce_color(params.get("precipitation_color", look_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))))
 	if precipitation_color == null:
-		precipitation_color = preset_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))
+		precipitation_color = look_profile.get("precipitation_color", Color(0.86, 0.9, 1.0, 0.92))
 
 	var lightning_enabled: bool = bool(params.get("lightning_enabled", bool(preset_profile.get("lightning_enabled", false))))
 	var lightning_chance: float = clampf(float(params.get("lightning_chance", float(preset_profile.get("lightning_chance", 0.0)))), 0.0, 1.0)
@@ -9284,7 +9592,7 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 	_configure_control_full_rect(effects_root)
 	effects_layer.add_child(effects_root)
 	created_nodes.append(effects_root)
-	predicted_paths["screen_effects_root_path"] = _join_mcp_path(String(predicted_paths["screen_effects_layer_path"]), effects_root.name)
+	predicted_paths["screen_effects_root_path"] = _join_mcp_path(str(predicted_paths["screen_effects_layer_path"]), effects_root.name)
 
 	var fog_overlay = null
 	if enable_fog:
@@ -9294,10 +9602,10 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 		fog_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var fog_color_with_alpha: Color = fog_color
 		fog_color_with_alpha.a = clampf(fog_density * intensity, 0.0, 0.95)
-		fog_overlay.color = _convert_property_value(fog_overlay, "color", fog_color_with_alpha)
+		_assign_converted(fog_overlay, "color", fog_color_with_alpha)
 		effects_root.add_child(fog_overlay)
 		created_nodes.append(fog_overlay)
-		predicted_paths["fog_overlay_path"] = _join_mcp_path(String(predicted_paths["screen_effects_root_path"]), fog_overlay.name)
+		predicted_paths["fog_overlay_path"] = _join_mcp_path(str(predicted_paths["screen_effects_root_path"]), fog_overlay.name)
 
 	var lightning_overlay = null
 	if enable_lightning_overlay:
@@ -9307,11 +9615,11 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 		lightning_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var flash_color: Color = lightning_color
 		flash_color.a = 0.0
-		lightning_overlay.color = _convert_property_value(lightning_overlay, "color", flash_color)
+		_assign_converted(lightning_overlay, "color", flash_color)
 		lightning_overlay.visible = lightning_enabled
 		effects_root.add_child(lightning_overlay)
 		created_nodes.append(lightning_overlay)
-		predicted_paths["lightning_overlay_path"] = _join_mcp_path(String(predicted_paths["screen_effects_root_path"]), lightning_overlay.name)
+		predicted_paths["lightning_overlay_path"] = _join_mcp_path(str(predicted_paths["screen_effects_root_path"]), lightning_overlay.name)
 
 	var ambient_modulate = null
 	if enable_ambient_modulate:
@@ -9429,7 +9737,7 @@ func _build_weather_system_2d(client_id: int, params: Dictionary, command_id: St
 
 func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var water_name: String = String(params.get("water_name", "Water2D")).strip_edges()
+	var water_name: String = str(params.get("water_name", "Water2D")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var position: Vector2 = _parse_vector2_param(params.get("position", Vector2.ZERO))
 	var size: Vector2 = _parse_vector2_param(params.get("size", Vector2(640.0, 160.0)))
@@ -9441,8 +9749,9 @@ func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String
 		water_name = "Water2D"
 	if size.x <= 0.0 or size.y <= 0.0:
 		return _send_error(client_id, "size must be greater than zero on both axes", command_id)
-	if create_collision and not create_area:
-		create_area = true
+	# The collision shape lives on the water area; create_area false used to be overridden.
+	if not create_area:
+		create_collision = false
 
 	var plugin = Engine.get_meta("GodotMCPPlugin")
 	if not plugin:
@@ -9511,7 +9820,7 @@ func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String
 			collision.position = size * 0.5
 			area.add_child(collision)
 			created_nodes.append(collision)
-			predicted_paths["collision_path"] = _join_mcp_path(String(predicted_paths["area_path"]), collision.name)
+			predicted_paths["collision_path"] = _join_mcp_path(str(predicted_paths["area_path"]), collision.name)
 
 	if create_visual:
 		var polygon := Polygon2D.new()
@@ -9522,7 +9831,7 @@ func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String
 			Vector2(size.x, size.y),
 			Vector2(0.0, size.y),
 		])
-		polygon.color = _convert_property_value(polygon, "color", params.get("color", Color(0.16, 0.42, 0.88, 0.55)))
+		_assign_converted(polygon, "color", params.get("color", Color(0.16, 0.42, 0.88, 0.55)))
 		water_root.add_child(polygon)
 		created_nodes.append(polygon)
 		predicted_paths["visual_path"] = _join_mcp_path(predicted_water_path, polygon.name)
@@ -9619,7 +9928,7 @@ func _build_water_body_2d(client_id: int, params: Dictionary, command_id: String
 
 func _build_water_body_3d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var water_name: String = String(params.get("water_name", "Water3D")).strip_edges()
+	var water_name: String = str(params.get("water_name", "Water3D")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var position: Vector3 = _parse_vector3_param(params.get("position", Vector3.ZERO))
 	var size_2d: Vector2 = _parse_vector2_param(params.get("size", Vector2(12.0, 12.0)))
@@ -9692,12 +10001,12 @@ func _build_water_body_3d(client_id: int, params: Dictionary, command_id: String
 		var material := StandardMaterial3D.new()
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		material.albedo_color = _convert_property_value(material, "albedo_color", params.get("surface_color", Color(0.1, 0.35, 0.7, 0.55)))
+		_assign_converted(material, "albedo_color", params.get("surface_color", Color(0.1, 0.35, 0.7, 0.55)))
 		material.roughness = clampf(float(params.get("roughness", 0.08)), 0.0, 1.0)
 		material.metallic = clampf(float(params.get("metallic", 0.0)), 0.0, 1.0)
 		if params.has("emission_color"):
 			material.emission_enabled = true
-			material.emission = _convert_property_value(material, "emission", params.get("emission_color"))
+			_assign_converted(material, "emission", params.get("emission_color"))
 			material.emission_energy_multiplier = max(0.0, float(params.get("emission_energy", 0.25)))
 		mesh_instance.set_surface_override_material(0, material)
 
@@ -9727,7 +10036,7 @@ func _build_water_body_3d(client_id: int, params: Dictionary, command_id: String
 			collision.position = Vector3(0.0, -depth * 0.5, 0.0)
 			area.add_child(collision)
 			created_nodes.append(collision)
-			predicted_paths["collision_path"] = _join_mcp_path(String(predicted_paths["area_path"]), collision.name)
+			predicted_paths["collision_path"] = _join_mcp_path(str(predicted_paths["area_path"]), collision.name)
 
 	var transaction_metadata := {
 		"command": "build_water_body_3d",
@@ -9824,7 +10133,7 @@ func _build_water_body_3d(client_id: int, params: Dictionary, command_id: String
 
 func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var field_name: String = String(params.get("field_name", "SandField3D")).strip_edges()
+	var field_name: String = str(params.get("field_name", "SandField3D")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var origin: Vector3 = _parse_vector3_param(params.get("origin", Vector3.ZERO))
 	var size: Vector3 = _parse_vector3_param(params.get("size", Vector3(8.0, 3.0, 8.0)))
@@ -9867,10 +10176,10 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 	var cohesion: float = max(0.0, float(params.get("cohesion", 0.18)))
 	var stiffness: float = max(0.0, float(params.get("stiffness", 1500.0)))
 	var bulk_density: float = max(0.0, float(params.get("bulk_density", 1600.0)))
-	var profile_name: String = String(params.get("profile_name", "homogenized_sand")).strip_edges()
+	var profile_name: String = str(params.get("profile_name", "homogenized_sand")).strip_edges()
 	if profile_name.is_empty():
 		profile_name = "homogenized_sand"
-	var source_reference: String = String(params.get("source_reference", "numerical_homogenization_granular")).strip_edges()
+	var source_reference: String = str(params.get("source_reference", "numerical_homogenization_granular")).strip_edges()
 	if source_reference.is_empty():
 		source_reference = "numerical_homogenization_granular"
 
@@ -9894,6 +10203,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 	predicted_paths["field_path"] = predicted_field_path
 
 	var grain_count := 0
+	var grid_points := 0
 	if create_visual:
 		var grains_node := MultiMeshInstance3D.new()
 		grains_node.name = _resolve_unique_child_name(field_root, "SandGrains")
@@ -9901,29 +10211,30 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		var nx := max(1, int(floor(size.x / grain_spacing)) + 1)
 		var ny := max(1, int(floor(size.y / grain_spacing)) + 1)
 		var nz := max(1, int(floor(size.z / grain_spacing)) + 1)
+		grid_points = nx * ny * nz
+		field_root.set_meta("mcp_grid_points", grid_points)
 		var transforms: Array = []
-		for y_idx in range(ny):
-			for z_idx in range(nz):
-				for x_idx in range(nx):
-					if transforms.size() >= max_grains:
-						break
-					var point := Vector3(
-						-size.x * 0.5 + float(x_idx) * grain_spacing,
-						-size.y * 0.5 + float(y_idx) * grain_spacing,
-						-size.z * 0.5 + float(z_idx) * grain_spacing
-					)
-					if jitter > 0.0:
-						point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
-						point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
-						point.z = clampf(point.z + rng.randf_range(-jitter, jitter), -size.z * 0.5, size.z * 0.5)
-					var basis := Basis.IDENTITY
-					if random_yaw:
-						basis = basis.rotated(Vector3.UP, deg_to_rad(rng.randf_range(-180.0, 180.0)))
-					transforms.append(Transform3D(basis, point))
-				if transforms.size() >= max_grains:
-					break
-			if transforms.size() >= max_grains:
-				break
+		# When max_grains caps the grid, take every n-th grid point so the whole field is covered;
+		# stopping at the cap filled the bottom layers and left the top half empty.
+		var take := mini(grid_points, max_grains)
+		for i in range(take):
+			var grid_index := int(float(i) * grid_points / take)
+			var x_idx: int = grid_index % nx
+			var z_idx: int = (grid_index / nx) % nz
+			var y_idx: int = grid_index / (nx * nz)
+			var point := Vector3(
+				-size.x * 0.5 + float(x_idx) * grain_spacing,
+				-size.y * 0.5 + float(y_idx) * grain_spacing,
+				-size.z * 0.5 + float(z_idx) * grain_spacing
+			)
+			if jitter > 0.0:
+				point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
+				point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
+				point.z = clampf(point.z + rng.randf_range(-jitter, jitter), -size.z * 0.5, size.z * 0.5)
+			var basis := Basis.IDENTITY
+			if random_yaw:
+				basis = basis.rotated(Vector3.UP, deg_to_rad(rng.randf_range(-180.0, 180.0)))
+			transforms.append(Transform3D(basis, point))
 
 		grain_count = transforms.size()
 		if grain_count <= 0:
@@ -9940,13 +10251,12 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		sphere_mesh.height = grain_radius * 2.0
 		multimesh.mesh = sphere_mesh
 
-		for idx in range(grain_count):
-			multimesh.set_instance_transform(idx, transforms[idx])
+		multimesh.buffer = _multimesh_buffer_3d(transforms)
 
 		grains_node.multimesh = multimesh
 
 		var material := StandardMaterial3D.new()
-		material.albedo_color = _convert_property_value(material, "albedo_color", params.get("grain_color", Color(0.76, 0.68, 0.48, 1.0)))
+		_assign_converted(material, "albedo_color", params.get("grain_color", Color(0.76, 0.68, 0.48, 1.0)))
 		material.roughness = clampf(float(params.get("grain_roughness", 0.85)), 0.0, 1.0)
 		material.metallic = clampf(float(params.get("grain_metallic", 0.0)), 0.0, 1.0)
 		grains_node.material_override = material
@@ -9976,7 +10286,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		created_nodes.append(area)
 		created_nodes.append(collision)
 		predicted_paths["volume_area_path"] = _join_mcp_path(predicted_field_path, area.name)
-		predicted_paths["collision_path"] = _join_mcp_path(String(predicted_paths["volume_area_path"]), collision.name)
+		predicted_paths["collision_path"] = _join_mcp_path(str(predicted_paths["volume_area_path"]), collision.name)
 
 	field_root.set_meta("mcp_grain_count", grain_count)
 
@@ -9985,6 +10295,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		"parent_path": parent_mcp_path,
 		"field_name": field_root.name,
 		"grain_count": grain_count,
+		"grid_points": grid_points,
 		"grain_spacing": grain_spacing,
 		"seed": seed_value,
 		"create_visual": create_visual,
@@ -10018,6 +10329,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 			"field_path": _to_mcp_path(field_root),
 			"parent_path": parent_mcp_path,
 			"grain_count": grain_count,
+		"grid_points": grid_points,
 			"grain_spacing": grain_spacing,
 			"seed": seed_value,
 			"create_visual": create_visual,
@@ -10035,6 +10347,7 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 		"origin": _vector3_to_dict(origin),
 		"size": _vector3_to_dict(size),
 		"grain_count": grain_count,
+		"grid_points": grid_points,
 		"grain_spacing": grain_spacing,
 		"grain_radius": grain_radius,
 		"seed": seed_value,
@@ -10074,9 +10387,9 @@ func _build_sand_field_3d(client_id: int, params: Dictionary, command_id: String
 
 
 func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var cave_name: String = String(params.get("cave_name", "Cave2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var cave_name: String = str(params.get("cave_name", "Cave2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 
 	var grid_size_result := _parse_vector2i_with_default(params.get("grid_size", null), Vector2i(48, 28))
@@ -10232,7 +10545,7 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 			Vector2(-half_width, half_height),
 		])
 		background_node.z_index = -1
-		background_node.color = _convert_property_value(
+		_assign_converted(
 			background_node,
 			"color",
 			params.get("background_color", Color(0.12, 0.11, 0.09, 0.9))
@@ -10269,13 +10582,15 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 				var center_y: float = (float(y) + 0.5 - grid_half_y) * cell_size.y
 				var segment_position := Vector2(center_x, center_y)
 
-				var wall_body := StaticBody2D.new()
+				# Without collision a wall is plain art: a StaticBody2D with no shape is a body that collides
+				# with nothing.
+				var wall_body = StaticBody2D.new() if create_collision else Node2D.new()
 				wall_segment_count += 1
 				wall_body.name = "WallSegment%04d" % wall_segment_count
 				wall_body.position = segment_position
-				if collision_layer_value != null:
+				if collision_layer_value != null and create_collision:
 					wall_body.collision_layer = int(collision_layer_value)
-				if collision_mask_value != null:
+				if collision_mask_value != null and create_collision:
 					wall_body.collision_mask = int(collision_mask_value)
 
 				if create_collision:
@@ -10297,7 +10612,7 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 						Vector2(half.x, half.y),
 						Vector2(-half.x, half.y),
 					])
-					polygon.color = _convert_property_value(polygon, "color", wall_color_value)
+					_assign_converted(polygon, "color", wall_color_value)
 					wall_body.add_child(polygon)
 					created_nodes.append(polygon)
 
@@ -10306,7 +10621,7 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 
 				if wall_segment_preview.size() < 64:
 					wall_segment_preview.append({
-						"path": _join_mcp_path(String(predicted_paths["walls_path"]), wall_body.name),
+						"path": _join_mcp_path(str(predicted_paths["walls_path"]), wall_body.name),
 						"row": y,
 						"start_column": run_start,
 						"run_length": run_length,
@@ -10437,7 +10752,7 @@ func _build_cave_2d(client_id: int, params: Dictionary, command_id: String) -> v
 
 func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var field_name: String = String(params.get("field_name", "SandField2D")).strip_edges()
+	var field_name: String = str(params.get("field_name", "SandField2D")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 	var size: Vector2 = _parse_vector2_param(params.get("size", Vector2(960.0, 320.0)))
@@ -10482,10 +10797,10 @@ func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String
 	var cohesion: float = max(0.0, float(params.get("cohesion", 0.18)))
 	var stiffness: float = max(0.0, float(params.get("stiffness", 1300.0)))
 	var bulk_density: float = max(0.0, float(params.get("bulk_density", 1600.0)))
-	var profile_name: String = String(params.get("profile_name", "homogenized_sand_2d")).strip_edges()
+	var profile_name: String = str(params.get("profile_name", "homogenized_sand_2d")).strip_edges()
 	if profile_name.is_empty():
 		profile_name = "homogenized_sand_2d"
-	var source_reference: String = String(params.get("source_reference", "homogenized_granular_2d")).strip_edges()
+	var source_reference: String = str(params.get("source_reference", "homogenized_granular_2d")).strip_edges()
 	if source_reference.is_empty():
 		source_reference = "homogenized_granular_2d"
 
@@ -10522,31 +10837,31 @@ func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String
 			var angle := TAU * float(point_idx) / float(grain_segments)
 			grain_polygon_template.append(Vector2(cos(angle), sin(angle)) * grain_radius)
 
-		for y_idx in range(ny):
-			for x_idx in range(nx):
-				if grain_count >= max_grains:
-					break
-				var point := Vector2(
-					-size.x * 0.5 + float(x_idx) * grain_spacing,
-					-size.y * 0.5 + float(y_idx) * grain_spacing
-				)
-				if jitter > 0.0:
-					point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
-					point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
+		# When max_grains caps the grid, take every n-th grid point so grains cover the whole field;
+		# stopping at the cap filled the first rows and left the rest empty.
+		var grid_points: int = nx * ny
+		var take := mini(grid_points, max_grains)
+		for i in range(take):
+			var grid_index := int(float(i) * grid_points / take)
+			var point := Vector2(
+				-size.x * 0.5 + float(grid_index % nx) * grain_spacing,
+				-size.y * 0.5 + float(grid_index / nx) * grain_spacing
+			)
+			if jitter > 0.0:
+				point.x = clampf(point.x + rng.randf_range(-jitter, jitter), -size.x * 0.5, size.x * 0.5)
+				point.y = clampf(point.y + rng.randf_range(-jitter, jitter), -size.y * 0.5, size.y * 0.5)
 
-				var grain := Polygon2D.new()
-				grain.name = "Grain%04d" % (grain_count + 1)
-				grain.polygon = grain_polygon_template
-				grain.position = point
-				if random_rotation:
-					grain.rotation = deg_to_rad(rng.randf_range(-180.0, 180.0))
-				grain.color = _convert_property_value(grain, "color", grain_color_value)
+			var grain := Polygon2D.new()
+			grain.name = "Grain%04d" % (grain_count + 1)
+			grain.polygon = grain_polygon_template
+			grain.position = point
+			if random_rotation:
+				grain.rotation = deg_to_rad(rng.randf_range(-180.0, 180.0))
+			_assign_converted(grain, "color", grain_color_value)
 
-				grains_container.add_child(grain)
-				created_nodes.append(grain)
-				grain_count += 1
-			if grain_count >= max_grains:
-				break
+			grains_container.add_child(grain)
+			created_nodes.append(grain)
+			grain_count += 1
 
 		if grain_count <= 0:
 			return _send_error(client_id, "Failed to generate any 2D grains with requested parameters", command_id)
@@ -10576,7 +10891,7 @@ func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String
 		created_nodes.append(area)
 		created_nodes.append(collision)
 		predicted_paths["volume_area_path"] = _join_mcp_path(predicted_field_path, area.name)
-		predicted_paths["collision_path"] = _join_mcp_path(String(predicted_paths["volume_area_path"]), collision.name)
+		predicted_paths["collision_path"] = _join_mcp_path(str(predicted_paths["volume_area_path"]), collision.name)
 
 	field_root.set_meta("mcp_grain_count", grain_count)
 
@@ -10672,14 +10987,16 @@ func _build_sand_field_2d(client_id: int, params: Dictionary, command_id: String
 
 
 func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var level_name: String = String(params.get("level_name", "PlatformerBlockout2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var level_name: String = str(params.get("level_name", "PlatformerBlockout2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 
 	var segment_count: int = clampi(int(params.get("segment_count", 18)), 1, 512)
 	var min_platform_width: float = max(8.0, float(params.get("min_platform_width", 96.0)))
 	var max_platform_width: float = max(min_platform_width, float(params.get("max_platform_width", 224.0)))
+	if float(params.get("max_platform_width", 224.0)) < float(params.get("min_platform_width", 96.0)):
+		return _send_error(client_id, "min_platform_width (%s) must not exceed max_platform_width (%s)" % [params.get("min_platform_width", 96.0), params.get("max_platform_width", 224.0)], command_id)
 	var platform_height: float = max(4.0, float(params.get("platform_height", 32.0)))
 	var min_gap: float = max(0.0, float(params.get("min_gap", 36.0)))
 	var max_gap: float = max(min_gap, float(params.get("max_gap", 132.0)))
@@ -10765,7 +11082,13 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 
 	for idx in range(segment_count):
 		if idx > 0:
-			current_y = clampf(current_y + rng.randf_range(min_height_step, max_height_step), min_y, max_y)
+			current_y += rng.randf_range(min_height_step, max_height_step)
+			# Bounce off the limits; clamping parked long runs of platforms flat on min_y or max_y.
+			if current_y < min_y:
+				current_y = min_y + (min_y - current_y)
+			elif current_y > max_y:
+				current_y = max_y - (current_y - max_y)
+			current_y = clampf(current_y, min_y, max_y)
 		var platform_width := rng.randf_range(min_platform_width, max_platform_width)
 		var center := Vector2(x_cursor + platform_width * 0.5, current_y)
 
@@ -10796,7 +11119,7 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 				Vector2(half.x, half.y),
 				Vector2(-half.x, half.y),
 			])
-			polygon.color = _convert_property_value(polygon, "color", platform_color_value)
+			_assign_converted(polygon, "color", platform_color_value)
 			platform_body.add_child(polygon)
 			created_nodes.append(polygon)
 
@@ -10811,7 +11134,7 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 
 		if platform_preview.size() < 64:
 			platform_preview.append({
-				"path": _join_mcp_path(String(predicted_paths["platforms_path"]), platform_body.name),
+				"path": _join_mcp_path(str(predicted_paths["platforms_path"]), platform_body.name),
 				"index": idx,
 				"position": _vector2_to_dict(center),
 				"size": _vector2_to_dict(Vector2(platform_width, platform_height)),
@@ -10934,9 +11257,9 @@ func _generate_platformer_blockout_2d(client_id: int, params: Dictionary, comman
 
 
 func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var dungeon_name: String = String(params.get("dungeon_name", "TopdownDungeon2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var dungeon_name: String = str(params.get("dungeon_name", "TopdownDungeon2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 
 	var grid_size_result := _parse_vector2i_with_default(params.get("grid_size", null), Vector2i(64, 64))
@@ -11222,7 +11545,7 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 						Vector2(floor_half.x, floor_half.y),
 						Vector2(-floor_half.x, floor_half.y),
 					])
-					floor_poly.color = _convert_property_value(floor_poly, "color", floor_color_value)
+					_assign_converted(floor_poly, "color", floor_color_value)
 					floor_container.add_child(floor_poly)
 					created_nodes.append(floor_poly)
 				floor_run_start = -1
@@ -11241,13 +11564,15 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 					(float(y) + 0.5 - grid_half_y) * cell_size.y
 				)
 
-				var wall_body := StaticBody2D.new()
+				# Without collision a wall is plain art: a StaticBody2D with no shape is a body that collides
+				# with nothing.
+				var wall_body = StaticBody2D.new() if create_wall_collision else Node2D.new()
 				wall_segment_count += 1
 				wall_body.name = "WallSegment%04d" % wall_segment_count
 				wall_body.position = wall_center
-				if collision_layer_value != null:
+				if collision_layer_value != null and create_wall_collision:
 					wall_body.collision_layer = int(collision_layer_value)
-				if collision_mask_value != null:
+				if collision_mask_value != null and create_wall_collision:
 					wall_body.collision_mask = int(collision_mask_value)
 
 				if create_wall_collision:
@@ -11269,7 +11594,7 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 						Vector2(wall_half.x, wall_half.y),
 						Vector2(-wall_half.x, wall_half.y),
 					])
-					polygon.color = _convert_property_value(polygon, "color", wall_color_value)
+					_assign_converted(polygon, "color", wall_color_value)
 					wall_body.add_child(polygon)
 					created_nodes.append(polygon)
 
@@ -11421,9 +11746,9 @@ func _generate_topdown_dungeon_2d(client_id: int, params: Dictionary, command_id
 
 
 func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var level_name: String = String(params.get("level_name", "IsometricTileBlockout2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var level_name: String = str(params.get("level_name", "IsometricTileBlockout2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 
 	var grid_size_result := _parse_vector2i_with_default(params.get("grid_size", null), Vector2i(16, 16))
@@ -11533,10 +11858,20 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 	var max_generated_height := -2147483648
 	var height_sum := 0.0
 
+	# Simplex noise rarely nears -1 or 1, so min_height and max_height never appeared (0..4 gave 1..3);
+	# stretch the grid's own noise range over the requested heights.
+	var noise_min := INF
+	var noise_max := -INF
+	for sample_y in range(grid_size.y):
+		for sample_x in range(grid_size.x):
+			var sample := noise.get_noise_2d(float(sample_x) + sample_offset.x, float(sample_y) + sample_offset.y)
+			noise_min = minf(noise_min, sample)
+			noise_max = maxf(noise_max, sample)
+	var noise_span := maxf(noise_max - noise_min, 0.00001)
 	for y in range(grid_size.y):
 		for x in range(grid_size.x):
 			var noise_value := noise.get_noise_2d(float(x) + sample_offset.x, float(y) + sample_offset.y)
-			var normalized := clampf((noise_value + 1.0) * 0.5, 0.0, 1.0)
+			var normalized := clampf((noise_value - noise_min) / noise_span, 0.0, 1.0)
 			var height := int(round(lerpf(float(min_height), float(max_height), normalized)))
 			min_generated_height = min(min_generated_height, height)
 			max_generated_height = max(max_generated_height, height)
@@ -11564,7 +11899,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 				color_value = color_value.lerp(Color.WHITE, t * height_tint_strength)
 				top_face.color = color_value
 			else:
-				top_face.color = top_face_color
+				_assign_converted(top_face, "color", top_face_color)
 			tile_node.add_child(top_face)
 			created_nodes.append(top_face)
 
@@ -11578,7 +11913,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 					Vector2(0.0, half_h + depth),
 					Vector2(-half_w, depth),
 				])
-				left_face.color = _convert_property_value(left_face, "color", left_color_value)
+				_assign_converted(left_face, "color", left_color_value)
 				tile_node.add_child(left_face)
 				created_nodes.append(left_face)
 
@@ -11590,7 +11925,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 					Vector2(half_w, depth),
 					Vector2(0.0, half_h + depth),
 				])
-				right_face.color = _convert_property_value(right_face, "color", right_color_value)
+				_assign_converted(right_face, "color", right_color_value)
 				tile_node.add_child(right_face)
 				created_nodes.append(right_face)
 
@@ -11614,7 +11949,7 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 
 			if preview_tiles.size() < 64:
 				preview_tiles.append({
-					"path": _join_mcp_path(String(predicted_paths["tiles_path"]), tile_node.name),
+					"path": _join_mcp_path(str(predicted_paths["tiles_path"]), tile_node.name),
 					"coords": _vector2i_to_dict(Vector2i(x, y)),
 					"height": height,
 					"position": _vector2_to_dict(tile_position),
@@ -11709,9 +12044,9 @@ func _generate_isometric_tile_blockout_2d(client_id: int, params: Dictionary, co
 
 
 func _generate_tentacle_waypoints_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var tentacle_name: String = String(params.get("tentacle_name", "Tentacle2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var tentacle_name: String = str(params.get("tentacle_name", "Tentacle2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 
 	var waypoint_count: int = clampi(int(params.get("waypoint_count", 8)), 2, 256)
@@ -11778,10 +12113,15 @@ func _generate_tentacle_waypoints_2d(client_id: int, params: Dictionary, command
 	var total_length := 0.0
 	var previous_point := Vector2.ZERO
 
+	# The seed picks the wave's phase and strength; before, it only nudged points by 1-3 px. The
+	# ramp keeps the root at the origin whatever the phase.
+	var phase_offset := rng.randf_range(0.0, TAU)
+	var amplitude_scale := rng.randf_range(0.7, 1.3)
 	for idx in range(waypoint_count):
 		var t := float(idx) / float(max(1, waypoint_count - 1))
 		var base := Vector2(float(idx) * segment_length, 0.0)
-		var wave := sin(t * TAU * wave_count + rng.randf_range(-0.12, 0.12)) * lateral_amplitude * (1.0 - t * 0.35)
+		var root_ramp := smoothstep(0.0, 0.25, t)
+		var wave := sin(t * TAU * wave_count + phase_offset + rng.randf_range(-0.12, 0.12)) * lateral_amplitude * amplitude_scale * (1.0 - t * 0.35) * root_ramp
 		var jitter := rng.randf_range(-random_jitter, random_jitter)
 		var local_point := Vector2(base.x, wave + jitter).rotated(direction_angle)
 		points.append(local_point)
@@ -11805,7 +12145,7 @@ func _generate_tentacle_waypoints_2d(client_id: int, params: Dictionary, command
 		for point in points:
 			packed_points.append(point)
 		line_node.points = packed_points
-		line_node.default_color = _convert_property_value(
+		_assign_converted(
 			line_node,
 			"default_color",
 			params.get("line_color", Color(0.74, 0.2, 0.46, 0.95))
@@ -11949,9 +12289,9 @@ func _generate_tentacle_waypoints_2d(client_id: int, params: Dictionary, command
 
 
 func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var creature_name: String = String(params.get("creature_name", "CreatureParts2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var creature_name: String = str(params.get("creature_name", "CreatureParts2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 	var creature_scale: float = max(0.05, float(params.get("scale", 1.0)))
 
@@ -12006,11 +12346,12 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 
 	var part_specs: Array = [
 		{"name": "Body", "offset": Vector2(0.0, 0.0), "size": Vector2(120.0, 90.0), "accent": false, "shape": "rect"},
-		{"name": "Head", "offset": Vector2(0.0, -92.0), "size": Vector2(74.0, 62.0), "accent": false, "shape": "rect"},
-		{"name": "LeftArm", "offset": Vector2(-88.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
-		{"name": "RightArm", "offset": Vector2(88.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
-		{"name": "LeftLeg", "offset": Vector2(-34.0, 96.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
-		{"name": "RightLeg", "offset": Vector2(34.0, 96.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
+		# Parts overlap the body by a few pixels; the head, arms and legs used to float 8-16 px away.
+		{"name": "Head", "offset": Vector2(0.0, -70.0), "size": Vector2(74.0, 62.0), "accent": false, "shape": "rect"},
+		{"name": "LeftArm", "offset": Vector2(-78.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
+		{"name": "RightArm", "offset": Vector2(78.0, -12.0), "size": Vector2(40.0, 78.0), "accent": false, "shape": "rect"},
+		{"name": "LeftLeg", "offset": Vector2(-34.0, 84.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
+		{"name": "RightLeg", "offset": Vector2(34.0, 84.0), "size": Vector2(44.0, 86.0), "accent": false, "shape": "rect"},
 	]
 	if include_tail:
 		part_specs.append({"name": "Tail", "offset": Vector2(0.0, 72.0), "size": Vector2(34.0, 96.0), "accent": true, "shape": "diamond"})
@@ -12018,16 +12359,16 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 		part_specs.append({"name": "LeftWing", "offset": Vector2(-122.0, -36.0), "size": Vector2(86.0, 108.0), "accent": true, "shape": "diamond"})
 		part_specs.append({"name": "RightWing", "offset": Vector2(122.0, -36.0), "size": Vector2(86.0, 108.0), "accent": true, "shape": "diamond"})
 	if include_horns:
-		part_specs.append({"name": "LeftHorn", "offset": Vector2(-18.0, -140.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
-		part_specs.append({"name": "RightHorn", "offset": Vector2(18.0, -140.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
+		part_specs.append({"name": "LeftHorn", "offset": Vector2(-18.0, -117.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
+		part_specs.append({"name": "RightHorn", "offset": Vector2(18.0, -117.0), "size": Vector2(20.0, 36.0), "accent": true, "shape": "triangle"})
 
 	var parts_preview: Array = []
 	for part_data in part_specs:
 		var part: Dictionary = part_data
-		var part_name: String = String(part.get("name", "Part")).strip_edges()
+		var part_name: String = str(part.get("name", "Part")).strip_edges()
 		var part_offset: Vector2 = (part.get("offset", Vector2.ZERO) as Vector2) * creature_scale
 		var part_size: Vector2 = (part.get("size", Vector2(32.0, 32.0)) as Vector2) * creature_scale
-		var part_shape: String = String(part.get("shape", "rect"))
+		var part_shape: String = str(part.get("shape", "rect"))
 		var use_accent: bool = bool(part.get("accent", false))
 
 		var part_node := Node2D.new()
@@ -12059,7 +12400,7 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 					Vector2(half.x, half.y),
 					Vector2(-half.x, half.y),
 				])
-			polygon.color = _convert_property_value(polygon, "color", accent_color if use_accent else body_color)
+			_assign_converted(polygon, "color", accent_color if use_accent else body_color)
 			part_node.add_child(polygon)
 			created_nodes.append(polygon)
 
@@ -12093,7 +12434,7 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 		if parts_preview.size() < 64:
 			parts_preview.append({
 				"name": part_name,
-				"path": _join_mcp_path(String(predicted_paths["parts_path"]), part_name),
+				"path": _join_mcp_path(str(predicted_paths["parts_path"]), part_name),
 				"position": _vector2_to_dict(part_offset),
 				"size": _vector2_to_dict(part_size),
 			})
@@ -12172,9 +12513,9 @@ func _build_creature_parts_2d(client_id: int, params: Dictionary, command_id: St
 
 
 func _build_slime_mold_colony_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var parent_path: String = String(params.get("parent_path", "/root")).strip_edges()
-	var colony_name: String = String(params.get("colony_name", "SlimeMoldColony2D")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var parent_path: String = str(params.get("parent_path", "/root")).strip_edges()
+	var colony_name: String = str(params.get("colony_name", "SlimeMoldColony2D")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	var origin: Vector2 = _parse_vector2_param(params.get("origin", Vector2.ZERO))
 
 	var grid_size_result := _parse_vector2i_with_default(params.get("grid_size", null), Vector2i(48, 48))
@@ -12256,13 +12597,15 @@ func _build_slime_mold_colony_2d(client_id: int, params: Dictionary, command_id:
 	var occupied_lookup: Dictionary = {}
 	occupied_lookup[_mcp_grid_key_from_vec2i(center)] = true
 
+	# The starting square must hold initial_cell_count cells; a radius of 0 silently gave 1 cell.
+	var placement_radius: int = max(initial_radius, int(ceil((sqrt(float(initial_cell_count)) - 1.0) * 0.5)))
 	var attempts := 0
-	var max_attempts := max(initial_cell_count * 12, 16)
+	var max_attempts := max(initial_cell_count * 40, 64)
 	while occupied_lookup.size() < initial_cell_count and attempts < max_attempts:
 		attempts += 1
 		var offset := Vector2i(
-			rng.randi_range(-initial_radius, initial_radius),
-			rng.randi_range(-initial_radius, initial_radius)
+			rng.randi_range(-placement_radius, placement_radius),
+			rng.randi_range(-placement_radius, placement_radius)
 		)
 		var coords := center + offset
 		coords.x = clampi(coords.x, 0, grid_size.x - 1)
@@ -12272,7 +12615,7 @@ func _build_slime_mold_colony_2d(client_id: int, params: Dictionary, command_id:
 	var cell_preview: Array = []
 	var cell_index := 0
 	for key in occupied_lookup.keys():
-		var coords := _mcp_grid_key_to_vec2i(String(key))
+		var coords := _mcp_grid_key_to_vec2i(str(key))
 		var cell_node := _mcp_make_slime_cell_node_2d(
 			"Cell%04d" % (cell_index + 1),
 			coords,
@@ -12289,7 +12632,7 @@ func _build_slime_mold_colony_2d(client_id: int, params: Dictionary, command_id:
 		cell_index += 1
 		if cell_preview.size() < 64:
 			cell_preview.append({
-				"path": _join_mcp_path(String(predicted_paths["cells_path"]), cell_node.name),
+				"path": _join_mcp_path(str(predicted_paths["cells_path"]), cell_node.name),
 				"coords": _vector2i_to_dict(coords),
 				"position": _vector2_to_dict(cell_node.position),
 			})
@@ -12376,8 +12719,8 @@ func _build_slime_mold_colony_2d(client_id: int, params: Dictionary, command_id:
 
 
 func _simulate_slime_mold_growth_step_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var colony_path: String = String(params.get("colony_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var colony_path: String = str(params.get("colony_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if colony_path.is_empty():
 		return _send_error(client_id, "colony_path cannot be empty", command_id)
 
@@ -12388,7 +12731,7 @@ func _simulate_slime_mold_growth_step_2d(client_id: int, params: Dictionary, com
 		return _send_error(client_id, "Colony node at %s must inherit Node2D" % colony_path, command_id)
 	var colony: Node2D = colony_node
 
-	var cells_container_path: String = String(params.get("cells_path", "")).strip_edges()
+	var cells_container_path: String = str(params.get("cells_path", "")).strip_edges()
 	var cells_node = null
 	if cells_container_path.is_empty():
 		cells_node = colony.get_node_or_null("Cells")
@@ -12471,7 +12814,7 @@ func _simulate_slime_mold_growth_step_2d(client_id: int, params: Dictionary, com
 
 		var frontier_keys: Array = []
 		for key_value in occupied_lookup.keys():
-			var key_string: String = String(key_value)
+			var key_string: String = str(key_value)
 			var coords := _mcp_grid_key_to_vec2i(key_string)
 			var has_open_neighbor := false
 			for dir in all_dirs:
@@ -12499,7 +12842,7 @@ func _simulate_slime_mold_growth_step_2d(client_id: int, params: Dictionary, com
 		var max_attempts := max(32, frontier_keys.size() * all_dirs.size() * 4)
 		while step_added_lookup.size() < growth_budget and attempts < max_attempts:
 			attempts += 1
-			var source_key: String = String(frontier_keys[rng.randi_range(0, frontier_keys.size() - 1)])
+			var source_key: String = str(frontier_keys[rng.randi_range(0, frontier_keys.size() - 1)])
 			var source_coords := _mcp_grid_key_to_vec2i(source_key)
 			var dir: Vector2i = all_dirs[rng.randi_range(0, all_dirs.size() - 1)]
 			var candidate := source_coords + dir
@@ -12515,7 +12858,7 @@ func _simulate_slime_mold_growth_step_2d(client_id: int, params: Dictionary, com
 			break
 
 		for added_key in step_added_lookup.keys():
-			var added_key_string: String = String(added_key)
+			var added_key_string: String = str(added_key)
 			occupied_lookup[added_key_string] = true
 			newly_added_coords.append(_mcp_grid_key_to_vec2i(added_key_string))
 		applied_steps += 1
@@ -12617,7 +12960,7 @@ func _simulate_slime_mold_growth_step_2d(client_id: int, params: Dictionary, com
 		var coords: Vector2i = newly_added_coords[idx]
 		preview_added.append({
 			"coords": _vector2i_to_dict(coords),
-			"path": _join_mcp_path(_to_mcp_path(cells_container), String(new_cell_nodes[idx].name)),
+			"path": _join_mcp_path(_to_mcp_path(cells_container), str(new_cell_nodes[idx].name)),
 		})
 
 	transaction.register_on_commit(func():
@@ -12670,8 +13013,8 @@ func _mcp_grid_key_to_vec2i(key: String) -> Vector2i:
 	if parts.size() < 2:
 		return Vector2i(-1, -1)
 
-	var x_string: String = String(parts[0]).strip_edges()
-	var y_string: String = String(parts[1]).strip_edges()
+	var x_string: String = str(parts[0]).strip_edges()
+	var y_string: String = str(parts[1]).strip_edges()
 	if not x_string.is_valid_int() or not y_string.is_valid_int():
 		return Vector2i(-1, -1)
 
@@ -12710,7 +13053,7 @@ func _mcp_make_slime_cell_node_2d(
 			Vector2(half.x, half.y),
 			Vector2(-half.x, half.y),
 		])
-		polygon.color = _convert_property_value(polygon, "color", cell_color_value)
+		_assign_converted(polygon, "color", cell_color_value)
 		cell_node.add_child(polygon)
 
 	if create_collision:
@@ -12738,7 +13081,7 @@ func _mcp_grid_lookup_to_array(lookup: Dictionary) -> Array:
 
 	var cells: Array = []
 	for key_value in keys:
-		var coords := _mcp_grid_key_to_vec2i(String(key_value))
+		var coords := _mcp_grid_key_to_vec2i(str(key_value))
 		if coords.x < 0 or coords.y < 0:
 			continue
 		cells.append(_vector2i_to_dict(coords))
@@ -12861,18 +13204,16 @@ func _mcp_configure_smoke_particle_material_3d(
 		wind = Vector3(1.0, 0.0, 0.3)
 	wind = wind.normalized()
 
-	var drift_strength := 0.22 + wind_strength * 0.95
+	var drift_strength := wind_strength * 0.95
 	var flow_direction := Vector3(wind.x * drift_strength, 1.0, wind.z * drift_strength).normalized()
 
 	material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
 	material.emission_box_extents = Vector3(volume_size.x * 0.5, 0.2, volume_size.z * 0.5)
 	material.direction = flow_direction
 	material.spread = spread_degrees
-	material.gravity = Vector3(
-		wind.x * (18.0 + wind_strength * 48.0),
-		32.0,
-		wind.z * (18.0 + wind_strength * 48.0)
-	)
+	# Meters per second squared: a gentle buoyant lift plus a push along the wind. The old values
+	# (32 up, 18 + 48 * wind sideways, even with no wind) threw smoke ~250 m up and ~150 m sideways.
+	material.gravity = Vector3(wind.x * wind_strength * 1.5, 0.45, wind.z * wind_strength * 1.5)
 	material.initial_velocity_min = rise_speed_min
 	material.initial_velocity_max = rise_speed_max
 	material.scale_min = 0.42
@@ -13058,7 +13399,7 @@ func _mcp_weather_profile_2d(preset_name: String) -> Dictionary:
 
 
 func _mcp_make_weather_particle_texture_2d(mode: String) -> Texture2D:
-	var normalized_mode := String(mode).strip_edges().to_lower()
+	var normalized_mode := str(mode).strip_edges().to_lower()
 	var width := 2
 	var height := 8
 	if normalized_mode == "snow":
@@ -13107,7 +13448,7 @@ func _mcp_configure_weather_particle_material_2d(
 	scale_max: Vector2,
 	gravity_strength: float
 ) -> void:
-	var normalized_mode := String(mode).strip_edges().to_lower()
+	var normalized_mode := str(mode).strip_edges().to_lower()
 	var wind := wind_direction
 	if wind.length_squared() <= 0.000001:
 		wind = Vector2(0.0, 1.0)
@@ -13143,8 +13484,8 @@ func _mcp_weather_ambient_color_for_intensity(base_color: Color, intensity: floa
 
 
 func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var weather_path: String = String(params.get("weather_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var weather_path: String = str(params.get("weather_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if weather_path.is_empty():
 		return _send_error(client_id, "weather_path cannot be empty", command_id)
 
@@ -13155,14 +13496,17 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 		return _send_error(client_id, "Weather node at %s must inherit Node2D" % weather_path, command_id)
 	var weather: Node2D = weather_node
 
-	var current_preset: String = String(weather.get_meta("mcp_weather_preset") if weather.has_meta("mcp_weather_preset") else "clear")
-	var target_preset_input: String = String(params.get("target_preset", current_preset)).strip_edges()
+	var current_preset: String = str(weather.get_meta("mcp_weather_preset") if weather.has_meta("mcp_weather_preset") else "clear")
+	var target_preset_input: String = str(params.get("target_preset", current_preset)).strip_edges()
 	var active_preset: String = _mcp_normalize_weather_preset_2d(target_preset_input)
 	if active_preset.is_empty():
 		return _send_error(client_id, "Unsupported weather preset: %s" % target_preset_input, command_id)
 	var preset_profile: Dictionary = _mcp_weather_profile_2d(active_preset)
 	if preset_profile.is_empty():
 		return _send_error(client_id, "Failed to resolve weather preset profile for %s" % active_preset, command_id)
+	# Switching preset applies the new preset's look; values stored by the old one used to win, so
+	# rain -> storm only renamed the preset (no lightning, rain gravity).
+	var preset_changed := active_preset != current_preset
 
 	var area_size: Vector2 = _parse_vector2_param(
 		params.get("area_size", weather.get_meta("mcp_weather_area_size") if weather.has_meta("mcp_weather_area_size") else Vector2(1280.0, 720.0))
@@ -13174,7 +13518,7 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 	)
 	var current_intensity: float = clampf(float(weather.get_meta("mcp_weather_intensity") if weather.has_meta("mcp_weather_intensity") else 0.0), 0.0, 1.0)
 	var target_intensity: float = clampf(
-		float(params.get("target_intensity", weather.get_meta("mcp_weather_target_intensity") if weather.has_meta("mcp_weather_target_intensity") else preset_profile.get("default_intensity", 0.65))),
+		float(params.get("target_intensity", weather.get_meta("mcp_weather_target_intensity") if (not preset_changed and weather.has_meta("mcp_weather_target_intensity")) else preset_profile.get("default_intensity", 0.65))),
 		0.0,
 		1.0
 	)
@@ -13192,15 +13536,15 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 		1.0
 	)
 
-	var precipitation_mode: String = String(params.get(
+	var precipitation_mode: String = str(params.get(
 		"precipitation_mode",
-		weather.get_meta("mcp_weather_precipitation_mode") if weather.has_meta("mcp_weather_precipitation_mode") else preset_profile.get("precipitation_mode", "none")
+		weather.get_meta("mcp_weather_precipitation_mode") if (not preset_changed and weather.has_meta("mcp_weather_precipitation_mode")) else preset_profile.get("precipitation_mode", "none")
 	)).strip_edges().to_lower()
 	if not _mcp_is_valid_weather_precipitation_mode_2d(precipitation_mode):
-		precipitation_mode = String(preset_profile.get("precipitation_mode", "none"))
+		precipitation_mode = str(preset_profile.get("precipitation_mode", "none"))
 	var precipitation_intensity_scale: float = clampf(float(params.get(
 		"precipitation_intensity_scale",
-		weather.get_meta("mcp_weather_precipitation_intensity_scale") if weather.has_meta("mcp_weather_precipitation_intensity_scale") else preset_profile.get("precipitation_intensity", 1.0)
+		weather.get_meta("mcp_weather_precipitation_intensity_scale") if (not preset_changed and weather.has_meta("mcp_weather_precipitation_intensity_scale")) else preset_profile.get("precipitation_intensity", 1.0)
 	)), 0.0, 2.0)
 	var max_particles: int = clampi(int(params.get(
 		"max_particles",
@@ -13208,31 +13552,31 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 	)), 0, 50000)
 	var particle_lifetime: float = max(0.05, float(params.get(
 		"particle_lifetime",
-		weather.get_meta("mcp_weather_particle_lifetime") if weather.has_meta("mcp_weather_particle_lifetime") else preset_profile.get("particle_lifetime", 1.8)
+		weather.get_meta("mcp_weather_particle_lifetime") if (not preset_changed and weather.has_meta("mcp_weather_particle_lifetime")) else preset_profile.get("particle_lifetime", 1.8)
 	)))
 	var particle_speed_min: float = max(0.0, float(params.get(
 		"particle_speed_min",
-		weather.get_meta("mcp_weather_particle_speed_min") if weather.has_meta("mcp_weather_particle_speed_min") else preset_profile.get("particle_speed_min", 260.0)
+		weather.get_meta("mcp_weather_particle_speed_min") if (not preset_changed and weather.has_meta("mcp_weather_particle_speed_min")) else preset_profile.get("particle_speed_min", 260.0)
 	)))
 	var particle_speed_max: float = max(particle_speed_min, float(params.get(
 		"particle_speed_max",
-		weather.get_meta("mcp_weather_particle_speed_max") if weather.has_meta("mcp_weather_particle_speed_max") else preset_profile.get("particle_speed_max", 560.0)
+		weather.get_meta("mcp_weather_particle_speed_max") if (not preset_changed and weather.has_meta("mcp_weather_particle_speed_max")) else preset_profile.get("particle_speed_max", 560.0)
 	)))
 	var spread_degrees: float = clampf(float(params.get(
 		"spread_degrees",
-		weather.get_meta("mcp_weather_spread_degrees") if weather.has_meta("mcp_weather_spread_degrees") else preset_profile.get("spread_degrees", 6.0)
+		weather.get_meta("mcp_weather_spread_degrees") if (not preset_changed and weather.has_meta("mcp_weather_spread_degrees")) else preset_profile.get("spread_degrees", 6.0)
 	)), 0.0, 180.0)
 	var gravity_strength: float = max(0.0, float(params.get(
 		"gravity_strength",
-		weather.get_meta("mcp_weather_gravity_strength") if weather.has_meta("mcp_weather_gravity_strength") else preset_profile.get("gravity_strength", 980.0)
+		weather.get_meta("mcp_weather_gravity_strength") if (not preset_changed and weather.has_meta("mcp_weather_gravity_strength")) else preset_profile.get("gravity_strength", 980.0)
 	)))
 	var particle_scale_min: Vector2 = _parse_vector2_param(params.get(
 		"particle_scale_min",
-		weather.get_meta("mcp_weather_particle_scale_min") if weather.has_meta("mcp_weather_particle_scale_min") else preset_profile.get("particle_scale_min", Vector2(0.7, 5.2))
+		weather.get_meta("mcp_weather_particle_scale_min") if (not preset_changed and weather.has_meta("mcp_weather_particle_scale_min")) else preset_profile.get("particle_scale_min", Vector2(0.7, 5.2))
 	))
 	var particle_scale_max: Vector2 = _parse_vector2_param(params.get(
 		"particle_scale_max",
-		weather.get_meta("mcp_weather_particle_scale_max") if weather.has_meta("mcp_weather_particle_scale_max") else preset_profile.get("particle_scale_max", Vector2(1.2, 13.0))
+		weather.get_meta("mcp_weather_particle_scale_max") if (not preset_changed and weather.has_meta("mcp_weather_particle_scale_max")) else preset_profile.get("particle_scale_max", Vector2(1.2, 13.0))
 	))
 	particle_scale_min.x = max(0.01, particle_scale_min.x)
 	particle_scale_min.y = max(0.01, particle_scale_min.y)
@@ -13241,17 +13585,17 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 
 	var fog_density: float = clampf(float(params.get(
 		"fog_density",
-		weather.get_meta("mcp_weather_fog_density") if weather.has_meta("mcp_weather_fog_density") else preset_profile.get("fog_density", 0.18)
+		weather.get_meta("mcp_weather_fog_density") if (not preset_changed and weather.has_meta("mcp_weather_fog_density")) else preset_profile.get("fog_density", 0.18)
 	)), 0.0, 1.0)
 	var fog_color = _coerce_color(params.get(
 		"fog_color",
-		weather.get_meta("mcp_weather_fog_color") if weather.has_meta("mcp_weather_fog_color") else preset_profile.get("fog_color", Color(0.74, 0.8, 0.86, 0.24))
+		weather.get_meta("mcp_weather_fog_color") if (not preset_changed and weather.has_meta("mcp_weather_fog_color")) else preset_profile.get("fog_color", Color(0.74, 0.8, 0.86, 0.24))
 	))
 	if fog_color == null:
 		fog_color = preset_profile.get("fog_color", Color(0.74, 0.8, 0.86, 0.24))
 	var ambient_color = _coerce_color(params.get(
 		"ambient_color",
-		weather.get_meta("mcp_weather_ambient_color") if weather.has_meta("mcp_weather_ambient_color") else preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
+		weather.get_meta("mcp_weather_ambient_color") if (not preset_changed and weather.has_meta("mcp_weather_ambient_color")) else preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
 	))
 	if ambient_color == null:
 		ambient_color = preset_profile.get("ambient_color", Color(0.93, 0.95, 1.0, 1.0))
@@ -13264,25 +13608,25 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 
 	var lightning_enabled: bool = bool(params.get(
 		"lightning_enabled",
-		weather.get_meta("mcp_weather_lightning_enabled") if weather.has_meta("mcp_weather_lightning_enabled") else preset_profile.get("lightning_enabled", false)
+		weather.get_meta("mcp_weather_lightning_enabled") if (not preset_changed and weather.has_meta("mcp_weather_lightning_enabled")) else preset_profile.get("lightning_enabled", false)
 	))
 	var lightning_chance: float = clampf(float(params.get(
 		"lightning_chance",
-		weather.get_meta("mcp_weather_lightning_chance") if weather.has_meta("mcp_weather_lightning_chance") else preset_profile.get("lightning_chance", 0.0)
+		weather.get_meta("mcp_weather_lightning_chance") if (not preset_changed and weather.has_meta("mcp_weather_lightning_chance")) else preset_profile.get("lightning_chance", 0.0)
 	)), 0.0, 1.0)
 	var lightning_flash_strength: float = clampf(float(params.get(
 		"lightning_flash_strength",
-		weather.get_meta("mcp_weather_lightning_flash_strength") if weather.has_meta("mcp_weather_lightning_flash_strength") else preset_profile.get("lightning_flash_strength", 0.82)
+		weather.get_meta("mcp_weather_lightning_flash_strength") if (not preset_changed and weather.has_meta("mcp_weather_lightning_flash_strength")) else preset_profile.get("lightning_flash_strength", 0.82)
 	)), 0.0, 1.0)
 	if lightning_enabled and lightning_flash_strength <= 0.0:
 		lightning_flash_strength = 0.82
 	var lightning_decay: float = max(0.01, float(params.get(
 		"lightning_decay",
-		weather.get_meta("mcp_weather_lightning_decay") if weather.has_meta("mcp_weather_lightning_decay") else 2.4
+		weather.get_meta("mcp_weather_lightning_decay") if (not preset_changed and weather.has_meta("mcp_weather_lightning_decay")) else 2.4
 	)))
 	var lightning_color = _coerce_color(params.get(
 		"lightning_color",
-		weather.get_meta("mcp_weather_lightning_color") if weather.has_meta("mcp_weather_lightning_color") else Color(1.0, 1.0, 1.0, 1.0)
+		weather.get_meta("mcp_weather_lightning_color") if (not preset_changed and weather.has_meta("mcp_weather_lightning_color")) else Color(1.0, 1.0, 1.0, 1.0)
 	))
 	if lightning_color == null:
 		lightning_color = Color(1.0, 1.0, 1.0, 1.0)
@@ -13304,50 +13648,50 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 		weather.get_meta("mcp_weather_enable_lightning_overlay") if weather.has_meta("mcp_weather_enable_lightning_overlay") else true
 	))
 
-	var precipitation_path: String = String(params.get("precipitation_path", "")).strip_edges()
+	var precipitation_path: String = str(params.get("precipitation_path", "")).strip_edges()
 	var precipitation_node = null
 	if not precipitation_path.is_empty():
 		precipitation_node = _get_editor_node(precipitation_path)
 	else:
-		var precipitation_name: String = String(weather.get_meta("mcp_weather_precipitation_node_name") if weather.has_meta("mcp_weather_precipitation_node_name") else "Precipitation")
+		var precipitation_name: String = str(weather.get_meta("mcp_weather_precipitation_node_name") if weather.has_meta("mcp_weather_precipitation_node_name") else "Precipitation")
 		if not precipitation_name.is_empty():
 			precipitation_node = weather.get_node_or_null(precipitation_name)
 	if precipitation_node != null and not (precipitation_node is GPUParticles2D):
 		return _send_error(client_id, "Precipitation node must inherit GPUParticles2D", command_id)
 
-	var fog_overlay_path: String = String(params.get("fog_overlay_path", "")).strip_edges()
+	var fog_overlay_path: String = str(params.get("fog_overlay_path", "")).strip_edges()
 	var fog_overlay_node = null
 	if not fog_overlay_path.is_empty():
 		fog_overlay_node = _get_editor_node(fog_overlay_path)
 	else:
-		var fog_name: String = String(weather.get_meta("mcp_weather_fog_node_name") if weather.has_meta("mcp_weather_fog_node_name") else "FogOverlay")
+		var fog_name: String = str(weather.get_meta("mcp_weather_fog_node_name") if weather.has_meta("mcp_weather_fog_node_name") else "FogOverlay")
 		if not fog_name.is_empty():
-			var screen_layer_name: String = String(weather.get_meta("mcp_weather_screen_layer_name") if weather.has_meta("mcp_weather_screen_layer_name") else "ScreenEffects")
-			var screen_root_name: String = String(weather.get_meta("mcp_weather_screen_root_name") if weather.has_meta("mcp_weather_screen_root_name") else "Root")
+			var screen_layer_name: String = str(weather.get_meta("mcp_weather_screen_layer_name") if weather.has_meta("mcp_weather_screen_layer_name") else "ScreenEffects")
+			var screen_root_name: String = str(weather.get_meta("mcp_weather_screen_root_name") if weather.has_meta("mcp_weather_screen_root_name") else "Root")
 			fog_overlay_node = weather.get_node_or_null(NodePath("%s/%s/%s" % [screen_layer_name, screen_root_name, fog_name]))
 	if fog_overlay_node != null and not (fog_overlay_node is ColorRect):
 		return _send_error(client_id, "Fog overlay node must inherit ColorRect", command_id)
 
-	var ambient_path: String = String(params.get("ambient_modulate_path", "")).strip_edges()
+	var ambient_path: String = str(params.get("ambient_modulate_path", "")).strip_edges()
 	var ambient_node = null
 	if not ambient_path.is_empty():
 		ambient_node = _get_editor_node(ambient_path)
 	else:
-		var ambient_name: String = String(weather.get_meta("mcp_weather_ambient_node_name") if weather.has_meta("mcp_weather_ambient_node_name") else "AmbientModulate")
+		var ambient_name: String = str(weather.get_meta("mcp_weather_ambient_node_name") if weather.has_meta("mcp_weather_ambient_node_name") else "AmbientModulate")
 		if not ambient_name.is_empty():
 			ambient_node = weather.get_node_or_null(ambient_name)
 	if ambient_node != null and not (ambient_node is CanvasModulate):
 		return _send_error(client_id, "Ambient node must inherit CanvasModulate", command_id)
 
-	var lightning_path: String = String(params.get("lightning_overlay_path", "")).strip_edges()
+	var lightning_path: String = str(params.get("lightning_overlay_path", "")).strip_edges()
 	var lightning_node = null
 	if not lightning_path.is_empty():
 		lightning_node = _get_editor_node(lightning_path)
 	else:
-		var lightning_name: String = String(weather.get_meta("mcp_weather_lightning_node_name") if weather.has_meta("mcp_weather_lightning_node_name") else "LightningFlash")
+		var lightning_name: String = str(weather.get_meta("mcp_weather_lightning_node_name") if weather.has_meta("mcp_weather_lightning_node_name") else "LightningFlash")
 		if not lightning_name.is_empty():
-			var layer_name: String = String(weather.get_meta("mcp_weather_screen_layer_name") if weather.has_meta("mcp_weather_screen_layer_name") else "ScreenEffects")
-			var root_name: String = String(weather.get_meta("mcp_weather_screen_root_name") if weather.has_meta("mcp_weather_screen_root_name") else "Root")
+			var layer_name: String = str(weather.get_meta("mcp_weather_screen_layer_name") if weather.has_meta("mcp_weather_screen_layer_name") else "ScreenEffects")
+			var root_name: String = str(weather.get_meta("mcp_weather_screen_root_name") if weather.has_meta("mcp_weather_screen_root_name") else "Root")
 			lightning_node = weather.get_node_or_null(NodePath("%s/%s/%s" % [layer_name, root_name, lightning_name]))
 	if lightning_node != null and not (lightning_node is ColorRect):
 		return _send_error(client_id, "Lightning overlay node must inherit ColorRect", command_id)
@@ -13384,7 +13728,7 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 			enable_precipitation and
 			precipitation_mode != "none" and
 			max_particles > 0 and
-			precipitation_amount > 0
+			emission_scale > 0.0 # amount is clamped to >=1 (Godot rejects 0), so gate on intensity instead
 		)
 		pending_property_changes.append_array(_capture_property_change(precipitation, "amount", precipitation_amount))
 		pending_property_changes.append_array(_capture_property_change(precipitation, "lifetime", particle_lifetime))
@@ -13589,9 +13933,9 @@ func _simulate_weather_step_2d(client_id: int, params: Dictionary, command_id: S
 
 
 func _simulate_water_current_step_2d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var water_path: String = String(params.get("water_path", "")).strip_edges()
-	var body_path: String = String(params.get("body_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var water_path: String = str(params.get("water_path", "")).strip_edges()
+	var body_path: String = str(params.get("body_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 
 	if water_path.is_empty():
 		return _send_error(client_id, "water_path cannot be empty", command_id)
@@ -13633,7 +13977,7 @@ func _simulate_water_current_step_2d(client_id: int, params: Dictionary, command
 			"status": "out_of_water",
 		}, command_id)
 
-	var submersion: float = clampf(local_position.y / max(0.0001, water_size.y), 0.0, 1.0) if inside_water else 1.0
+	var submersion: float = clampf(local_position.y / max(0.0001, water_size.y), 0.0, 1.0) if inside_water else 0.0
 	var flow_direction := _parse_vector2_param(
 		params.get(
 			"flow_direction",
@@ -13687,14 +14031,27 @@ func _simulate_water_current_step_2d(client_id: int, params: Dictionary, command
 		new_velocity = new_velocity.normalized() * clamp_speed
 
 	var new_global_position: Vector2 = body.global_position + new_velocity * delta
+	if not apply_position:
+		# Preview only: report the simulated step and write nothing (not even velocity).
+		return _send_success(client_id, {
+			"water_path": _to_mcp_path(water),
+			"body_path": _to_mcp_path(body),
+			"inside_water": inside_water,
+			"submersion": submersion,
+			"delta": delta,
+			"flow_velocity": _vector2_to_dict(target_flow_velocity),
+			"position": _vector2_to_dict(new_global_position),
+			"velocity": _vector2_to_dict(new_velocity),
+			"status": "preview",
+		}, command_id)
+
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 	if not velocity_property.is_empty():
 		pending_property_changes.append_array(_capture_property_change(body, velocity_property, new_velocity))
 	else:
 		pending_meta_changes.append_array(_capture_meta_change(body, "mcp_water_velocity_2d", _vector2_to_dict(new_velocity)))
-	if apply_position:
-		pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
+	pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
 
 	if pending_property_changes.is_empty() and pending_meta_changes.is_empty():
 		return _send_success(client_id, {
@@ -13808,9 +14165,9 @@ func _simulate_water_current_step_2d(client_id: int, params: Dictionary, command
 
 
 func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var water_path: String = String(params.get("water_path", "")).strip_edges()
-	var body_path: String = String(params.get("body_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var water_path: String = str(params.get("water_path", "")).strip_edges()
+	var body_path: String = str(params.get("body_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 
 	if water_path.is_empty():
 		return _send_error(client_id, "water_path cannot be empty", command_id)
@@ -13842,13 +14199,12 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 
 	var local_position: Vector3 = body.global_position - water.global_position
 	var half_extents := Vector2(water_size_2d.x * 0.5, water_size_2d.y * 0.5)
-	var inside_water: bool = (
-		absf(local_position.x) <= half_extents.x and
-		absf(local_position.z) <= half_extents.y and
-		local_position.y <= 0.0 and local_position.y >= -water_depth
-	)
+	var in_footprint: bool = absf(local_position.x) <= half_extents.x and absf(local_position.z) <= half_extents.y
+	var inside_water: bool = in_footprint and local_position.y <= 0.0 and local_position.y >= -water_depth
 	var require_inside: bool = bool(params.get("require_inside", true))
-	if not inside_water and require_inside:
+	# Bodies over the water are simulated even above the surface, so they fall back in; before,
+	# every body that left the water froze in place.
+	if not in_footprint and require_inside:
 		return _send_success(client_id, {
 			"water_path": _to_mcp_path(water),
 			"body_path": _to_mcp_path(body),
@@ -13857,7 +14213,8 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 			"status": "out_of_water",
 		}, command_id)
 
-	var submersion: float = clampf((-local_position.y) / max(0.0001, water_depth), 0.0, 1.0) if inside_water else 1.0
+	var submersion: float = clampf((-local_position.y) / max(0.0001, water_depth), 0.0, 1.0) if in_footprint else 0.0
+	var gravity: float = float(params.get("gravity", ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)))
 	var flow_direction_2d := _parse_vector2_param(
 		params.get(
 			"flow_direction",
@@ -13905,23 +14262,41 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 
 	var target_flow_velocity := Vector3(flow_direction_2d.x, 0.0, flow_direction_2d.y) * flow_speed * flow_scale
 	var damping_factor: float = clampf(drag * drag_scale * delta, 0.0, 1.0)
-	var new_velocity: Vector3 = current_velocity.lerp(target_flow_velocity, damping_factor)
-	if preserve_vertical_velocity:
-		new_velocity.y = current_velocity.y
-	new_velocity.y += buoyancy * buoyancy_scale * submersion * 9.8 * delta
+	var new_velocity: Vector3 = current_velocity
+	if submersion > 0.0:
+		# Water drag pulls the body toward the current (and damps vertical motion).
+		new_velocity = current_velocity.lerp(target_flow_velocity, damping_factor)
+		if preserve_vertical_velocity:
+			new_velocity.y = current_velocity.y
+	# Gravity always pulls; buoyancy pushes up in proportion to how deep the body sits, so a body
+	# floats where buoyancy * submersion = 1 (buoyancy 0 sinks, buoyancy 2 floats half under).
+	new_velocity.y += (buoyancy * buoyancy_scale * submersion - 1.0) * gravity * delta
 	new_velocity.y -= sink_bias * delta
 	if clamp_speed > 0.0 and new_velocity.length() > clamp_speed:
 		new_velocity = new_velocity.normalized() * clamp_speed
 
 	var new_global_position: Vector3 = body.global_position + new_velocity * delta
+	if not apply_position:
+		# Preview only: report the simulated step and write nothing (not even velocity).
+		return _send_success(client_id, {
+			"water_path": _to_mcp_path(water),
+			"body_path": _to_mcp_path(body),
+			"inside_water": inside_water,
+			"submersion": submersion,
+			"delta": delta,
+			"flow_velocity": _vector3_to_dict(target_flow_velocity),
+			"position": _vector3_to_dict(new_global_position),
+			"velocity": _vector3_to_dict(new_velocity),
+			"status": "preview",
+		}, command_id)
+
 	var pending_property_changes: Array = []
 	var pending_meta_changes: Array = []
 	if not velocity_property.is_empty():
 		pending_property_changes.append_array(_capture_property_change(body, velocity_property, new_velocity))
 	else:
 		pending_meta_changes.append_array(_capture_meta_change(body, "mcp_water_velocity_3d", _vector3_to_dict(new_velocity)))
-	if apply_position:
-		pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
+	pending_property_changes.append_array(_capture_property_change(body, "global_position", new_global_position))
 
 	if pending_property_changes.is_empty() and pending_meta_changes.is_empty():
 		return _send_success(client_id, {
@@ -14035,9 +14410,9 @@ func _simulate_water_current_step_3d(client_id: int, params: Dictionary, command
 
 
 func _settle_sand_field_3d(client_id: int, params: Dictionary, command_id: String) -> void:
-	var field_path: String = String(params.get("field_path", "")).strip_edges()
-	var grains_path: String = String(params.get("grains_path", "")).strip_edges()
-	var transaction_id: String = String(params.get("transaction_id", "")).strip_edges()
+	var field_path: String = str(params.get("field_path", "")).strip_edges()
+	var grains_path: String = str(params.get("grains_path", "")).strip_edges()
+	var transaction_id: String = str(params.get("transaction_id", "")).strip_edges()
 	if field_path.is_empty():
 		return _send_error(client_id, "field_path cannot be empty", command_id)
 
@@ -14101,14 +14476,20 @@ func _settle_sand_field_3d(client_id: int, params: Dictionary, command_id: Strin
 		settled_multimesh.visible_instance_count = source_multimesh.visible_instance_count
 	if "custom_aabb" in source_multimesh and "custom_aabb" in settled_multimesh:
 		settled_multimesh.custom_aabb = source_multimesh.custom_aabb
+	# The buffer (12 floats per transform, then color and custom data) is read and written as a
+	# whole: per-instance calls are dropped by --headless editors and returned zeros.
+	var buffer: PackedFloat32Array = source_multimesh.buffer
+	var stride := 12 + (4 if source_multimesh.use_colors else 0) + (4 if source_multimesh.use_custom_data else 0)
+	if source_multimesh.transform_format != MultiMesh.TRANSFORM_3D or buffer.size() < instance_count * stride:
+		return _send_error(client_id, "The sand grains have no stored positions (fields built by older versions in a --headless editor lost them); rebuild the field with build_sand_field_3d", command_id)
 	var moved_instances := 0
 	var total_drop := 0.0
 	var total_horizontal_shift := 0.0
 	var settle_ratio := settle_strength / float(iterations)
 
 	for idx in range(instance_count):
-		var current_transform: Transform3D = source_multimesh.get_instance_transform(idx)
-		var original_origin: Vector3 = current_transform.origin
+		var offset := idx * stride
+		var original_origin := Vector3(buffer[offset + 3], buffer[offset + 7], buffer[offset + 11])
 		var settled_origin: Vector3 = original_origin
 		for step in range(iterations):
 			settled_origin.x += rng.randf_range(-horizontal_jitter, horizontal_jitter) * settle_ratio
@@ -14125,11 +14506,10 @@ func _settle_sand_field_3d(client_id: int, params: Dictionary, command_id: Strin
 		total_drop += max(0.0, original_origin.y - settled_origin.y)
 		total_horizontal_shift += Vector2(delta_vec.x, delta_vec.z).length()
 
-		settled_multimesh.set_instance_transform(idx, Transform3D(current_transform.basis, settled_origin))
-		if source_multimesh.use_colors:
-			settled_multimesh.set_instance_color(idx, source_multimesh.get_instance_color(idx))
-		if source_multimesh.use_custom_data:
-			settled_multimesh.set_instance_custom_data(idx, source_multimesh.get_instance_custom_data(idx))
+		buffer[offset + 3] = settled_origin.x
+		buffer[offset + 7] = settled_origin.y
+		buffer[offset + 11] = settled_origin.z
+	settled_multimesh.buffer = buffer
 
 	var pending_property_changes: Array = []
 	pending_property_changes.append_array(_capture_property_change(grains, "multimesh", settled_multimesh))
@@ -14251,7 +14631,7 @@ func _settle_sand_field_3d(client_id: int, params: Dictionary, command_id: Strin
 
 func _build_stage_blockout_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var stage_name: String = String(params.get("stage_name", "StageBlockout")).strip_edges()
+	var stage_name: String = str(params.get("stage_name", "StageBlockout")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var blocks_param = params.get("blocks", [])
 	var create_visuals: bool = bool(params.get("create_visuals", true))
@@ -14292,7 +14672,7 @@ func _build_stage_blockout_2d(client_id: int, params: Dictionary, command_id: St
 			return _send_error(client_id, "blocks[%d] must be a dictionary" % idx, command_id)
 		var block: Dictionary = block_raw
 
-		var block_name: String = String(block.get("name", "Block%d" % (idx + 1))).strip_edges()
+		var block_name: String = str(block.get("name", "Block%d" % (idx + 1))).strip_edges()
 		if block_name.is_empty():
 			block_name = "Block%d" % (idx + 1)
 		block_name = _resolve_unique_name_in_set(block_name, reserved_block_names)
@@ -14328,7 +14708,7 @@ func _build_stage_blockout_2d(client_id: int, params: Dictionary, command_id: St
 				Vector2(-half.x, half.y),
 			])
 			var color_value = block.get("color", default_color_value)
-			polygon.color = _convert_property_value(polygon, "color", color_value)
+			_assign_converted(polygon, "color", color_value)
 			body.add_child(polygon)
 			created_nodes.append(polygon)
 
@@ -14423,7 +14803,7 @@ func _build_stage_blockout_2d(client_id: int, params: Dictionary, command_id: St
 
 func _build_hud_ui_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var hud_name: String = String(params.get("hud_name", "HUD")).strip_edges()
+	var hud_name: String = str(params.get("hud_name", "HUD")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var include_health: bool = bool(params.get("include_health", true))
 	var include_score: bool = bool(params.get("include_score", true))
@@ -14477,31 +14857,31 @@ func _build_hud_ui_2d(client_id: int, params: Dictionary, command_id: String) ->
 	if include_health:
 		var health_label := Label.new()
 		health_label.name = "HealthLabel"
-		health_label.text = String(params.get("health_text", "Health: 100"))
+		health_label.text = str(params.get("health_text", "Health: 100"))
 		vbox.add_child(health_label)
 		created_labels.append(health_label)
 	if include_score:
 		var score_label := Label.new()
 		score_label.name = "ScoreLabel"
-		score_label.text = String(params.get("score_text", "Score: 0000"))
+		score_label.text = str(params.get("score_text", "Score: 0000"))
 		vbox.add_child(score_label)
 		created_labels.append(score_label)
 	if include_objective:
 		var objective_label := Label.new()
 		objective_label.name = "ObjectiveLabel"
-		objective_label.text = String(params.get("objective_text", "Objective: Reach the exit"))
+		objective_label.text = str(params.get("objective_text", "Objective: Reach the exit"))
 		vbox.add_child(objective_label)
 		created_labels.append(objective_label)
 	if include_message:
 		var message_label := Label.new()
 		message_label.name = "MessageLabel"
-		message_label.text = String(params.get("message_text", ""))
+		message_label.text = str(params.get("message_text", ""))
 		vbox.add_child(message_label)
 		created_labels.append(message_label)
 	if include_pause_button:
 		var pause_button := Button.new()
 		pause_button.name = "PauseButton"
-		pause_button.text = String(params.get("pause_text", "Pause"))
+		pause_button.text = str(params.get("pause_text", "Pause"))
 		vbox.add_child(pause_button)
 
 	var created_nodes: Array = [canvas_layer, root_control, margin_container, vbox]
@@ -14621,8 +15001,11 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 	var acceleration: float = float(params.get("acceleration", movement_speed * 6.0))
 	var attack_cooldown: float = max(0.01, float(params.get("attack_cooldown", 0.8)))
 	var vision_radius: float = max(1.0, float(params.get("vision_radius", 160.0)))
-	var detection_group: String = String(params.get("detection_group", "player")).strip_edges()
+	var detection_group: String = str(params.get("detection_group", "player")).strip_edges()
 	var signal_flags: int = _build_signal_flags_from_params(params)
+	# With no script on the enemy, a behavior script is written so the new nodes do something.
+	var will_write_script := bool(params.get("write_script", enemy.get_script() == null))
+	var notes: Array = []
 
 	var attach_plans: Array = []
 	var created_nodes: Array = []
@@ -14630,7 +15013,7 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 	var meta_changes: Array = []
 	var signal_changes: Array = []
 
-	var navigation_name: String = String(params.get("navigation_agent_name", "NavigationAgent2D")).strip_edges()
+	var navigation_name: String = str(params.get("navigation_agent_name", "NavigationAgent2D")).strip_edges()
 	if navigation_name.is_empty():
 		navigation_name = "NavigationAgent2D"
 	var navigation_node = enemy.get_node_or_null(navigation_name)
@@ -14673,7 +15056,7 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 			_capture_property_change(navigation_agent, "time_horizon_obstacles", float(params.get("time_horizon_obstacles", 0.5)))
 		)
 
-	var vision_name: String = String(params.get("vision_area_name", "VisionArea2D")).strip_edges()
+	var vision_name: String = str(params.get("vision_area_name", "VisionArea2D")).strip_edges()
 	if vision_name.is_empty():
 		vision_name = "VisionArea2D"
 	var vision_node = enemy.get_node_or_null(vision_name)
@@ -14699,6 +15082,12 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 			property_changes.append_array(
 				_capture_property_change(vision_area, "collision_mask", int(params.get("vision_collision_mask")))
 			)
+		else:
+			# A vision mask that misses the target's layer leaves the enemy blind.
+			var group_layers := _group_collision_layers(str(params.get("detection_group", "player")).strip_edges(), false)
+			if group_layers != 0 and (vision_area.collision_mask & group_layers) == 0:
+				property_changes.append_array(_capture_property_change(vision_area, "collision_mask", group_layers))
+				notes.append("Vision mask set to %d, the layers of the \"%s\" nodes" % [group_layers, str(params.get("detection_group", "player"))])
 		if params.has("vision_offset"):
 			property_changes.append_array(
 				_capture_property_change(vision_area, "position", _parse_vector2_param(params.get("vision_offset")))
@@ -14734,7 +15123,7 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 					_capture_property_change(vision_shape_node, "shape", replacement_circle)
 				)
 
-	var timer_name: String = String(params.get("attack_timer_name", "AttackCooldown")).strip_edges()
+	var timer_name: String = str(params.get("attack_timer_name", "AttackCooldown")).strip_edges()
 	if timer_name.is_empty():
 		timer_name = "AttackCooldown"
 	var timer_node = enemy.get_node_or_null(timer_name)
@@ -14765,18 +15154,18 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 	meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_loop", bool(params.get("patrol_loop", true))))
 	if navigation_agent:
 		meta_changes.append_array(
-			_capture_meta_change(enemy, "mcp_enemy_navigation_agent_path", _join_mcp_path(enemy_mcp_path, String(navigation_agent.name)))
+			_capture_meta_change(enemy, "mcp_enemy_navigation_agent_path", _join_mcp_path(enemy_mcp_path, str(navigation_agent.name)))
 		)
 	if vision_area:
 		meta_changes.append_array(
-			_capture_meta_change(enemy, "mcp_enemy_vision_area_path", _join_mcp_path(enemy_mcp_path, String(vision_area.name)))
+			_capture_meta_change(enemy, "mcp_enemy_vision_area_path", _join_mcp_path(enemy_mcp_path, str(vision_area.name)))
 		)
 	if attack_timer:
 		meta_changes.append_array(
-			_capture_meta_change(enemy, "mcp_enemy_attack_timer_path", _join_mcp_path(enemy_mcp_path, String(attack_timer.name)))
+			_capture_meta_change(enemy, "mcp_enemy_attack_timer_path", _join_mcp_path(enemy_mcp_path, str(attack_timer.name)))
 		)
 	if params.has("target_path"):
-		var target_path: String = String(params.get("target_path", "")).strip_edges()
+		var target_path: String = str(params.get("target_path", "")).strip_edges()
 		if not target_path.is_empty():
 			meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_target_path", target_path))
 
@@ -14791,34 +15180,44 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_points", serialized_patrol_points))
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_index", 0))
 
+	var signal_warnings: Array = []
 	if connect_signals:
-		var signal_target_path: String = String(params.get("signal_target_path", enemy_mcp_path)).strip_edges()
+		var signal_target_path: String = str(params.get("signal_target_path", enemy_mcp_path)).strip_edges()
 		if signal_target_path.is_empty():
 			signal_target_path = enemy_mcp_path
 		var signal_target = _get_editor_node(signal_target_path)
 		if not signal_target:
 			return _send_error(client_id, "Signal target node not found: %s" % signal_target_path, command_id)
+		var methods_written: bool = will_write_script and signal_target == enemy
 
 		if vision_area:
-			var entered_method: String = String(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
-			var exited_method: String = String(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
-			)
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
-			)
+			var entered_method: String = str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
+			var exited_method: String = str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
+			if methods_written or _signal_method_exists(signal_target, entered_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
+				)
+			if methods_written or _signal_method_exists(signal_target, exited_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
+				)
 		if attack_timer:
-			var timeout_method: String = String(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
-			)
+			var timeout_method: String = str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
+			if methods_written or _signal_method_exists(signal_target, timeout_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
+				)
 
-	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty():
+	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty() and not will_write_script:
 		return _send_success(client_id, {
 			"enemy_path": enemy_mcp_path,
 			"status": "no_change",
 		}, command_id)
+
+	var script_plan := _write_enemy_ai_script(enemy, params, false,
+		str(navigation_agent.name) if navigation_agent else navigation_name, str(attack_timer.name) if attack_timer else timer_name)
+	if script_plan.has("error"):
+		return _send_error(client_id, script_plan["error"], command_id)
 
 	var transaction_metadata := {
 		"command": "author_enemy_ai_2d",
@@ -14854,11 +15253,18 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		var created_node: Node = created
 		transaction.add_do_method(created_node, "set_owner", [edited_scene_root])
 
+	# Before the signal connections below, which need the script's handler methods.
+	if script_plan.has("script"):
+		transaction.add_do_method(enemy, "set_script", [script_plan["script"]])
+		transaction.add_undo_method(enemy, "set_script", [null])
+
 	var serialized_property_changes: Array = []
 	for change in property_changes:
 		var target_object: Object = change.get("target", enemy)
 		transaction.add_do_property(target_object, change.property, change.value)
-		transaction.add_undo_property(target_object, change.property, change.previous)
+		# Nodes this call creates leave on undo; restoring their old values only printed errors.
+		if not created_nodes.has(target_object):
+			transaction.add_undo_property(target_object, change.property, change.previous)
 		if change.value is Resource:
 			transaction.add_do_reference(change.value)
 		serialized_property_changes.append({
@@ -14907,9 +15313,9 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		var created_node: Node = created
 		var parent_node = created_node.get_parent()
 		if parent_node:
-			predicted_created_paths.append(_join_mcp_path(_to_mcp_path(parent_node), String(created_node.name)))
+			predicted_created_paths.append(_join_mcp_path(_to_mcp_path(parent_node), str(created_node.name)))
 		else:
-			predicted_created_paths.append(_join_mcp_path(enemy_mcp_path, String(created_node.name)))
+			predicted_created_paths.append(_join_mcp_path(enemy_mcp_path, str(created_node.name)))
 
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
@@ -14931,6 +15337,9 @@ func _author_enemy_ai_2d(client_id: int, params: Dictionary, command_id: String)
 		"property_changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"signal_changes": serialized_signal_changes,
+		"warnings": signal_warnings,
+		"script_path": script_plan.get("path", ""),
+		"notes": notes,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -14979,8 +15388,11 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 	var acceleration: float = float(params.get("acceleration", movement_speed * 6.0))
 	var attack_cooldown: float = max(0.01, float(params.get("attack_cooldown", 1.0)))
 	var vision_radius: float = max(0.1, float(params.get("vision_radius", 6.0)))
-	var detection_group: String = String(params.get("detection_group", "player")).strip_edges()
+	var detection_group: String = str(params.get("detection_group", "player")).strip_edges()
 	var signal_flags: int = _build_signal_flags_from_params(params)
+	# With no script on the enemy, a behavior script is written so the new nodes do something.
+	var will_write_script := bool(params.get("write_script", enemy.get_script() == null))
+	var notes: Array = []
 
 	var attach_plans: Array = []
 	var created_nodes: Array = []
@@ -14988,7 +15400,7 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 	var meta_changes: Array = []
 	var signal_changes: Array = []
 
-	var navigation_name: String = String(params.get("navigation_agent_name", "NavigationAgent3D")).strip_edges()
+	var navigation_name: String = str(params.get("navigation_agent_name", "NavigationAgent3D")).strip_edges()
 	if navigation_name.is_empty():
 		navigation_name = "NavigationAgent3D"
 	var navigation_node = enemy.get_node_or_null(navigation_name)
@@ -15028,7 +15440,7 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 			_capture_property_change(navigation_agent, "height", float(params.get("agent_height", 1.8)))
 		)
 
-	var vision_name: String = String(params.get("vision_area_name", "VisionArea3D")).strip_edges()
+	var vision_name: String = str(params.get("vision_area_name", "VisionArea3D")).strip_edges()
 	if vision_name.is_empty():
 		vision_name = "VisionArea3D"
 	var vision_node = enemy.get_node_or_null(vision_name)
@@ -15054,6 +15466,12 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 			property_changes.append_array(
 				_capture_property_change(vision_area, "collision_mask", int(params.get("vision_collision_mask")))
 			)
+		else:
+			# A vision mask that misses the target's layer leaves the enemy blind.
+			var group_layers := _group_collision_layers(str(params.get("detection_group", "player")).strip_edges(), true)
+			if group_layers != 0 and (vision_area.collision_mask & group_layers) == 0:
+				property_changes.append_array(_capture_property_change(vision_area, "collision_mask", group_layers))
+				notes.append("Vision mask set to %d, the layers of the \"%s\" nodes" % [group_layers, str(params.get("detection_group", "player"))])
 		if params.has("vision_offset"):
 			property_changes.append_array(
 				_capture_property_change(vision_area, "position", _parse_vector3_param(params.get("vision_offset")))
@@ -15089,7 +15507,7 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 					_capture_property_change(vision_shape_node, "shape", replacement_sphere)
 				)
 
-	var timer_name: String = String(params.get("attack_timer_name", "AttackCooldown")).strip_edges()
+	var timer_name: String = str(params.get("attack_timer_name", "AttackCooldown")).strip_edges()
 	if timer_name.is_empty():
 		timer_name = "AttackCooldown"
 	var timer_node = enemy.get_node_or_null(timer_name)
@@ -15120,18 +15538,18 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 	meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_loop", bool(params.get("patrol_loop", true))))
 	if navigation_agent:
 		meta_changes.append_array(
-			_capture_meta_change(enemy, "mcp_enemy_navigation_agent_path", _join_mcp_path(enemy_mcp_path, String(navigation_agent.name)))
+			_capture_meta_change(enemy, "mcp_enemy_navigation_agent_path", _join_mcp_path(enemy_mcp_path, str(navigation_agent.name)))
 		)
 	if vision_area:
 		meta_changes.append_array(
-			_capture_meta_change(enemy, "mcp_enemy_vision_area_path", _join_mcp_path(enemy_mcp_path, String(vision_area.name)))
+			_capture_meta_change(enemy, "mcp_enemy_vision_area_path", _join_mcp_path(enemy_mcp_path, str(vision_area.name)))
 		)
 	if attack_timer:
 		meta_changes.append_array(
-			_capture_meta_change(enemy, "mcp_enemy_attack_timer_path", _join_mcp_path(enemy_mcp_path, String(attack_timer.name)))
+			_capture_meta_change(enemy, "mcp_enemy_attack_timer_path", _join_mcp_path(enemy_mcp_path, str(attack_timer.name)))
 		)
 	if params.has("target_path"):
-		var target_path: String = String(params.get("target_path", "")).strip_edges()
+		var target_path: String = str(params.get("target_path", "")).strip_edges()
 		if not target_path.is_empty():
 			meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_target_path", target_path))
 
@@ -15146,34 +15564,44 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_points", serialized_patrol_points))
 		meta_changes.append_array(_capture_meta_change(enemy, "mcp_enemy_patrol_index", 0))
 
+	var signal_warnings: Array = []
 	if connect_signals:
-		var signal_target_path: String = String(params.get("signal_target_path", enemy_mcp_path)).strip_edges()
+		var signal_target_path: String = str(params.get("signal_target_path", enemy_mcp_path)).strip_edges()
 		if signal_target_path.is_empty():
 			signal_target_path = enemy_mcp_path
 		var signal_target = _get_editor_node(signal_target_path)
 		if not signal_target:
 			return _send_error(client_id, "Signal target node not found: %s" % signal_target_path, command_id)
+		var methods_written: bool = will_write_script and signal_target == enemy
 
 		if vision_area:
-			var entered_method: String = String(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
-			var exited_method: String = String(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
-			)
-			signal_changes.append_array(
-				_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
-			)
+			var entered_method: String = str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges()
+			var exited_method: String = str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges()
+			if methods_written or _signal_method_exists(signal_target, entered_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_entered", signal_target, entered_method, signal_flags)
+				)
+			if methods_written or _signal_method_exists(signal_target, exited_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(vision_area, "body_exited", signal_target, exited_method, signal_flags)
+				)
 		if attack_timer:
-			var timeout_method: String = String(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
-			signal_changes.append_array(
-				_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
-			)
+			var timeout_method: String = str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges()
+			if methods_written or _signal_method_exists(signal_target, timeout_method, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(attack_timer, "timeout", signal_target, timeout_method, signal_flags)
+				)
 
-	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty():
+	if attach_plans.is_empty() and property_changes.is_empty() and meta_changes.is_empty() and signal_changes.is_empty() and not will_write_script:
 		return _send_success(client_id, {
 			"enemy_path": enemy_mcp_path,
 			"status": "no_change",
 		}, command_id)
+
+	var script_plan := _write_enemy_ai_script(enemy, params, true,
+		str(navigation_agent.name) if navigation_agent else navigation_name, str(attack_timer.name) if attack_timer else timer_name)
+	if script_plan.has("error"):
+		return _send_error(client_id, script_plan["error"], command_id)
 
 	var transaction_metadata := {
 		"command": "author_enemy_ai_3d",
@@ -15209,11 +15637,18 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		var created_node: Node = created
 		transaction.add_do_method(created_node, "set_owner", [edited_scene_root])
 
+	# Before the signal connections below, which need the script's handler methods.
+	if script_plan.has("script"):
+		transaction.add_do_method(enemy, "set_script", [script_plan["script"]])
+		transaction.add_undo_method(enemy, "set_script", [null])
+
 	var serialized_property_changes: Array = []
 	for change in property_changes:
 		var target_object: Object = change.get("target", enemy)
 		transaction.add_do_property(target_object, change.property, change.value)
-		transaction.add_undo_property(target_object, change.property, change.previous)
+		# Nodes this call creates leave on undo; restoring their old values only printed errors.
+		if not created_nodes.has(target_object):
+			transaction.add_undo_property(target_object, change.property, change.previous)
 		if change.value is Resource:
 			transaction.add_do_reference(change.value)
 		serialized_property_changes.append({
@@ -15262,9 +15697,9 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		var created_node: Node = created
 		var parent_node = created_node.get_parent()
 		if parent_node:
-			predicted_created_paths.append(_join_mcp_path(_to_mcp_path(parent_node), String(created_node.name)))
+			predicted_created_paths.append(_join_mcp_path(_to_mcp_path(parent_node), str(created_node.name)))
 		else:
-			predicted_created_paths.append(_join_mcp_path(enemy_mcp_path, String(created_node.name)))
+			predicted_created_paths.append(_join_mcp_path(enemy_mcp_path, str(created_node.name)))
 
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
@@ -15286,6 +15721,9 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 		"property_changes": serialized_property_changes,
 		"meta_changes": serialized_meta_changes,
 		"signal_changes": serialized_signal_changes,
+		"warnings": signal_warnings,
+		"script_path": script_plan.get("path", ""),
+		"notes": notes,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -15306,7 +15744,7 @@ func _author_enemy_ai_3d(client_id: int, params: Dictionary, command_id: String)
 
 func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path: String = params.get("parent_path", "/root")
-	var flow_name: String = String(params.get("flow_name", "MenuFlow")).strip_edges()
+	var flow_name: String = str(params.get("flow_name", "MenuFlow")).strip_edges()
 	var transaction_id: String = params.get("transaction_id", "")
 	var include_pause_menu: bool = bool(params.get("include_pause_menu", true))
 	var include_game_over_menu: bool = bool(params.get("include_game_over_menu", true))
@@ -15343,12 +15781,13 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 	var created_nodes: Array = [flow_root, root_control]
 	var attach_plans: Array = [{"parent": parent, "node": flow_root}]
 	var signal_changes: Array = []
+	var signal_warnings: Array = []
 
 	if create_background:
 		var background := ColorRect.new()
 		background.name = "Backdrop"
 		_configure_control_full_rect(background)
-		background.color = _convert_property_value(background, "color", params.get("background_color", Color(0, 0, 0, 0.55)))
+		_assign_converted(background, "color", params.get("background_color", Color(0, 0, 0, 0.55)))
 		root_control.add_child(background)
 		created_nodes.append(background)
 
@@ -15385,19 +15824,19 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 	created_nodes.append(main_vbox)
 	var title_label := Label.new()
 	title_label.name = "TitleLabel"
-	title_label.text = String(params.get("title_text", "Game Title"))
+	title_label.text = str(params.get("title_text", "Game Title"))
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_vbox.add_child(title_label)
 	created_nodes.append(title_label)
 	var start_button := Button.new()
 	start_button.name = "StartButton"
-	start_button.text = String(params.get("start_text", "Start"))
+	start_button.text = str(params.get("start_text", "Start"))
 	main_vbox.add_child(start_button)
 	created_nodes.append(start_button)
 	button_lookup["StartButton"] = start_button
 	var quit_button := Button.new()
 	quit_button.name = "QuitButton"
-	quit_button.text = String(params.get("quit_text", "Quit"))
+	quit_button.text = str(params.get("quit_text", "Quit"))
 	main_vbox.add_child(quit_button)
 	created_nodes.append(quit_button)
 	button_lookup["QuitButton"] = quit_button
@@ -15430,25 +15869,25 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 		created_nodes.append(pause_vbox)
 		var pause_title := Label.new()
 		pause_title.name = "PauseTitleLabel"
-		pause_title.text = String(params.get("pause_title_text", "Paused"))
+		pause_title.text = str(params.get("pause_title_text", "Paused"))
 		pause_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		pause_vbox.add_child(pause_title)
 		created_nodes.append(pause_title)
 		var resume_button := Button.new()
 		resume_button.name = "ResumeButton"
-		resume_button.text = String(params.get("resume_text", "Resume"))
+		resume_button.text = str(params.get("resume_text", "Resume"))
 		pause_vbox.add_child(resume_button)
 		created_nodes.append(resume_button)
 		button_lookup["ResumeButton"] = resume_button
 		var pause_restart_button := Button.new()
 		pause_restart_button.name = "PauseRestartButton"
-		pause_restart_button.text = String(params.get("pause_restart_text", "Restart"))
+		pause_restart_button.text = str(params.get("pause_restart_text", "Restart"))
 		pause_vbox.add_child(pause_restart_button)
 		created_nodes.append(pause_restart_button)
 		button_lookup["PauseRestartButton"] = pause_restart_button
 		var pause_quit_button := Button.new()
 		pause_quit_button.name = "PauseQuitToMenuButton"
-		pause_quit_button.text = String(params.get("pause_quit_text", "Quit To Menu"))
+		pause_quit_button.text = str(params.get("pause_quit_text", "Quit To Menu"))
 		pause_vbox.add_child(pause_quit_button)
 		created_nodes.append(pause_quit_button)
 		button_lookup["PauseQuitToMenuButton"] = pause_quit_button
@@ -15481,25 +15920,25 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 		created_nodes.append(game_over_vbox)
 		var game_over_title := Label.new()
 		game_over_title.name = "GameOverTitleLabel"
-		game_over_title.text = String(params.get("game_over_title_text", "Game Over"))
+		game_over_title.text = str(params.get("game_over_title_text", "Game Over"))
 		game_over_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		game_over_vbox.add_child(game_over_title)
 		created_nodes.append(game_over_title)
 		var retry_button := Button.new()
 		retry_button.name = "RetryButton"
-		retry_button.text = String(params.get("retry_text", "Retry"))
+		retry_button.text = str(params.get("retry_text", "Retry"))
 		game_over_vbox.add_child(retry_button)
 		created_nodes.append(retry_button)
 		button_lookup["RetryButton"] = retry_button
 		var game_over_quit_button := Button.new()
 		game_over_quit_button.name = "GameOverQuitToMenuButton"
-		game_over_quit_button.text = String(params.get("game_over_quit_text", "Quit To Menu"))
+		game_over_quit_button.text = str(params.get("game_over_quit_text", "Quit To Menu"))
 		game_over_vbox.add_child(game_over_quit_button)
 		created_nodes.append(game_over_quit_button)
 		button_lookup["GameOverQuitToMenuButton"] = game_over_quit_button
 
 	if connect_signals:
-		var controller_path: String = String(params.get("controller_path", "")).strip_edges()
+		var controller_path: String = str(params.get("controller_path", "")).strip_edges()
 		if controller_path.is_empty():
 			return _send_error(client_id, "controller_path is required when connect_signals=true", command_id)
 		var controller_node = _get_editor_node(controller_path)
@@ -15507,13 +15946,13 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 			return _send_error(client_id, "Controller node not found: %s" % controller_path, command_id)
 
 		var method_map := {
-			"StartButton": String(params.get("start_pressed_method", "_on_menu_start_pressed")).strip_edges(),
-			"QuitButton": String(params.get("quit_pressed_method", "_on_menu_quit_pressed")).strip_edges(),
-			"ResumeButton": String(params.get("resume_pressed_method", "_on_pause_resume_pressed")).strip_edges(),
-			"PauseRestartButton": String(params.get("pause_restart_pressed_method", "_on_pause_restart_pressed")).strip_edges(),
-			"PauseQuitToMenuButton": String(params.get("pause_quit_pressed_method", "_on_pause_quit_to_menu_pressed")).strip_edges(),
-			"RetryButton": String(params.get("retry_pressed_method", "_on_game_over_retry_pressed")).strip_edges(),
-			"GameOverQuitToMenuButton": String(params.get("game_over_quit_pressed_method", "_on_game_over_quit_to_menu_pressed")).strip_edges(),
+			"StartButton": str(params.get("start_pressed_method", "_on_menu_start_pressed")).strip_edges(),
+			"QuitButton": str(params.get("quit_pressed_method", "_on_menu_quit_pressed")).strip_edges(),
+			"ResumeButton": str(params.get("resume_pressed_method", "_on_pause_resume_pressed")).strip_edges(),
+			"PauseRestartButton": str(params.get("pause_restart_pressed_method", "_on_pause_restart_pressed")).strip_edges(),
+			"PauseQuitToMenuButton": str(params.get("pause_quit_pressed_method", "_on_pause_quit_to_menu_pressed")).strip_edges(),
+			"RetryButton": str(params.get("retry_pressed_method", "_on_game_over_retry_pressed")).strip_edges(),
+			"GameOverQuitToMenuButton": str(params.get("game_over_quit_pressed_method", "_on_game_over_quit_to_menu_pressed")).strip_edges(),
 		}
 		for button_name in method_map.keys():
 			if not button_lookup.has(button_name):
@@ -15522,14 +15961,17 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 			if method_name.is_empty():
 				continue
 			var button_node: Button = button_lookup[button_name]
-			signal_changes.append_array(
-				_capture_signal_connection_change(button_node, "pressed", controller_node, method_name, signal_flags)
-			)
+			# Connecting to a method the controller lacks errors on every press; skip it and say so.
+			if _signal_method_exists(controller_node, method_name, signal_warnings):
+				signal_changes.append_array(
+					_capture_signal_connection_change(button_node, "pressed", controller_node, method_name, signal_flags)
+				)
 
 	if attach_plans.is_empty() and signal_changes.is_empty():
 		return _send_success(client_id, {
 			"flow_path": _join_mcp_path(_to_mcp_path(parent), flow_root.name),
 			"status": "no_change",
+			"warnings": signal_warnings,
 		}, command_id)
 
 	var transaction_metadata := {
@@ -15610,6 +16052,7 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 			"game_over_menu": (_join_mcp_path(predicted_flow_path, "Root/Menus/GameOverMenu") if include_game_over_menu else ""),
 		},
 		"signal_changes": serialized_signal_changes,
+		"warnings": signal_warnings,
 		"transaction_id": transaction.transaction_id,
 	}
 	if transaction_id.is_empty():
@@ -15631,7 +16074,7 @@ func _build_menu_ui_flow_2d(client_id: int, params: Dictionary, command_id: Stri
 
 func _set_menu_ui_flow_state(client_id: int, params: Dictionary, command_id: String) -> void:
 	var flow_path: String = params.get("flow_path", "")
-	var state: String = String(params.get("state", "main")).strip_edges().to_lower()
+	var state: String = str(params.get("state", "main")).strip_edges().to_lower()
 	var transaction_id: String = params.get("transaction_id", "")
 
 	if flow_path.is_empty():
@@ -15798,6 +16241,34 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 
 	transaction.add_do_property(node, "name", new_name)
 	transaction.add_undo_property(node, "name", old_name)
+	# Keep animation tracks pointing at the node (the editor does this on a manual rename; tracks
+	# were left orphaned). Paths are relative to each player's animation root.
+	var tracks_updated := 0
+	var edited_root := EditorInterface.get_edited_scene_root()
+	if node.is_inside_tree() and edited_root != null:
+		for player in edited_root.find_children("*", "AnimationPlayer", true, false):
+			var anim_root: Node = player.get_node_or_null(player.root_node)
+			if anim_root == null:
+				anim_root = player.get_parent()
+			if anim_root == null or anim_root == node or not anim_root.is_ancestor_of(node):
+				continue
+			var old_rel := str(anim_root.get_path_to(node))
+			var new_rel: String = (old_rel.get_base_dir().path_join(new_name)) if old_rel.contains("/") else str(new_name)
+			for library_name in player.get_animation_library_list():
+				var library: AnimationLibrary = player.get_animation_library(library_name)
+				for animation_name in library.get_animation_list():
+					var animation: Animation = library.get_animation(animation_name)
+					for track in animation.get_track_count():
+						var track_path := str(animation.track_get_path(track))
+						var node_part := track_path.get_slice(":", 0)
+						if node_part == old_rel or node_part.begins_with(old_rel + "/"):
+							transaction.add_do_method(animation, "track_set_path", [track, NodePath(new_rel + track_path.substr(old_rel.length()))])
+							transaction.add_undo_method(animation, "track_set_path", [track, NodePath(track_path)])
+							tracks_updated += 1
+	if not str(transaction_id).is_empty():
+		# A node staged in this transaction has no parent yet: derive its new path from the requested one.
+		var parent_mcp: String = _to_mcp_path(node.get_parent()) if node.is_inside_tree() else str(node_path).get_base_dir()
+		transaction.pending_paths[_join_mcp_path(parent_mcp, new_name)] = node
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
 		_log("Renamed node", "_rename_node", {
@@ -15819,6 +16290,7 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			"new_name": new_name,
 			"node_path": path_string,
 			"transaction_id": transaction.transaction_id,
+			"animation_tracks_updated": tracks_updated,
 			"status": "committed"
 		}, command_id)
 	else:
@@ -15827,12 +16299,13 @@ func _rename_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			"new_name": new_name,
 			"node_path": node_path,
 			"transaction_id": transaction.transaction_id,
+			"animation_tracks_updated": tracks_updated,
 			"status": "pending"
 		}, command_id)
 
 func _add_node_to_group(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
-	var group_name = params.get("group_name", "")
+	var group_name = str(params.get("group_name", "")).strip_edges()
 	var persistent = params.get("persistent", true)
 	var transaction_id = params.get("transaction_id", "")
 
@@ -15910,7 +16383,7 @@ func _add_node_to_group(client_id: int, params: Dictionary, command_id: String) 
 
 func _remove_node_from_group(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
-	var group_name = params.get("group_name", "")
+	var group_name = str(params.get("group_name", "")).strip_edges()
 	var transaction_id = params.get("transaction_id", "")
 	var restore_persistent = params.get("persistent", true)
 
@@ -16029,6 +16502,15 @@ func _configure_camera2d_limits(client_id: int, params: Dictionary, command_id: 
 			"line_num": 0,
 		}, true)
 		return _send_error(client_id, "Provide at least one limit or smoothing property to update", command_id)
+
+	var effective_left: int = int(limit_config.get("left", node.limit_left))
+	var effective_right: int = int(limit_config.get("right", node.limit_right))
+	var effective_top: int = int(limit_config.get("top", node.limit_top))
+	var effective_bottom: int = int(limit_config.get("bottom", node.limit_bottom))
+	if effective_left > effective_right:
+		return _send_error(client_id, "limits.left (%d) must not be greater than limits.right (%d)" % [effective_left, effective_right], command_id)
+	if effective_top > effective_bottom:
+		return _send_error(client_id, "limits.top (%d) must not be greater than limits.bottom (%d)" % [effective_top, effective_bottom], command_id)
 
 	var pending_changes: Array = []
 	var limit_property_map := {
@@ -16159,14 +16641,14 @@ func _list_node_groups(client_id: int, params: Dictionary, command_id: String) -
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 
-	var groups: Array = node.get_groups()
+	var groups: Array = _user_groups(node)
 	_send_success(client_id, {
 		"node_path": node_path,
 		"groups": groups
 	}, command_id)
 
 func _list_nodes_in_group(client_id: int, params: Dictionary, command_id: String) -> void:
-	var group_name = params.get("group_name", "")
+	var group_name = str(params.get("group_name", "")).strip_edges()
 	if group_name.is_empty():
 		return _send_error(client_id, "Group name cannot be empty", command_id)
 
@@ -16196,6 +16678,8 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	# Validation
 	if not ClassDB.class_exists(node_type):
 		return _send_error(client_id, "Invalid node type: %s" % node_type, command_id)
+	if params.has("node_name") and str(node_name) != "" and str(node_name).strip_edges().is_empty():
+		return _send_error(client_id, "node_name cannot be whitespace only", command_id)
 	
 	# Get editor plugin and interfaces
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -16223,10 +16707,13 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not node:
 		return _send_error(client_id, "Failed to create node of type: %s" % node_type, command_id)
 
-	# Set the node name
-	node.name = node_name
+	# Set the node name (an empty name would raise an engine error; keep the type-name default instead)
+	if str(node_name) != "":
+		node.name = node_name
+	node_name = str(node.name)
 
-	var parent_mcp_path: String = _to_mcp_path(parent)
+	# A parent staged earlier in the same transaction is not in the tree yet: use the requested path.
+	var parent_mcp_path: String = _to_mcp_path(parent) if parent.is_inside_tree() else str(parent_path).trim_suffix("/")
 	var expected_child_path: String = parent_mcp_path + "/" + node_name
 
 	var transaction_metadata := {
@@ -16249,9 +16736,12 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for node creation", command_id)
 
-	transaction.add_do_method(parent, "add_child", [node])
+	# force_readable_name: a name collision becomes "Name2", not "@Node3D@123".
+	transaction.add_do_method(parent, "add_child", [node, true])
 	transaction.add_do_method(node, "set_owner", [edited_scene_root])
 	transaction.add_undo_method(parent, "remove_child", [node])
+	if not transaction_id.is_empty():
+		transaction.pending_paths[expected_child_path] = node
 	transaction.add_undo_method(node, "queue_free")
 	transaction.add_do_reference(node)
 	transaction.register_on_commit(func():
@@ -16285,6 +16775,9 @@ func _create_node(client_id: int, params: Dictionary, command_id: String) -> voi
 			return _send_error(client_id, "Failed to commit node creation", command_id)
 		var path_string = _to_mcp_path(node)
 		response["node_path"] = path_string
+		# The parent renames the node when the requested name is taken.
+		response["node_name"] = str(node.name)
+		response["requested_name"] = node_name
 		response["status"] = "committed"
 		_send_success(client_id, response, command_id)
 	else:
@@ -16326,8 +16819,6 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not parent:
 		return _send_error(client_id, "Node has no parent: %s" % node_path, command_id)
 	
-	var child_index = parent.get_children().find(node)
-
 	var transaction_metadata := {
 		"command": "delete_node",
 		"node_path": node_path,
@@ -16346,12 +16837,7 @@ func _delete_node(client_id: int, params: Dictionary, command_id: String) -> voi
 	if not transaction:
 		return _send_error(client_id, "Failed to obtain scene transaction for node deletion", command_id)
 
-	transaction.add_do_method(parent, "remove_child", [node])
-	transaction.add_do_method(node, "queue_free")
-	transaction.add_undo_method(parent, "add_child", [node])
-	transaction.add_undo_method(parent, "move_child", [node, child_index])
-	transaction.add_undo_method(node, "set_owner", [edited_scene_root])
-	transaction.add_do_reference(node)
+	_remove_with_undo(transaction, node)
 	transaction.register_on_commit(func():
 		_mark_scene_modified()
 		var selection: EditorSelection = editor_interface.get_selection()
@@ -16410,12 +16896,21 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 		var base_property_name: String = property_segments[0]
 		if not base_property_name in node:
 				return _send_error(client_id, "Property %s does not exist on node %s" % [base_property_name, node_path], command_id)
+		_ensure_saved_override(node)
 
 		var old_base_value = node.get(base_property_name)
 		var conversion_result: Dictionary
 
 		if property_segments.size() == 1:
 				var parsed_value = _convert_property_value(node, base_property_name, property_value)
+				var value_error := _property_value_error(node, base_property_name, parsed_value)
+				if not value_error.is_empty():
+						return _send_error(client_id, value_error, command_id)
+				_ensure_saved_override(node)
+				if base_property_name == "name" and node.get_parent() != null:
+						var sibling := node.get_parent().get_node_or_null(NodePath(str(parsed_value)))
+						if sibling != null and sibling != node:
+								return _send_error(client_id, "A sibling node named %s already exists (use rename_node)" % str(parsed_value), command_id)
 				conversion_result = {
 						"ok": true,
 						"value": parsed_value,
@@ -16496,6 +16991,8 @@ func _update_node_property(client_id: int, params: Dictionary, command_id: Strin
 
 func _get_node_properties(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path = params.get("node_path", "")
+	var wanted: Array = params.get("properties", [])
+	var changed_only: bool = params.get("changed_only", false)
 	
 	# Validation
 	if node_path.is_empty():
@@ -16506,19 +17003,108 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 	if not node:
 		return _send_error(client_id, "Node not found: %s" % node_path, command_id)
 	
+	# Named properties only: a full dump is 60-150 entries, most of them defaults.
+	if not wanted.is_empty():
+		var picked := {}
+		var missing: Array = []
+		for name in wanted:
+			var key := str(name)
+			if key.split(".")[0] in node:
+				picked[key] = _readable_value(node.get_indexed(NodePath(key.replace(".", ":"))))
+			else:
+				missing.append(key)
+		return _send_success(client_id, {"node_path": node_path, "properties": picked, "missing": missing}, command_id)
+	
 	# Get all properties
 	var properties = {}
 	var property_list = node.get_property_list()
+	var script = node.get_script()
+	var script_vars := {}
+	if changed_only and script:
+		for info in script.get_script_property_list():
+			script_vars[info["name"]] = true
 	
+	# Inspector category/group headers are list entries, not properties (they read as null).
+	var header_usage := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 	for prop in property_list:
 		var name = prop["name"]
-		if not name.begins_with("_"):  # Skip internal properties
-			properties[name] = node.get(name)
+		if prop.get("usage", 0) & header_usage:
+			continue
+		# GPUParticles3D lists draw_pass_1..4 but reading one beyond draw_passes raises an engine error.
+		if name.begins_with("draw_pass_") and name.substr(10).is_valid_int() and "draw_passes" in node and name.substr(10).to_int() > int(node.get("draw_passes")):
+			continue
+		if name.begins_with("_"):  # Skip internal properties
+			continue
+		if changed_only and not (prop.get("usage", 0) & PROPERTY_USAGE_STORAGE):
+			continue  # derived values (global_position, transform) are never saved, so never "changed"
+		var value = node.get(name)
+		if changed_only:
+			var default_value = script.get_property_default_value(name) if script_vars.has(name) else ClassDB.class_get_property_default_value(node.get_class(), name)
+			if typeof(value) == typeof(default_value) and value == default_value:
+				continue
+		properties[name] = _readable_value(value)
 	
 	_send_success(client_id, {
 		"node_path": node_path,
 		"properties": properties
 	}, command_id)
+
+
+# A saved resource (script, shape, texture) reads best as its file path and a built-in one as
+# "<Class>", not "(path):<Class#id>".
+func _readable_value(value):
+	if value is Resource:
+		var file_path: String = value.resource_path
+		return file_path if not file_path.is_empty() and not file_path.contains("::") else "<%s>" % value.get_class()
+	return value
+
+
+# Compact outline of a subtree, one line per node: "Name (Type) @scene script=x.gd [groups]".
+# Roughly ten tokens per node, against about a hundred and fifty for snapshot_scene_state.
+func _get_scene_tree(client_id: int, params: Dictionary, command_id: String) -> void:
+	var root_path: String = params.get("root_path", "/root")
+	var max_depth: int = clampi(int(params.get("max_depth", 10)), 0, 64)
+	var max_nodes: int = clampi(int(params.get("max_nodes", 400)), 1, 5000)
+	var root = _get_editor_node(root_path)
+	if not root:
+		return _send_error(client_id, "Node not found: %s" % root_path, command_id)
+	var lines := PackedStringArray()
+	var state := {"shown": 0, "omitted": 0}
+	_outline_node(root, 0, max_depth, max_nodes, lines, state)
+	_send_success(client_id, {
+		"root_path": _to_mcp_path(root),
+		"outline": "\n".join(lines),
+		"shown": state["shown"],
+		"omitted": state["omitted"],
+	}, command_id)
+
+
+func _outline_node(node: Node, depth: int, max_depth: int, max_nodes: int, lines: PackedStringArray, state: Dictionary) -> void:
+	if state["shown"] >= max_nodes:
+		state["omitted"] += 1
+		return
+	state["shown"] += 1
+	var text := "%s%s (%s)" % ["  ".repeat(depth), node.name, node.get_class()]
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var is_instance: bool = node != scene_root and not node.scene_file_path.is_empty()
+	if is_instance:
+		text += " @" + node.scene_file_path
+	elif node.get_script():
+		text += " script=" + str(node.get_script().resource_path).get_file()
+	var groups := _user_groups(node)
+	if not groups.is_empty():
+		text += " [%s]" % ",".join(PackedStringArray(groups.map(func(group): return str(group))))
+	var children: Array = node.get_children().filter(func(child): return not _is_editor_internal_node(child))
+	# An instance's children live in its own scene; list them only when they are editable here.
+	if is_instance and scene_root and not scene_root.is_editable_instance(node):
+		children = []
+	elif depth >= max_depth and not children.is_empty():
+		text += " +%d children" % children.size()
+		state["omitted"] += children.size()
+		children = []
+	lines.append(text)
+	for child in children:
+		_outline_node(child, depth + 1, max_depth, max_nodes, lines, state)
 
 func _list_nodes(client_id: int, params: Dictionary, command_id: String) -> void:
 	var parent_path = params.get("parent_path", "/root")
@@ -16531,6 +17117,8 @@ func _list_nodes(client_id: int, params: Dictionary, command_id: String) -> void
 	# Get children
 	var children = []
 	for child in parent.get_children():
+		if _is_editor_internal_node(child):
+			continue
 		children.append({
 			"name": child.name,
 			"type": child.get_class(),
@@ -16557,7 +17145,7 @@ func _collect_nodes_in_group(node: Node, group_name: String, current_path: Strin
 
 func _create_theme_override(client_id: int, params: Dictionary, command_id: String) -> void:
 	var node_path: String = params.get("node_path", "")
-	var override_type := String(params.get("override_type", "")).to_lower()
+	var override_type := str(params.get("override_type", "")).to_lower()
 	var override_name: String = params.get("override_name", "")
 	var value = params.get("value")
 	var resource_path: String = params.get("resource_path", "")
@@ -16688,6 +17276,15 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 	if method_name.is_empty():
 		return _send_error(client_id, "Method name cannot be empty", command_id)
 
+	# The method name and argument names are written into a script, so only plain names pass.
+	if not method_name.is_valid_ascii_identifier():
+		return _send_error(client_id, "method_name must be a plain name (letters, digits, _): %s" % method_name, command_id)
+	var argument_pattern := RegEx.create_from_string("^[A-Za-z_][A-Za-z0-9_]*(\\s*:\\s*[A-Za-z_][A-Za-z0-9_.]*)?$")
+	if arguments_param is Array:
+		for argument in arguments_param:
+			if typeof(argument) == TYPE_STRING and not str(argument).strip_edges().is_empty() and not argument_pattern.search(str(argument).strip_edges()):
+				return _send_error(client_id, "Each argument must be a name or \"name: Type\": %s" % argument, command_id)
+
 	var source_node = _get_editor_node(source_path)
 	if not source_node:
 		return _send_error(client_id, "Source node not found: %s" % source_path, command_id)
@@ -16728,6 +17325,8 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 
 	if not script_resource_path.begins_with("res://"):
 		return _send_error(client_id, "Script path must be within the project (res://)", command_id)
+	if _is_protected_path(script_resource_path) or not script_resource_path.get_extension().to_lower() == "gd":
+		return _send_error(client_id, "Script path must be a .gd file outside protected folders: %s" % script_resource_path, command_id)
 
 	if create_script and not FileAccess.file_exists(script_resource_path):
 		var extends_type := target_node.get_class()
@@ -16798,8 +17397,11 @@ func _wire_signal_handler(client_id: int, params: Dictionary, command_id: String
 		transaction.add_do_property(target_node, "script", script_resource)
 		transaction.add_undo_property(target_node, "script", previous_script)
 
-	transaction.add_do_method(source_node, "connect", [signal_name, callable, binds, flags])
-	transaction.add_undo_method(source_node, "disconnect", [signal_name, callable])
+	# Godot 4: connect(signal, callable, flags); binds belong on the Callable (the old 4-argument
+	# Godot 3 call failed). CONNECT_PERSIST makes save_scene keep the connection.
+	var connect_callable: Callable = callable.bindv(binds) if binds is Array and not binds.is_empty() else callable
+	transaction.add_do_method(source_node, "connect", [signal_name, connect_callable, flags | Object.CONNECT_PERSIST])
+	transaction.add_undo_method(source_node, "disconnect", [signal_name, connect_callable])
 
 	var response := {
 		"source_path": source_path,
@@ -16860,6 +17462,10 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 	if not (node is Control):
 		return _send_error(client_id, "Container must inherit from Control to layout children", command_id)
 
+	# Container subclasses (GridContainer, VBoxContainer, ...) re-layout children and ignore anchors/offsets.
+	if node is Container:
+		return _send_error(client_id, "%s is a Container (%s) and lays out its children itself; offsets would be ignored. Use a plain Control parent, or configure the container's own properties (e.g. GridContainer.columns)." % [container_path, node.get_class()], command_id)
+
 	var container: Control = node
 	var controls: Array = []
 	for child in container.get_children():
@@ -16914,7 +17520,7 @@ func _layout_ui_grid(client_id: int, params: Dictionary, command_id: String) -> 
 			})
 
 		layout_summary.append({
-			"node_path": _stringify_node_path(child.get_path()),
+			"node_path": _to_mcp_path(child),
 			"column": column,
 			"row": row,
 			"position": position,
@@ -17044,6 +17650,10 @@ func _register_theme_override_transaction(transaction, control: Control, overrid
 		transaction.add_undo_method(control, removal_method, [override_name])
 
 
+func _is_numeric_value(value) -> bool:
+	return value is int or value is float or (value is String and value.is_valid_float())
+
+
 func _parse_theme_override_value(override_type: String, value, resource_path: String) -> Dictionary:
 	match override_type:
 		"color":
@@ -17052,12 +17662,13 @@ func _parse_theme_override_value(override_type: String, value, resource_path: St
 				return {"ok": false, "error": "Color overrides require a valid color value"}
 			return {"ok": true, "value": color}
 		"constant":
-			if value == null:
+			# float("abc") is 0.0, so check the input is a number first.
+			if not _is_numeric_value(value):
 				return {"ok": false, "error": "Constant overrides require a numeric value"}
 			return {"ok": true, "value": int(round(float(value)))}
 		"font_size":
-			if value == null:
-				return {"ok": false, "error": "Font size overrides require an integer value"}
+			if not _is_numeric_value(value) or float(value) < 1.0:
+				return {"ok": false, "error": "Font size overrides require a positive integer value"}
 			return {"ok": true, "value": int(round(float(value)))}
 		"font":
 			var font_resource = _load_theme_resource(resource_path, value, "Font")
@@ -17078,36 +17689,19 @@ func _parse_theme_override_value(override_type: String, value, resource_path: St
 			return {"ok": false, "error": "Unsupported override_type: %s" % override_type}
 
 
+# Color from JSON input, or null when it is not a valid color (callers turn null into an error).
+# Reuses the shared parser: Color("notacolor") silently returned black.
 func _coerce_color(value):
-	match typeof(value):
-		TYPE_NIL:
-			return null
-		TYPE_COLOR:
-			return value
-		TYPE_DICTIONARY:
-			var dict: Dictionary = value
-			return Color(dict.get("r", 0.0), dict.get("g", 0.0), dict.get("b", 0.0), dict.get("a", 1.0))
-		TYPE_STRING:
-			var str_value: String = value
-			if str_value.is_empty():
-				return null
-			return Color(str_value)
-		TYPE_ARRAY:
-			var arr: Array = value
-			if arr.size() >= 3:
-				var r := float(arr[0])
-				var g := float(arr[1])
-				var b := float(arr[2])
-				var a := (float(arr[3]) if arr.size() > 3 else 1.0)
-				return Color(r, g, b, a)
-		_:
-			return null
+	if value == null or (typeof(value) == TYPE_STRING and value.is_empty()):
+		return null
+	var color = _coerce_to_color(value)
+	return color if color is Color else null
 
 
 func _load_theme_resource(resource_path: String, fallback, expected_class: String) -> Resource:
 	var path_to_load := resource_path
 	if path_to_load.is_empty() and typeof(fallback) == TYPE_STRING:
-		path_to_load = String(fallback)
+		path_to_load = str(fallback)
 
 	if path_to_load.is_empty():
 		return null
@@ -17243,6 +17837,8 @@ func %s(%s):
 
 	updated_content += stub_line
 
+	if _contained_res_path(script_path).is_empty():
+		return {"ok": false, "error": "Script path must stay inside the project (res://): %s" % script_path}
 	file = FileAccess.open(script_path, FileAccess.WRITE)
 	if file == null:
 		return {"ok": false, "error": "Failed to open script for writing: %s" % script_path}
@@ -17258,8 +17854,8 @@ func _normalize_argument_names(raw_arguments) -> Array:
 	if raw_arguments is Array:
 		for idx in range(raw_arguments.size()):
 			var candidate = raw_arguments[idx]
-			if typeof(candidate) == TYPE_STRING and not String(candidate).strip_edges().is_empty():
-				result.append(String(candidate).strip_edges())
+			if typeof(candidate) == TYPE_STRING and not str(candidate).strip_edges().is_empty():
+				result.append(str(candidate).strip_edges())
 			else:
 				result.append("arg_%d" % idx)
 	else:
@@ -17428,6 +18024,32 @@ func _make_tilemap_cell_data(source_id: int, atlas_coords: Vector2i, alternative
 	}
 
 
+# Existing followers touched by the changes (not the number of property changes).
+func _count_updated_followers(changes: Array, created_followers: Array) -> int:
+	var touched := {}
+	for change in changes:
+		var target = change.get("target")
+		if (target is PathFollow2D or target is PathFollow3D) and not created_followers.has(target):
+			touched[target] = true
+	return touched.size()
+
+
+# A cell that points at a missing TileSet, source or atlas tile paints nothing, so reject it.
+# Returns an error message, or "" when the tile exists (source_id -1 means erase).
+func _validate_tilemap_tile(node: Node, source_id: int, atlas_coords: Vector2i) -> String:
+	if source_id == -1:
+		return ""
+	var tile_set: TileSet = node.tile_set
+	if tile_set == null:
+		return "%s has no TileSet" % node.name
+	if not tile_set.has_source(source_id):
+		return "TileSet has no source with id %d" % source_id
+	var source := tile_set.get_source(source_id)
+	if source is TileSetAtlasSource and not source.has_tile(atlas_coords):
+		return "TileSet source %d has no tile at atlas_coords %s" % [source_id, atlas_coords]
+	return ""
+
+
 func _get_tilemap_cell_data(node: Node, layer: int, coords: Vector2i) -> Dictionary:
 	if node is TileMapLayer:
 		var tilemap_layer: TileMapLayer = node
@@ -17561,6 +18183,14 @@ func _capture_property_change(node: Object, property_name: String, desired_value
 	if not property_name in node:
 		return []
 
+	# Godot ignores or clamps values outside the property's type/range, which the configure_*
+	# tools then reported as committed. Refuse them (the command's success becomes an error).
+	var value_error := _property_value_error(node, property_name, desired_value)
+	if not value_error.is_empty():
+		_refused_values.append(value_error)
+		return []
+
+	_ensure_saved_override(node)
 	var current_value = node.get(property_name)
 	if current_value == desired_value:
 		return []
@@ -17596,6 +18226,248 @@ func _build_signal_flags_from_params(params: Dictionary) -> int:
 	if bool(params.get("signal_reference_counted", false)):
 		signal_flags |= Object.CONNECT_REFERENCE_COUNTED
 	return signal_flags
+
+
+# Behavior script author_enemy_ai_2d/3d write when the enemy has none, so the nodes they add do
+# something: patrol mcp_enemy_patrol_points, chase a member of mcp_enemy_detection_group that the
+# vision area sees or that comes within mcp_enemy_vision_radius, emit attacked(target) in range,
+# then wait out the attack cooldown. Settings are read from the enemy's mcp_enemy_* metadata.
+const ENEMY_AI_SCRIPT_3D := """extends CharacterBody3D
+## Enemy behavior written by author_enemy_ai_3d: patrol, chase what comes into view, attack in range.
+## Speed, detection group, vision radius, cooldown and patrol points are the mcp_enemy_* metadata.
+
+signal attacked(target: Node3D)
+
+@export var attack_range := 1.5
+
+var target: Node3D
+var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+var _patrol_index := 0
+var _can_attack := true
+
+@onready var _agent: NavigationAgent3D = get_node_or_null(^"{nav}")
+@onready var _cooldown: Timer = get_node_or_null(^"{timer}")
+
+
+func _physics_process(delta: float) -> void:
+	_look_for_target()
+	var speed: float = get_meta("mcp_enemy_movement_speed", 4.5)
+	var direction := Vector3.ZERO
+	var goal = _goal()
+	if goal != null:
+		var next: Vector3 = goal
+		# Follow the navigation mesh when the level has one; otherwise head straight there.
+		if _agent and not NavigationServer3D.map_get_regions(_agent.get_navigation_map()).is_empty():
+			_agent.target_position = goal
+			next = _agent.get_next_path_position()
+		var flat := (next - global_position) * Vector3(1, 0, 1)
+		if flat.length() > 0.2:
+			direction = flat.normalized()
+	var accel: float = get_meta("mcp_enemy_acceleration", speed * 6.0)
+	var horizontal := Vector3(velocity.x, 0, velocity.z).move_toward(direction * speed, accel * delta)
+	velocity = Vector3(horizontal.x, 0.0 if is_on_floor() else velocity.y - gravity * delta, horizontal.z)
+	move_and_slide()
+	if is_instance_valid(target) and _can_attack and global_position.distance_to(target.global_position) <= attack_range:
+		_can_attack = false
+		attacked.emit(target)
+		if _cooldown:
+			_cooldown.start(float(get_meta("mcp_enemy_attack_cooldown", 1.0)))
+		else:
+			get_tree().create_timer(float(get_meta("mcp_enemy_attack_cooldown", 1.0))).timeout.connect({timeout})
+
+
+# Notice targets by distance too, so a vision area whose mask misses the target still works.
+func _look_for_target() -> void:
+	var radius: float = get_meta("mcp_enemy_vision_radius", 6.0)
+	if is_instance_valid(target):
+		if global_position.distance_to(target.global_position) > radius * 1.5:
+			target = null
+		return
+	for candidate in get_tree().get_nodes_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		if candidate is Node3D and candidate != self and global_position.distance_to(candidate.global_position) <= radius:
+			target = candidate
+			return
+
+
+func _goal():
+	if is_instance_valid(target):
+		return target.global_position
+	var points: Array = get_meta("mcp_enemy_patrol_points", [])
+	if points.is_empty():
+		return null
+	var point: Dictionary = points[_patrol_index % points.size()]
+	var spot := Vector3(point.get("x", 0.0), point.get("y", 0.0), point.get("z", 0.0))
+	if ((spot - global_position) * Vector3(1, 0, 1)).length() < 0.6:
+		_patrol_index += 1
+	return spot
+
+
+func {entered}(body: Node3D) -> void:
+	if body.is_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		target = body
+
+
+func {exited}(body: Node3D) -> void:
+	if body == target:
+		target = null
+
+
+func {timeout}() -> void:
+	_can_attack = true
+"""
+const ENEMY_AI_SCRIPT_2D := """extends CharacterBody2D
+## Enemy behavior written by author_enemy_ai_2d: patrol, chase what comes into view, attack in range.
+## Grounded bodies (platformers) walk left and right under gravity; floating ones (top-down) move
+## freely. Speed, detection group, vision radius, cooldown and patrol points are the mcp_enemy_* metadata.
+
+signal attacked(target: Node2D)
+
+@export var attack_range := 28.0
+
+var target: Node2D
+var gravity: float = ProjectSettings.get_setting("physics/2d/default_gravity")
+var _patrol_index := 0
+var _can_attack := true
+
+@onready var _agent: NavigationAgent2D = get_node_or_null(^"{nav}")
+@onready var _cooldown: Timer = get_node_or_null(^"{timer}")
+
+
+func _physics_process(delta: float) -> void:
+	_look_for_target()
+	var speed: float = get_meta("mcp_enemy_movement_speed", 120.0)
+	var grounded := motion_mode == MOTION_MODE_GROUNDED
+	var direction := Vector2.ZERO
+	var goal = _goal()
+	if goal != null:
+		var next: Vector2 = goal
+		# Follow the navigation mesh when the level has one; otherwise head straight there.
+		if _agent and not NavigationServer2D.map_get_regions(_agent.get_navigation_map()).is_empty():
+			_agent.target_position = goal
+			next = _agent.get_next_path_position()
+		var offset := next - global_position
+		if grounded:
+			offset.y = 0.0
+		if offset.length() > 4.0:
+			direction = offset.normalized()
+	var accel: float = float(get_meta("mcp_enemy_acceleration", speed * 6.0)) * delta
+	if grounded:
+		velocity.x = move_toward(velocity.x, direction.x * speed, accel)
+		velocity.y = 0.0 if is_on_floor() else velocity.y + gravity * delta
+	else:
+		velocity = velocity.move_toward(direction * speed, accel)
+	move_and_slide()
+	if is_instance_valid(target) and _can_attack and global_position.distance_to(target.global_position) <= attack_range:
+		_can_attack = false
+		attacked.emit(target)
+		if _cooldown:
+			_cooldown.start(float(get_meta("mcp_enemy_attack_cooldown", 1.0)))
+		else:
+			get_tree().create_timer(float(get_meta("mcp_enemy_attack_cooldown", 1.0))).timeout.connect({timeout})
+
+
+# Notice targets by distance too, so a vision area whose mask misses the target still works.
+func _look_for_target() -> void:
+	var radius: float = get_meta("mcp_enemy_vision_radius", 160.0)
+	if is_instance_valid(target):
+		if global_position.distance_to(target.global_position) > radius * 1.5:
+			target = null
+		return
+	for candidate in get_tree().get_nodes_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		if candidate is Node2D and candidate != self and global_position.distance_to(candidate.global_position) <= radius:
+			target = candidate
+			return
+
+
+func _goal():
+	if is_instance_valid(target):
+		return target.global_position
+	var points: Array = get_meta("mcp_enemy_patrol_points", [])
+	if points.is_empty():
+		return null
+	var point: Dictionary = points[_patrol_index % points.size()]
+	var spot := Vector2(point.get("x", 0.0), point.get("y", 0.0))
+	if absf(spot.x - global_position.x) < 8.0 and (motion_mode == MOTION_MODE_GROUNDED or absf(spot.y - global_position.y) < 8.0):
+		_patrol_index += 1
+	return spot
+
+
+func {entered}(body: Node2D) -> void:
+	if body.is_in_group(get_meta("mcp_enemy_detection_group", "player")):
+		target = body
+
+
+func {exited}(body: Node2D) -> void:
+	if body == target:
+		target = null
+
+
+func {timeout}() -> void:
+	_can_attack = true
+"""
+
+
+# Writes the behavior script for author_enemy_ai_2d/3d when write_script is on (default: the enemy
+# has no script). Returns {"script": Script, "path": String} or {"error": String}; {} when not asked.
+func _write_enemy_ai_script(enemy: Node, params: Dictionary, is_3d: bool, navigation_name: String, timer_name: String) -> Dictionary:
+	if not bool(params.get("write_script", enemy.get_script() == null)):
+		return {}
+	if enemy.get_script() != null:
+		return {"error": "%s already has a script (%s); write_script would replace it. Add the handler methods to it instead, or pass write_script false" % [enemy.name, enemy.get_script().resource_path]}
+	var methods := {
+		"entered": str(params.get("vision_entered_method", "_on_enemy_vision_body_entered")).strip_edges(),
+		"exited": str(params.get("vision_exited_method", "_on_enemy_vision_body_exited")).strip_edges(),
+		"timeout": str(params.get("attack_timeout_method", "_on_enemy_attack_cooldown_timeout")).strip_edges(),
+	}
+	# These names are written into the script, so only plain names pass.
+	for key in methods:
+		if not methods[key].is_valid_ascii_identifier():
+			return {"error": "Handler method names must be plain names (letters, digits, _): %s" % methods[key]}
+	var script_path := str(params.get("script_path", "res://scripts/%s_ai.gd" % str(enemy.name).to_snake_case()))
+	var contained := _contained_res_path(script_path)
+	if contained.is_empty() or not contained.ends_with(".gd") or _is_protected_path(contained):
+		return {"error": "script_path must be a .gd file in the project, outside protected folders: %s" % script_path}
+	if FileAccess.file_exists(contained):
+		return {"error": "%s already exists; pass another script_path (or attach it yourself)" % contained}
+	var template: String = ENEMY_AI_SCRIPT_3D if is_3d else ENEMY_AI_SCRIPT_2D
+	var source := template.format({"nav": navigation_name.validate_node_name(), "timer": timer_name.validate_node_name(),
+		"entered": methods["entered"], "exited": methods["exited"], "timeout": methods["timeout"]})
+	DirAccess.make_dir_recursive_absolute(contained.get_base_dir())
+	var file := FileAccess.open(contained, FileAccess.WRITE)
+	if file == null:
+		return {"error": "Failed to write %s" % contained}
+	file.store_string(source)
+	file = null
+	var compile_error := _gdscript_compile_error(contained)
+	if not compile_error.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(contained))
+		return {"error": "The generated script did not compile: %s" % compile_error}
+	EditorInterface.get_resource_filesystem().update_file(contained)
+	var script := ResourceLoader.load(contained, "Script", ResourceLoader.CACHE_MODE_REPLACE)
+	return {"script": script, "path": contained} if script else {"error": "Failed to load %s" % contained}
+
+
+# Collision layers of the detection group's bodies in the open scene (0 when none are here).
+func _group_collision_layers(group: String, is_3d: bool) -> int:
+	var scene_root := EditorInterface.get_edited_scene_root()
+	var layers := 0
+	if scene_root == null:
+		return 0
+	for node in scene_root.get_tree().get_nodes_in_group(group):
+		if (scene_root == node or scene_root.is_ancestor_of(node)) and ((is_3d and node is CollisionObject3D) or (not is_3d and node is CollisionObject2D)):
+			layers |= node.collision_layer
+	return layers
+
+
+# Skip connections to handlers the target script does not define (they would error on every emit).
+func _signal_method_exists(target: Object, method_name: String, warnings: Array) -> bool:
+	if target.has_method(method_name):
+		return true
+	if target.get_script() == null:
+		warnings.append("Skipped signal connection: %s has no script, so no method %s (attach a script or use wire_signal_handler)" % [target.name, method_name])
+	else:
+		warnings.append("Skipped signal connection: %s has no method %s (add it or use wire_signal_handler)" % [target.name, method_name])
+	return false
 
 
 func _capture_signal_connection_change(
@@ -17635,7 +18507,8 @@ func _connect_signal_safe(
 	if emitter.is_connected(signal_name, callable):
 		return
 
-	emitter.connect(signal_name, callable, flags)
+	# CONNECT_PERSIST: without it save_scene drops the connection.
+	emitter.connect(signal_name, callable, flags | Object.CONNECT_PERSIST)
 
 
 func _connect_signal_change_safe(change: Dictionary) -> void:
@@ -17643,9 +18516,9 @@ func _connect_signal_change_safe(change: Dictionary) -> void:
 		return
 	_connect_signal_safe(
 		change.get("emitter"),
-		String(change.get("signal_name", "")).strip_edges(),
+		str(change.get("signal_name", "")).strip_edges(),
 		change.get("target"),
-		String(change.get("method_name", "")).strip_edges(),
+		str(change.get("method_name", "")).strip_edges(),
 		int(change.get("flags", 0))
 	)
 
@@ -17670,9 +18543,9 @@ func _disconnect_signal_change_safe(change: Dictionary) -> void:
 		return
 	_disconnect_signal_safe(
 		change.get("emitter"),
-		String(change.get("signal_name", "")).strip_edges(),
+		str(change.get("signal_name", "")).strip_edges(),
 		change.get("target"),
-		String(change.get("method_name", "")).strip_edges()
+		str(change.get("method_name", "")).strip_edges()
 	)
 
 
@@ -17704,7 +18577,7 @@ func _has_child_with_name(parent: Node, candidate_name: String, exclude_node: No
 	for child in parent.get_children():
 		if child == exclude_node:
 			continue
-		if String(child.name) == candidate_name:
+		if str(child.name) == candidate_name:
 			return true
 	return false
 
@@ -17725,10 +18598,24 @@ func _resolve_unique_child_name(parent: Node, desired_name: String, exclude_node
 	return candidate
 
 
+# Like _resolve_unique_child_name but also avoids names of siblings that are planned but not yet added.
+func _resolve_unique_child_name_pending(parent: Node, desired_name: String, pending: Dictionary) -> String:
+	var base_name := desired_name.strip_edges()
+	if base_name.is_empty():
+		base_name = "Node"
+	var candidate := base_name
+	var suffix := 2
+	while pending.has(candidate) or _has_child_with_name(parent, candidate):
+		candidate = "%s%d" % [base_name, suffix]
+		suffix += 1
+	pending[candidate] = true
+	return candidate
+
+
 func _collect_child_name_set(parent: Node) -> Dictionary:
 	var names: Dictionary = {}
 	for child in parent.get_children():
-		names[String(child.name)] = true
+		names[str(child.name)] = true
 	return names
 
 
@@ -17770,10 +18657,10 @@ func _query_nodes_recursive(node: Node, filters: Dictionary, results: Array, inc
 
 	if _node_matches_query(node, filters):
 		results.append({
-			"name": String(node.name),
+			"name": str(node.name),
 			"type": node.get_class(),
 			"path": _to_mcp_path(node),
-			"groups": node.get_groups(),
+			"groups": _user_groups(node),
 		})
 		if results.size() >= max_results:
 			return
@@ -17791,7 +18678,7 @@ func _node_matches_query(node: Node, filters: Dictionary) -> bool:
 	var group_name: String = filters.get("group_name", "")
 
 	if not name_contains.is_empty():
-		var candidate_name := String(node.name).to_lower()
+		var candidate_name := str(node.name).to_lower()
 		if not candidate_name.contains(name_contains):
 			return false
 
@@ -17806,35 +18693,8 @@ func _node_matches_query(node: Node, filters: Dictionary) -> bool:
 
 func _stringify_node_path(path: NodePath) -> String:
 	if typeof(path) == TYPE_STRING:
-		return String(path)
+		return str(path)
 	return str(path)
-
-
-func _to_mcp_path(node: Node) -> String:
-	if node == null:
-		return "/root"
-	if not node.is_inside_tree():
-		return "<detached:%s>" % String(node.name)
-
-	var plugin = Engine.get_meta("GodotMCPPlugin")
-	if plugin == null:
-		return _stringify_node_path(node.get_path())
-
-	var editor_interface = plugin.get_editor_interface()
-	if editor_interface == null:
-		return _stringify_node_path(node.get_path())
-
-	var edited_scene_root = editor_interface.get_edited_scene_root()
-	if edited_scene_root == null:
-		return _stringify_node_path(node.get_path())
-
-	if node == edited_scene_root:
-		return "/root"
-
-	if edited_scene_root.is_ancestor_of(node):
-		return "/root/" + String(edited_scene_root.get_path_to(node))
-
-	return _stringify_node_path(node.get_path())
 
 
 func _describe_object_path(target_object: Object) -> String:
@@ -17851,7 +18711,7 @@ func _collect_control_nodes(node: Node, depth: int, max_depth: int, include_hidd
 		if include_hidden or control.is_visible_in_tree():
 			accumulator.append({
 				"node": control,
-				"path": _stringify_node_path(control.get_path()),
+				"path": _to_mcp_path(control),
 			})
 
 	if max_depth > 0 and depth >= max_depth:
@@ -17869,14 +18729,15 @@ func _analyze_accessibility(control: Control) -> Array:
 	var tooltip_text := ""
 	var control_text := ""
 
-	if "accessible_name" in control:
-		accessible_name = String(control.get("accessible_name"))
-	if "accessible_description" in control:
-		accessible_description = String(control.get("accessible_description"))
+	# Godot 4.5+ names these accessibility_name/accessibility_description; older builds have neither.
+	if "accessibility_name" in control:
+		accessible_name = str(control.get("accessibility_name"))
+	if "accessibility_description" in control:
+		accessible_description = str(control.get("accessibility_description"))
 	if "tooltip_text" in control:
-		tooltip_text = String(control.get("tooltip_text"))
+		tooltip_text = str(control.get("tooltip_text"))
 	if "text" in control:
-		control_text = String(control.get("text"))
+		control_text = str(control.get("text"))
 
 	var is_interactive := _is_interactive_control(control)
 

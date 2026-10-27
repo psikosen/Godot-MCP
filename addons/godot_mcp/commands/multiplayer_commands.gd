@@ -55,7 +55,7 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 		allow_join = not peer.get_refuse_new_connections()
 
 	var state := {
-		"unique_id": api.get_unique_id(),
+		"unique_id": (api.get_unique_id() if has_peer else 0),  # get_unique_id() logs an error with no peer
 		"has_peer": has_peer,
 		"connected_peers": connected,
 		"is_server": api.is_server(),
@@ -64,14 +64,15 @@ func _get_multiplayer_state(client_id: int, command_id: String) -> void:
 
 	if has_peer and peer != null:
 		state["peer_class"] = peer.get_class()
-	state["transfer_mode"] = (peer.get_transfer_mode() if peer.has_method("get_transfer_mode") else null)
+	# After teardown the peer is null; calling has_method on it crashed the handler (20s hang).
+	state["transfer_mode"] = (peer.get_transfer_mode() if peer != null and peer.has_method("get_transfer_mode") else null)
 
 	_log_event("_get_multiplayer_state", "Captured multiplayer snapshot", state)
 	_send_success(client_id, state, command_id)
 
 func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: String) -> void:
-	var peer_type := String(params.get("peer_type", "enet")).to_lower()
-	var mode := String(params.get("mode", "server")).to_lower()
+	var peer_type := str(params.get("peer_type", "enet")).to_lower()
+	var mode := str(params.get("mode", "server")).to_lower()
 	var api := _get_scene_multiplayer()
 	var peer: MultiplayerPeer = null
 	var error_code := OK
@@ -84,7 +85,7 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 				var max_clients := int(params.get("max_clients", 32))
 				error_code = enet_peer.create_server(port, max_clients)
 			else:
-				var address := String(params.get("address", "127.0.0.1"))
+				var address := str(params.get("address", "127.0.0.1"))
 				var port := int(params.get("port", 8910))
 				error_code = enet_peer.create_client(address, port)
 			peer = enet_peer
@@ -92,10 +93,10 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 			var ws_peer := WebSocketMultiplayerPeer.new()
 			if mode == "server":
 				var port := int(params.get("port", 9080))
-				var bind_address := String(params.get("bind_address", "*"))
+				var bind_address := str(params.get("bind_address", "*"))
 				error_code = ws_peer.create_server(port, bind_address)
 			else:
-				var url := String(params.get("url", "ws://127.0.0.1:9080"))
+				var url := str(params.get("url", "ws://127.0.0.1:9080"))
 				error_code = ws_peer.create_client(url)
 			peer = ws_peer
 		"webrtc":
@@ -105,22 +106,22 @@ func _create_multiplayer_peer(client_id: int, params: Dictionary, command_id: St
 			return _send_error(client_id, "Unsupported peer_type: %s" % peer_type, command_id)
 
 	if error_code != OK:
-		return _send_error(client_id, "Failed to configure multiplayer peer (code %d)" % error_code, command_id)
+		return _send_error(client_id, "Failed to configure multiplayer peer: %s (code %d)" % [error_string(error_code), error_code], command_id)
 
 	api.multiplayer_peer = peer
 	if mode == "server" and peer != null and peer.has_method("set_refuse_new_connections"):
 		peer.set_refuse_new_connections(false)
 
-		_log_event("_create_multiplayer_peer", "Configured multiplayer peer", {
-				"peer_type": peer_type,
-				"mode": mode,
-				"class": (peer.get_class() if peer != null else ""),
-		})
-		_send_success(client_id, {
-				"peer_type": peer_type,
-				"mode": mode,
-				"class": (peer.get_class() if peer != null else ""),
-		}, command_id)
+	_log_event("_create_multiplayer_peer", "Configured multiplayer peer", {
+			"peer_type": peer_type,
+			"mode": mode,
+			"class": (peer.get_class() if peer != null else ""),
+	})
+	_send_success(client_id, {
+			"peer_type": peer_type,
+			"mode": mode,
+			"class": (peer.get_class() if peer != null else ""),
+	}, command_id)
 
 func _teardown_multiplayer_peer(client_id: int, command_id: String) -> void:
 	var api := _get_scene_multiplayer()
@@ -143,28 +144,32 @@ func _spawn_multiplayer_scene(client_id: int, params: Dictionary, command_id: St
 	if packed == null:
 		return _send_error(client_id, "Failed to load scene: %s" % scene_path, command_id)
 
-	var instance := packed.instantiate()
+	var instance := packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	if instance == null:
 		return _send_error(client_id, "Failed to instantiate scene: %s" % scene_path, command_id)
 
-	var parent_path := params.get("parent_path", "/root")
+	var parent_path := str(params.get("parent_path", "/root"))
 	var parent := _get_editor_node(parent_path)
 	if parent == null:
-		parent = get_tree().root
+		# Never fall back to get_tree().root: in the editor that is the editor UI, not the scene.
+		instance.free()
+		return _send_error(client_id, "Parent node not found in edited scene: %s" % parent_path, command_id)
 
-	parent.add_child(instance)
+	parent.add_child(instance, true)
+	# Owner = edited scene root so the instance is saved with the scene.
+	instance.owner = EditorInterface.get_edited_scene_root()
 
 	if params.has("owner_peer_id") and instance.has_method("set_multiplayer_authority"):
 		instance.set_multiplayer_authority(int(params.get("owner_peer_id")))
 
 	_mark_scene_modified()
 
-	var instance_path := instance.get_path()
+	var instance_path := _to_mcp_path(instance)
 	_log_event("_spawn_multiplayer_scene", "Spawned multiplayer scene", {
 		"scene": scene_path,
-		"node_path": String(instance_path),
+		"node_path": instance_path,
 	})
 	_send_success(client_id, {
 		"scene": scene_path,
-		"node_path": String(instance_path),
+		"node_path": instance_path,
 	}, command_id)

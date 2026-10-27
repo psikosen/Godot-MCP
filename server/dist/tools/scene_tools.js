@@ -322,7 +322,7 @@ export var sceneTools = [
                         return [4 /*yield*/, godot.sendCommand('create_scene', { path: path, root_node_type: root_node_type })];
                     case 2:
                         result = _d.sent();
-                        return [2 /*return*/, "Created new scene at ".concat(result.scene_path, " with root node type ").concat(result.root_node_type)];
+                        return [2 /*return*/, "Created new scene at ".concat(result.scene_path, " with root node type ").concat(result.root_node_type, ". It is now the open scene; use open_scene to go back.")];
                     case 3:
                         error_1 = _d.sent();
                         throw new Error("Failed to create scene: ".concat(error_1.message));
@@ -444,7 +444,7 @@ export var sceneTools = [
                         result = _a.sent();
                         godotVersion = "".concat(result.godot_version.major, ".").concat(result.godot_version.minor, ".").concat(result.godot_version.patch);
                         output = "Project Name: ".concat(result.project_name, "\n");
-                        output += "Project Version: ".concat(result.project_version, "\n");
+                        output += "Project Version: ".concat(result.project_version || '(not set)', "\n");
                         output += "Project Path: ".concat(result.project_path, "\n");
                         output += "Godot Version: ".concat(godotVersion, "\n");
                         if (result.current_scene) {
@@ -474,11 +474,13 @@ export var sceneTools = [
             resource_path: z.string()
                 .describe('Path where the resource will be saved (e.g. "res://resources/style.tres")'),
             properties: z.record(z.any()).optional()
-                .describe('Dictionary of property values to set on the resource'),
+                .describe('Dictionary of property values to set on the resource. For Curve2D/Curve3D, "points": [[x,y(,z)], ...] builds the curve.'),
+            overwrite: z.boolean().optional()
+                .describe('Replace the file if it already exists (default false: refuse).'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var godot, result, error_6;
-            var resource_type = _b.resource_type, resource_path = _b.resource_path, _c = _b.properties, properties = _c === void 0 ? {} : _c;
+            var resource_type = _b.resource_type, resource_path = _b.resource_path, _c = _b.properties, properties = _c === void 0 ? {} : _c, overwrite = _b.overwrite;
             return __generator(this, function (_d) {
                 switch (_d.label) {
                     case 0:
@@ -490,6 +492,7 @@ export var sceneTools = [
                                 resource_type: resource_type,
                                 resource_path: resource_path,
                                 properties: properties,
+                                overwrite: overwrite !== null && overwrite !== void 0 ? overwrite : false,
                             })];
                     case 2:
                         result = _d.sent();
@@ -581,7 +584,7 @@ export var sceneTools = [
     },
     {
         name: 'rollback_scene_transaction',
-        description: 'Rollback a pending or committed scene transaction',
+        description: 'Rollback a pending scene transaction (committed transactions cannot be rolled back; use the editor\'s Undo)',
         parameters: z.object({
             transaction_id: z.string()
                 .describe('Identifier of the transaction to rollback'),

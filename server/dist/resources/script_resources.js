@@ -151,7 +151,7 @@ export var scriptResourceTemplate = {
                     case 1:
                         _c.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('get_script', {
-                                path: scriptPath,
+                                script_path: scriptPath,
                             })];
                     case 2:
                         result = _c.sent();
@@ -238,7 +238,7 @@ export var scriptMetadataResourceTemplate = {
                     case 2:
                         result = _c.sent();
                         return [2 /*return*/, {
-                                text: JSON.stringify(result, null, 2),
+                                text: JSON.stringify(result),
                             }];
                     case 3:
                         error_3 = _c.sent();

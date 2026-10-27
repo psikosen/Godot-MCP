@@ -1,11 +1,11 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 import { projectIndexer } from '../utils/project_indexer.js';
 
 /**
  * Resource that provides information about the Godot project structure
  */
-export const projectStructureResource: Resource = {
+export const projectStructureResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/project/structure',
   name: 'Godot Project Structure',
   mimeType: 'application/json',
@@ -29,7 +29,7 @@ export const projectStructureResource: Resource = {
 /**
  * Resource that provides project settings
  */
-export const projectSettingsResource: Resource = {
+export const projectSettingsResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/project/settings',
   name: 'Godot Project Settings',
   mimeType: 'application/json',
@@ -53,7 +53,7 @@ export const projectSettingsResource: Resource = {
 /**
  * Resource that provides a list of all project resources
  */
-export const projectResourcesResource: Resource = {
+export const projectResourcesResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/project/resources',
   name: 'Godot Project Resources',
   mimeType: 'application/json',
@@ -77,14 +77,14 @@ export const projectResourcesResource: Resource = {
 /**
  * Resource that provides the cached project index snapshot built by the MCP server
  */
-export const projectIndexResource: Resource = {
+export const projectIndexResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/project/index',
   name: 'Godot Project Index',
   mimeType: 'application/json',
   async load() {
     const snapshot = await projectIndexer.getIndex();
     return {
-      text: JSON.stringify(snapshot, null, 2),
+      text: JSON.stringify(snapshot),
     };
   }
 };

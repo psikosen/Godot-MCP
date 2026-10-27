@@ -1,7 +1,7 @@
-import { Resource } from 'fastmcp';
+import { Resource, FastMCPSessionAuth } from 'fastmcp';
 import { getGodotConnection } from '../utils/godot_connection.js';
 
-export const xrInterfacesResource: Resource = {
+export const xrInterfacesResource: Resource<FastMCPSessionAuth> = {
   uri: 'godot/xr/interfaces',
   name: 'Godot XR Interfaces',
   mimeType: 'application/json',
@@ -9,7 +9,7 @@ export const xrInterfacesResource: Resource = {
     const godot = getGodotConnection();
     const result = await godot.sendCommand('list_xr_interfaces', {});
     return {
-      text: JSON.stringify(result, null, 2),
+      text: JSON.stringify(result),
     };
   },
 };

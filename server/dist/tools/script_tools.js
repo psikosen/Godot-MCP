@@ -42,38 +42,41 @@ import { getGodotConnection } from '../utils/godot_connection.js';
 export var scriptTools = [
     {
         name: 'create_script',
-        description: 'Create a new GDScript file in the project',
+        description: 'Create a new GDScript file in the project. Fails if the file already exists unless overwrite is true.',
         parameters: z.object({
             script_path: z.string()
-                .describe('Path where the script will be saved (e.g. "res://scripts/player.gd")'),
+                .describe('Path where the script will be saved, inside res:// (e.g. "res://scripts/player.gd")'),
             content: z.string()
                 .describe('Content of the script'),
             node_path: z.string().optional()
                 .describe('Path to a node to attach the script to (optional)'),
+            overwrite: z.boolean().optional().default(false)
+                .describe('Replace the file if it already exists (default false)'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var godot, result, attachMessage, error_1;
-            var script_path = _b.script_path, content = _b.content, node_path = _b.node_path;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
+            var script_path = _b.script_path, content = _b.content, node_path = _b.node_path, _c = _b.overwrite, overwrite = _c === void 0 ? false : _c;
+            return __generator(this, function (_d) {
+                switch (_d.label) {
                     case 0:
                         godot = getGodotConnection();
-                        _c.label = 1;
+                        _d.label = 1;
                     case 1:
-                        _c.trys.push([1, 3, , 4]);
+                        _d.trys.push([1, 3, , 4]);
                         return [4 /*yield*/, godot.sendCommand('create_script', {
                                 script_path: script_path,
                                 content: content,
                                 node_path: node_path,
+                                overwrite: overwrite,
                             })];
                     case 2:
-                        result = _c.sent();
+                        result = _d.sent();
                         attachMessage = node_path
                             ? " and attached to node at ".concat(node_path)
                             : '';
-                        return [2 /*return*/, "Created script at ".concat(result.script_path).concat(attachMessage)];
+                        return [2 /*return*/, "".concat(result.replaced ? 'Replaced' : 'Created', " script at ").concat(result.script_path).concat(attachMessage)];
                     case 3:
-                        error_1 = _c.sent();
+                        error_1 = _d.sent();
                         throw new Error("Failed to create script: ".concat(error_1.message));
                     case 4: return [2 /*return*/];
                 }

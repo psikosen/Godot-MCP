@@ -114,15 +114,19 @@ var PermissionManager = /** @class */ (function () {
         var _this = this;
         return rules.some(function (rule) { return _this.matchesRule(relativePath, rule); });
     };
+    // macOS and Windows file systems ignore case: "server/DIST/index.js" is server/dist/index.js,
+    // so a case-sensitive match let it slip past the deny list.
     PermissionManager.prototype.matchesRule = function (relativePath, rule) {
+        var target = relativePath.toLowerCase();
+        var value = rule.value.toLowerCase();
         if (rule.type === 'directory') {
-            return relativePath === rule.value || relativePath.startsWith("".concat(rule.value, "/"));
+            return target === value || target.startsWith("".concat(value, "/"));
         }
         if (rule.type === 'file') {
-            return relativePath === rule.value;
+            return target === value;
         }
         if (rule.type === 'extension') {
-            return relativePath.endsWith(rule.value);
+            return target.endsWith(value);
         }
         return false;
     };

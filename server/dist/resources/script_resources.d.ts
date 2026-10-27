@@ -1,13 +1,13 @@
-import { Resource, ResourceTemplate } from 'fastmcp';
+import { Resource, ResourceTemplate, FastMCPSessionAuth } from 'fastmcp';
 /**
  * Resource template that provides the content of a specific script
  */
-export declare const scriptResourceTemplate: ResourceTemplate;
+export declare const scriptResourceTemplate: ResourceTemplate<FastMCPSessionAuth>;
 /**
  * Resource that provides a list of all scripts in the project
  */
-export declare const scriptListResource: Resource;
+export declare const scriptListResource: Resource<FastMCPSessionAuth>;
 /**
  * Resource template that provides metadata for a specific script, including classes and methods
  */
-export declare const scriptMetadataResourceTemplate: ResourceTemplate;
+export declare const scriptMetadataResourceTemplate: ResourceTemplate<FastMCPSessionAuth>;

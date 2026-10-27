@@ -11,6 +11,9 @@ const SNAPSHOT_USAGE_MASK := PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_SCRIPT_VARI
 
 func process_command(client_id: int, command_type: String, params: Dictionary, command_id: String) -> bool:
 	match command_type:
+		"get_godot_errors":
+			_get_godot_errors(client_id, params, command_id)
+			return true
 		"get_editor_state":
 			_get_editor_state(client_id, params, command_id)
 			return true
@@ -70,7 +73,7 @@ func _get_editor_state(client_id: int, params: Dictionary, command_id: String) -
 	for node in selected_nodes:
 		state["selected_nodes"].append({
 			"name": node.name,
-			"path": str(node.get_path())
+			"path": _to_mcp_path(node)
 		})
 	
 	_send_success(client_id, state, command_id)
@@ -98,7 +101,7 @@ func _get_selected_node(client_id: int, params: Dictionary, command_id: String) 
 		"selected": true,
 		"name": node.name,
 		"type": node.get_class(),
-		"path": str(node.get_path())
+		"path": _to_mcp_path(node)
 	}
 	
 	# Get script info if available
@@ -133,9 +136,9 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 	if resource_path.is_empty():
 		return _send_error(client_id, "Resource path cannot be empty", command_id)
 	
-	# Make sure we have an absolute path
-	if not resource_path.begins_with("res://"):
-		resource_path = "res://" + resource_path
+	resource_path = _contained_res_path(resource_path)
+	if resource_path.is_empty():
+		return _send_error(client_id, "Path must stay inside the project (res://)", command_id)
 	
 	# Get editor interface
 	var plugin = Engine.get_meta("GodotMCPPlugin")
@@ -157,9 +160,31 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 	else:
 		return _send_error(client_id, "Invalid resource type: %s" % resource_type, command_id)
 	
-	# Set properties
+	if FileAccess.file_exists(resource_path) and not bool(params.get("overwrite", false)):
+		return _send_error(client_id, "Resource already exists: %s (pass overwrite=true to replace it)" % resource_path, command_id)
+
+	# Set properties. set() silently ignores unknown names and wrong types (a TileSet saved
+	# empty, "banana" became 0), so convert and check each one first.
+	# Curves: "points" builds the curve ([x,y(,z)] or {x,y(,z)} each); its storage (_data) is internal.
+	if (resource is Curve2D or resource is Curve3D) and properties.has("points"):
+		var curve_points = properties["points"]
+		if typeof(curve_points) != TYPE_ARRAY:
+			return _send_error(client_id, "points must be an array of positions", command_id)
+		for point_index in curve_points.size():
+			var point = _coerce_to_vector3(curve_points[point_index]) if resource is Curve3D else _coerce_to_vector2(curve_points[point_index])
+			if not (point is Vector3 or point is Vector2):
+				return _send_error(client_id, "points[%d] must be a position like [x, y%s] or {x, y%s}" % [point_index, ", z" if resource is Curve3D else "", ", z" if resource is Curve3D else ""], command_id)
+			resource.add_point(point)
 	for key in properties:
-		resource.set(key, properties[key])
+		if str(key) == "points" and (resource is Curve2D or resource is Curve3D):
+			continue
+		if _get_property_info(resource, str(key)).is_empty():
+			return _send_error(client_id, "%s has no property %s" % [resource_type, str(key)], command_id)
+		var converted = _convert_property_value(resource, str(key), properties[key])
+		var value_error := _property_value_error(resource, str(key), converted)
+		if not value_error.is_empty():
+			return _send_error(client_id, value_error, command_id)
+		resource.set(key, converted)
 	
 	# Create directory if needed
 	var dir = resource_path.get_base_dir()
@@ -169,7 +194,7 @@ func _create_resource(client_id: int, params: Dictionary, command_id: String) ->
 			return _send_error(client_id, "Failed to create directory: %s (Error code: %d)" % [dir, err], command_id)
 	
 	# Save the resource
-	var result = ResourceSaver.save(resource, resource_path)
+	var result = _save_resource_contained(resource, resource_path)
 	if result != OK:
 		return _send_error(client_id, "Failed to save resource: %d" % result, command_id)
 	
@@ -194,7 +219,7 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 		}, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
-	var editor_interface: EditorInterface = plugin.get_editor_interface()
+	var editor_interface = plugin.get_editor_interface()
 	var base_control: Control = editor_interface.get_base_control()
 	if base_control == null:
 		_log("Editor base control unavailable", function_name, {
@@ -203,8 +228,14 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 		return _send_error(client_id, "Editor base control unavailable", command_id)
 
 	var theme: Theme = base_control.get_theme()
+	var theme_source := "editor"
 	if theme == null:
 		theme = ThemeDB.get_project_theme()
+		theme_source = "project"
+	if theme == null:
+		# Headless runs have no editor theme; fall back to the engine default so the call still answers.
+		theme = ThemeDB.get_default_theme()
+		theme_source = "default"
 
 	if theme == null:
 		_log("Unable to resolve an active UI Theme", function_name, {
@@ -220,7 +251,7 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 
 	for type_name in type_list:
 		var entry := {
-			"type": String(type_name),
+			"type": str(type_name),
 			"constants": _collect_theme_constants(theme, type_name),
 		}
 
@@ -247,6 +278,7 @@ func _get_ui_theme_summary(client_id: int, params: Dictionary, command_id: Strin
 
 	var summary := {
 		"theme_name": theme.resource_name,
+		"theme_source": theme_source,
 		"resource_path": theme.resource_path,
 		"default_font": _serialize_resource(theme.get_default_font()),
 		"default_font_size": theme.get_default_font_size(),
@@ -271,7 +303,7 @@ func _collect_theme_constants(theme: Theme, type_name: String) -> Array:
 	var constants: Array = []
 	for constant_name in theme.get_constant_list(type_name):
 		constants.append({
-			"name": String(constant_name),
+			"name": str(constant_name),
 			"value": theme.get_constant(constant_name, type_name),
 		})
 	return constants
@@ -280,7 +312,7 @@ func _collect_theme_colors(theme: Theme, type_name: String) -> Array:
 	var colors: Array = []
 	for color_name in theme.get_color_list(type_name):
 		colors.append({
-			"name": String(color_name),
+			"name": str(color_name),
 			"value": _serialize_color(theme.get_color(color_name, type_name)),
 		})
 	return colors
@@ -290,7 +322,7 @@ func _collect_theme_styleboxes(theme: Theme, type_name: String) -> Array:
 	for style_name in theme.get_stylebox_list(type_name):
 		var stylebox = theme.get_stylebox(style_name, type_name)
 		styleboxes.append({
-			"name": String(style_name),
+			"name": str(style_name),
 			"class": stylebox.get_class() if stylebox != null else "",
 			"resource": _serialize_resource(stylebox),
 		})
@@ -301,7 +333,7 @@ func _collect_theme_icons(theme: Theme, type_name: String) -> Array:
 	for icon_name in theme.get_icon_list(type_name):
 		var icon = theme.get_icon(icon_name, type_name)
 		icons.append({
-			"name": String(icon_name),
+			"name": str(icon_name),
 			"resource": _serialize_resource(icon),
 		})
 	return icons
@@ -311,7 +343,7 @@ func _collect_theme_fonts(theme: Theme, type_name: String) -> Array:
 	for font_name in theme.get_font_list(type_name):
 		var font = theme.get_font(font_name, type_name)
 		fonts.append({
-			"name": String(font_name),
+			"name": str(font_name),
 			"resource": _serialize_resource(font),
 		})
 	return fonts
@@ -320,7 +352,7 @@ func _collect_theme_font_sizes(theme: Theme, type_name: String) -> Array:
 	var font_sizes: Array = []
 	for size_name in theme.get_font_size_list(type_name):
 		font_sizes.append({
-			"name": String(size_name),
+			"name": str(size_name),
 			"size": theme.get_font_size(size_name, type_name),
 		})
 	return font_sizes
@@ -357,7 +389,17 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 		argument_array.append(run_target)
 
 	for arg in additional_args:
-		argument_array.append(String(arg))
+		argument_array.append(str(arg))
+
+	# OS.execute blocks the editor until the child exits, and a game scene never quits on its own:
+	# the editor hung until the child was killed. Bound the run unless the caller set a quit flag.
+	var has_quit_flag := false
+	for arg in argument_array:
+		if str(arg) == "--quit" or str(arg) == "--quit-after":
+			has_quit_flag = true
+	if not run_target.is_empty() and not has_quit_flag:
+		argument_array.append("--quit-after")
+		argument_array.append(str(clampi(int(params.get("max_frames", 600)), 1, 36000)))
 
 	var packed_arguments := PackedStringArray(argument_array)
 	log_context["arguments"] = argument_array
@@ -378,7 +420,7 @@ func _run_godot_headless(client_id: int, params: Dictionary, command_id: String)
 
 	var normalized_output: Array = []
 	for line in output:
-		normalized_output.append(String(line))
+		normalized_output.append(str(line))
 
 	var response := {
 		"binary": binary_path,
@@ -485,7 +527,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 		_log("GodotMCPPlugin not found in Engine metadata", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
-	var editor_interface: EditorInterface = plugin.get_editor_interface()
+	var editor_interface = plugin.get_editor_interface()
 	var plugin_inventory := _collect_editor_plugins()
 	var entries: Array = plugin_inventory.get("plugins", [])
 	var enabled_array: Array = plugin_inventory.get("enabled_array", [])
@@ -514,7 +556,7 @@ func _manage_editor_plugins(client_id: int, params: Dictionary, command_id: Stri
 	var enable_plugins := action == "enable"
 	var normalized_targets: Array = []
 	for raw_target in targets:
-		var target_key := String(raw_target)
+		var target_key := str(raw_target)
 		if lookup.has(target_key):
 			normalized_targets.append(target_key)
 		elif name_lookup.has(target_key):
@@ -597,8 +639,8 @@ func _snapshot_scene_state(client_id: int, params: Dictionary, command_id: Strin
 		_log("GodotMCPPlugin not found in Engine metadata", function_name, log_context, true)
 		return _send_error(client_id, "GodotMCPPlugin not found in Engine metadata", command_id)
 
-	var editor_interface: EditorInterface = plugin.get_editor_interface()
-	var root := editor_interface.get_edited_scene_root()
+	var editor_interface = plugin.get_editor_interface()
+	var root: Node = editor_interface.get_edited_scene_root()
 	if root == null:
 		log_context["line_num"] = 0
 		_log("No edited scene available for snapshot", function_name, log_context, true)
@@ -630,7 +672,7 @@ func _collect_editor_plugins() -> Dictionary:
 
 	var enabled_array: Array = []
 	for path in enabled_plugins:
-		enabled_array.append(String(path))
+		enabled_array.append(str(path))
 
 	var addons_dir := DirAccess.open("res://addons")
 	var entries: Array = []
@@ -704,7 +746,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		var depth: int = current["depth"]
 
 		var node_entry := {
-			"path": str(node.get_path()),
+			"path": _to_mcp_path(node),
 			"name": node.name,
 			"type": node.get_class(),
 			"child_count": node.get_child_count(),
@@ -712,11 +754,11 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		}
 
 		if node.owner != null:
-			node_entry["owner_path"] = str(node.owner.get_path())
+			node_entry["owner_path"] = _to_mcp_path(node.owner)
 		if node.scene_file_path != "":
 			node_entry["scene_file_path"] = node.scene_file_path
 
-		var groups := node.get_groups()
+		var groups := _user_groups(node)
 		if groups.size() > 0:
 			node_entry["groups"] = groups
 
@@ -727,7 +769,7 @@ func _build_scene_snapshot(root: Node, options: Dictionary) -> Dictionary:
 		var properties := {}
 		var captured := 0
 		for property in node.get_property_list():
-			var property_name = String(property.get("name", ""))
+			var property_name = str(property.get("name", ""))
 			if property_name.is_empty():
 				continue
 			if not include_internal and property_name.begins_with("_"):
@@ -775,7 +817,7 @@ func _serialize_snapshot_value(value, include_resources: bool, depth: int, max_d
 		TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I, TYPE_COLOR, TYPE_QUATERNION, TYPE_RECT2, TYPE_RECT2I:
 			return value
 		TYPE_NODE_PATH:
-			return String(value)
+			return str(value)
 		TYPE_ARRAY:
 			var array_result: Array = []
 			for item in value:
@@ -792,15 +834,17 @@ func _serialize_snapshot_value(value, include_resources: bool, depth: int, max_d
 		TYPE_DICTIONARY:
 			var dict_result := {}
 			for key in value.keys():
-				dict_result[String(key)] = _serialize_snapshot_value(value[key], include_resources, depth + 1, max_depth)
+				dict_result[str(key)] = _serialize_snapshot_value(value[key], include_resources, depth + 1, max_depth)
 			return dict_result
 		TYPE_OBJECT:
+			if not is_instance_valid(value):
+				return null
 			if include_resources and value is Resource:
 				return _serialize_resource(value)
 			if value is NodePath:
-				return String(value)
+				return str(value)
 			return value.get_class()
-	return String(value)
+	return str(value)
 
 func _serialize_color(color: Color) -> Dictionary:
 	return {
@@ -821,7 +865,7 @@ func _serialize_resource(resource) -> Dictionary:
 		}
 	return {
 		"class": typeof(resource),
-		"description": String(resource),
+		"description": str(resource),
 	}
 
 func _log(message: String, function_name: String, extra: Dictionary = {}, is_error: bool = false) -> void:
@@ -843,3 +887,21 @@ func _log(message: String, function_name: String, extra: Dictionary = {}, is_err
 			payload[key] = extra[key]
 
 	print(JSON.stringify(payload))
+
+
+func _get_godot_errors(client_id: int, params: Dictionary, command_id: String) -> void:
+	var error_log = _error_log()
+	if error_log == null:
+		return _send_error(client_id, "Reading Godot errors needs Godot 4.5 or newer (the Logger class)", command_id)
+	var since_id: int = maxi(int(params.get("since_id", 0)), 0)
+	var limit: int = clampi(int(params.get("limit", 50)), 1, 200)
+	var types: Array = params.get("types", [])
+	var entries: Array = error_log.entries_since(since_id)
+	if not types.is_empty():
+		entries = entries.filter(func(entry): return entry["type"] in types)
+	var omitted: int = maxi(entries.size() - limit, 0)
+	_send_success(client_id, {
+		"errors": entries.slice(omitted),
+		"omitted": omitted,
+		"next_id": error_log.mark(),
+	}, command_id)
