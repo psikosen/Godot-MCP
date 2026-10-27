@@ -1,7 +1,8 @@
 // Agent eval: a real Claude (the `claude` CLI) does plain-language Godot tasks through this MCP server
 // and a headless Godot editor. It records which tool groups the AI loads, errors, turns, peak context
 // and cost, then checks the scene. Compare modes: "default" starts with core tools only, "all" with
-// every tool. Costs real API money (about $0.05-0.50 per run on Sonnet).
+// every tool. Add "+ts" (default+ts, all+ts) to keep Claude Code's own tool search on, as real users have it.
+// Costs real API money (about $0.05-0.50 per run on Sonnet).
 //
 // Usage: npm run build && node eval/agent_eval.mjs [--model sonnet] [--lanes 3] [--out eval/out] [task:mode ...]
 //   No runs given: every task in eval/tasks.mjs in default mode.
@@ -27,6 +28,9 @@ const laneCount = Number(option('lanes', 3));
 const outDir = resolve(option('out', join(SERVER, 'eval', 'out')));
 const runs = (argv.length > 0 ? argv : Object.keys(TASKS).map(task => `${task}:default`)).map(run => run.split(':'));
 mkdirSync(outDir, { recursive: true });
+// The server keeps admin approval requests in the repo, not the lane; put the file back after the runs.
+const escalationStore = join(REPO, 'project-manager', 'permission_escalations.json');
+const escalationsBefore = readFileSync(escalationStore, 'utf8');
 
 // A copy of the repo's Godot project with its own port and a headless editor on it.
 async function startLane(port) {
@@ -80,13 +84,13 @@ async function client(lane) {
   return { call, close: () => server.kill() };
 }
 
-function runClaude(lane, config, prompt) {
+function runClaude(lane, config, prompt, toolSearch) {
   return new Promise(done => {
     let out = '';
     // --setting-sources local: no user hooks, plugins or settings, so runs measure the server alone.
     // --tools "": no built-in tools (no Bash or file edits), so the AI works only through this server.
     const claude = spawn('claude', ['-p', '--model', model, '--setting-sources', 'local', '--strict-mcp-config', '--mcp-config', config,
-      '--tools', '', '--allowedTools', 'mcp__godot', '--output-format', 'stream-json', '--verbose', '--max-turns', '80',
+      '--tools', toolSearch ? 'ToolSearch' : '', '--allowedTools', 'mcp__godot', '--output-format', 'stream-json', '--verbose', '--max-turns', '80',
       '--max-budget-usd', '3', '--no-session-persistence', prompt], { cwd: lane.dir, stdio: ['ignore', 'pipe', 'ignore'] });
     const timer = setTimeout(() => claude.kill(), 20 * 60 * 1000);
     claude.stdout.on('data', chunk => { out += chunk; });
@@ -138,13 +142,13 @@ async function runOne(lane, taskName, mode) {
 
   const env = { GODOT_WS_PORT: String(lane.port), GODOT_PROJECT_PATH: lane.dir, GODOT_EXECUTABLE: '/nonexistent',
     GODOT_MCP_APPROVAL_KEY_PATH: `${lane.dir}/approval.key` };
-  if (mode === 'all') env.GODOT_MCP_TOOLSETS = 'all';
+  if (mode.startsWith('all')) env.GODOT_MCP_TOOLSETS = 'all';
   const config = `${outDir}/mcp_${taskName}_${mode}.json`;
   writeFileSync(config, JSON.stringify({ mcpServers: { godot: { command: 'node', args: [`${SERVER}/dist/index.js`], env } } }));
   const prompt = 'You are working on a game in a Godot project through the godot MCP tools; the Godot editor is open with this project. ' +
     'Do the whole task, then save. Do not ask questions; choose sensible defaults.\nTask: ' + task.prompt(dir);
   const started = Date.now();
-  const jsonl = await runClaude(lane, config, prompt);
+  const jsonl = await runClaude(lane, config, prompt, mode.endsWith('+ts'));
   writeFileSync(`${outDir}/${taskName}_${mode}.jsonl`, jsonl);
   const { calls, errors, peakContext, result, messages } = readTranscript(jsonl);
   const init = messages.find(message => message.type === 'system' && message.subtype === 'init') ?? {};
@@ -162,7 +166,7 @@ async function runOne(lane, taskName, mode) {
   }
   check.close();
   const checks = task.check(tree, props, dir, result.result ?? '').map(([ok, what]) => ({ ok, what }));
-  const writes = calls.filter(call => !/^(load_tools|get_|list_|describe_|query_|inspect_|search_|find_|check_|validate_|analyze_|open_scene|capture_scene_image)/.test(call.name));
+  const writes = calls.filter(call => !/^(ToolSearch|load_tools|get_|list_|describe_|query_|inspect_|search_|find_|check_|validate_|analyze_|open_scene|capture_scene_image)/.test(call.name));
   const report = {
     task: taskName, mode, model, setupErrors,
     pass: checks.every(item => item.ok) && (!task.readOnly || writes.length === 0),
@@ -196,12 +200,13 @@ await Promise.all(Array.from({ length: Math.min(laneCount, queue.length) }, asyn
     lane.stop();
   }
 }));
+writeFileSync(escalationStore, escalationsBefore);
 
 const pad = (value, width) => String(value ?? '').padEnd(width);
 console.log(`\n${pad('task:mode', 18)}${pad('pass', 6)}${pad('turns', 7)}${pad('cost', 8)}${pad('peak ctx', 10)}${pad('errors', 8)}loaded`);
 for (const report of reports.sort((a, b) => `${a.task}:${a.mode}`.localeCompare(`${b.task}:${b.mode}`))) {
   const loaded = report.loads.flatMap(load => [...(load.groups ?? []), ...(load.tools ?? []), ...(load.find ? [`find:${load.find}`] : [])]);
-  const expected = report.mode === 'all' || loaded.some(group => report.expectedAny.includes(group)) ? '' : `  (expected one of ${report.expectedAny.join(', ')})`;
+  const expected = report.mode.startsWith('all') || loaded.some(group => report.expectedAny.includes(group)) ? '' : `  (expected one of ${report.expectedAny.join(', ')})`;
   console.log(`${pad(`${report.task}:${report.mode}`, 18)}${pad(report.pass ? 'yes' : 'NO', 6)}${pad(report.turns, 7)}` +
     `${pad(`$${(report.cost ?? 0).toFixed(2)}`, 8)}${pad(report.peakContext, 10)}${pad(report.errors.length, 8)}${loaded.join(', ') || '-'}${expected}`);
   for (const item of report.checks.filter(item => !item.ok)) console.log(`    failed check: ${item.what}`);

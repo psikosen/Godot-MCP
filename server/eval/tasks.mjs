@@ -77,7 +77,7 @@ export const TASKS = {
     prompt: dir => `Make an island in a new 3D scene ${dir}/world.tscn: hilly terrain surrounded by water, with about 30 copies of ${dir}/tree.tscn placed on the land. Save the scene.`,
     scene: dir => `${dir}/world.tscn`,
     check: (tree, _props, dir) => [
-      [(tree.match(new RegExp(`@${dir}/tree\\.tscn`, 'g')) ?? []).length >= 20 || /\(MultiMeshInstance3D\)/.test(tree), '20+ trees'],
+      [tree.split(`@${dir}/tree.tscn`).length > 20 || /\(MultiMeshInstance3D\)/.test(tree), '20+ trees'],
       [/water|ocean|sea/i.test(tree), 'water'],
       [/terrain|island|land|ground/i.test(tree), 'terrain'],
     ],

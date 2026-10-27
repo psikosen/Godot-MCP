@@ -348,6 +348,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 ### Saving Tokens
 
 - Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 68k for all 260 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `unload` turns groups or tools off again. `load_tools` with no arguments shows what is on.
+  - This saves the most in clients that load every tool schema up front: in tests, a 2D player cost $0.14 instead of $0.59. Claude Code's own tool search already hides MCP tools until the AI looks for them, so there both starts cost about the same (four tasks: $0.35 small start, $0.38 every tool).
   - **Task groups** hold just what one job needs, across areas, so they cost less than whole areas. A tool can be in several; it stays on while any loaded group has it: `player_2d`, `player_3d`, `enemies`, `tilemap_level`, `gameplay` (pickups, signals, groups, score HUD, sounds), `art` (import or make art), `procgen_2d`, `procgen_3d`, `water`, `paths` (splines and followers), `world_3d`, `rigging`, `lighting`, `vfx`, `release`, `refactor`, `inspect` (read-only tools).
   - **Feature groups** hold every tool for one area: `scene`, `scripting`, `project`, `testing`, `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `assets`, `levelgen`, `effects`, `space`, `xr`, `multiplayer`. The largest is about 7.3k tokens.
   - For a need no group covers, `load_tools` with `find` (e.g. `"ragdoll"`) lists matching tools and their groups, and `tools` turns on single tools by name.
@@ -428,7 +429,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ### Tests
 
 - `cd server && npm test` builds the server and runs the unit tests, including the real server over stdio for tool groups and `load_tools`.
-- `cd server && npm run eval:agents` has a real Claude (the `claude` CLI) do plain-language Godot tasks (a 2D player, an enemy, a tile level, lighting, an island, a moving platform, effects, coins, inspecting signals) in headless Godot editors. It reports which tool groups the AI loaded, errors, turns, peak context and cost, and checks each scene. It costs real API money, about $0.05–0.60 per run on Sonnet. Pick runs with `task:mode`, for example `player2d:default player2d:all` to compare the small start with every tool; the tasks are in `server/eval/tasks.mjs`.
+- `cd server && npm run eval:agents` has a real Claude (the `claude` CLI) do plain-language Godot tasks (a 2D player, an enemy, a tile level, lighting, an island, a moving platform, effects, coins, inspecting signals) in headless Godot editors. It reports which tool groups the AI loaded, errors, turns, peak context and cost, and checks each scene. It costs real API money, about $0.05–0.60 per run on Sonnet. Pick runs with `task:mode`, for example `player2d:default player2d:all` to compare the small start with every tool; the tasks are in `server/eval/tasks.mjs`. These modes turn Claude Code's tool search off, like clients that load every tool up front. Add `+ts` (`player2d:default+ts player2d:all+ts`) to keep it on, as Claude Code users have it.
 
 ## Documentation
 
