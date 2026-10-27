@@ -17053,6 +17053,8 @@ func _get_node_properties(client_id: int, params: Dictionary, command_id: String
 # A saved resource (script, shape, texture) reads best as its file path and a built-in one as
 # "<Class>", not "(path):<Class#id>".
 func _readable_value(value):
+	if typeof(value) == TYPE_OBJECT and (value == null or not is_instance_valid(value)):
+		return null  # an empty resource slot; JSON would print it as "<Object#null>"
 	if value is Resource:
 		var file_path: String = value.resource_path
 		return file_path if not file_path.is_empty() and not file_path.contains("::") else "<%s>" % value.get_class()

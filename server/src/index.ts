@@ -17,6 +17,7 @@ import { compressionTools } from './tools/compression_tools.js';
 import { renderingTools } from './tools/rendering_tools.js';
 import { workflowTools } from './tools/workflow_tools.js';
 import { builderTools } from './tools/builder_tools.js';
+import { authoringTools } from './tools/authoring_tools.js';
 import { featureTools } from './tools/feature_tools.js';
 import { assetTools } from './tools/asset_tools.js';
 import { polishTools } from './tools/polish_tools.js';
@@ -122,6 +123,7 @@ async function main() {
     ...renderingTools,
     ...workflowTools,
     ...builderTools,
+    ...authoringTools,
     ...featureTools,
     ...assetTools,
     ...polishTools,

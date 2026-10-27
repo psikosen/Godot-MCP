@@ -668,7 +668,7 @@ export var workflowTools = [
             timeout_seconds: z.number().int().min(5).max(1800).optional().describe('Per script, default 120'),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var paths, error_18, tests, lines, failed, _i, tests_1, test_1, started, _a, code, output, passes, problems, ok;
+            var paths, error_18, tests, lines, failed, _i, tests_1, test, started, _a, code, output, passes, problems, ok;
             var _b, _c, _d, _e;
             return __generator(this, function (_f) {
                 switch (_f.label) {
@@ -691,9 +691,9 @@ export var workflowTools = [
                         _f.label = 4;
                     case 4:
                         if (!(_i < tests_1.length)) return [3 /*break*/, 7];
-                        test_1 = tests_1[_i];
+                        test = tests_1[_i];
                         started = Date.now();
-                        return [4 /*yield*/, runGodot(paths.executable, ['--headless', '--path', paths.project_dir, '--fixed-fps', '60', '--script', test_1], ((_e = args.timeout_seconds) !== null && _e !== void 0 ? _e : 120) * 1000)];
+                        return [4 /*yield*/, runGodot(paths.executable, ['--headless', '--path', paths.project_dir, '--fixed-fps', '60', '--script', test], ((_e = args.timeout_seconds) !== null && _e !== void 0 ? _e : 120) * 1000)];
                     case 5:
                         _a = _f.sent(), code = _a.code, output = _a.output;
                         passes = output.split('\n').filter(function (line) { return /^(PASS|ok)\b/.test(line); }).length;
@@ -701,7 +701,7 @@ export var workflowTools = [
                         ok = code === 0 && !problems.some(function (line) { return /SCRIPT ERROR|^FAIL|not ok|Parse Error/.test(line); });
                         if (!ok)
                             failed += 1;
-                        lines.push("".concat(ok ? 'PASS' : 'FAIL', " ").concat(test_1, ": ").concat(passes, " passed, ").concat(problems.length, " problem(s), ").concat(typeof code === 'string' ? code : "exit ".concat(code), ", ").concat(((Date.now() - started) / 1000).toFixed(1), "s"));
+                        lines.push("".concat(ok ? 'PASS' : 'FAIL', " ").concat(test, ": ").concat(passes, " passed, ").concat(problems.length, " problem(s), ").concat(typeof code === 'string' ? code : "exit ".concat(code), ", ").concat(((Date.now() - started) / 1000).toFixed(1), "s"));
                         lines.push.apply(lines, problems.map(function (line) { return "  ".concat(line.trim().slice(0, 200)); }));
                         _f.label = 6;
                     case 6:

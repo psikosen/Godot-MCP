@@ -65,6 +65,10 @@ const COMMAND_PROCESSOR_DEFINITIONS := [
 		"path": "res://addons/godot_mcp/commands/builder_commands.gd",
 	},
 	{
+		"name": "MCPAuthoringCommands",
+		"path": "res://addons/godot_mcp/commands/authoring_commands.gd",
+	},
+	{
 		"name": "MCPFeatureCommands",
 		"path": "res://addons/godot_mcp/commands/feature_commands.gd",
 	},
@@ -92,6 +96,7 @@ var MCPCompressionCommands
 var MCPRenderingCommands
 var MCPWorkflowCommands
 var MCPBuilderCommands
+var MCPAuthoringCommands
 var MCPFeatureCommands
 var MCPAssetCommands
 var MCPPolishCommands
@@ -179,6 +184,7 @@ func _initialize_processors() -> void:
 		MCPRenderingCommands,
 		MCPWorkflowCommands,
 		MCPBuilderCommands,
+		MCPAuthoringCommands,
 		MCPFeatureCommands,
 		MCPAssetCommands,
 		MCPPolishCommands,
