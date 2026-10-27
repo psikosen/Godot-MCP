@@ -143,7 +143,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `create_node` - Create a new node under a specified parent path
 - `delete_node` - Delete a node from the edited scene
 - `update_node_property` - Change a node property with undo support
-- `get_node_properties` - Inspect every exposed property on a node
+- `get_node_properties` - Inspect the properties of a node, or of several nodes in one call
 - `list_nodes` - Enumerate the children of a node in the scene tree
 - `rename_node` - Rename a node while preserving undo history
 - `add_node_to_group` - Add a node to a named group (optionally persisting to the scene file)
@@ -197,6 +197,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Newer Godot Features
 - `describe_skeleton` - A Skeleton3D's bone tree, its modifiers, and arm/leg chains ready for IK
+- `add_skeleton_bones` - Build a rig from scratch: add bones to a Skeleton3D (a list makes a chain, each bone's rest offset from its parent); undo-aware
 - `setup_ik_chain` - Inverse kinematics: two-bone (arms, legs) with auto-made target and pole markers, FABRIK, CCDIK, Jacobian, spline (4.6+)
 - `add_bone_constraint` - A bone aims at, copies, or smoothly looks at a node or another bone (aim/copy 4.5+, look_at 4.4+)
 - `setup_spring_bones` - Hair, tails and capes that swing (SpringBoneSimulator3D), with collision spheres on bones
@@ -230,7 +231,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 
 #### Script Commands
 - `create_script` - Create a new GDScript file and optionally attach it to a node (fails if the file exists unless `overwrite: true`)
-- `edit_script` - Replace the contents of an existing `.gd` script file
+- `edit_script` - Replace the contents of an existing `.gd` script file, or change one exact piece with `find` + `replace`
 - `get_script` - Fetch a script by file path or by attached node
 - `create_script_template` - Generate a GDScript skeleton with common callbacks
 
@@ -327,7 +328,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 - `cancel_patch` - Discard a pending diff preview
 
 #### Permission Commands
-- `list_permission_escalations` - List pending and resolved permission escalation requests
+- `list_permission_escalations` - List permission escalation requests, newest first, one line each (`limit`, default 20)
 - `resolve_permission_escalation` - Deny (withdraw) a recorded escalation request. It cannot approve; approval is human-only (see below)
 
 #### Editor Commands
@@ -347,7 +348,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
 
 ### Saving Tokens
 
-- Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 68k for all 260 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `unload` turns groups or tools off again. `load_tools` with no arguments shows what is on.
+- Tools load on demand. A session starts with the 24 `core` tools (open, save and inspect scenes; create, edit and delete nodes; scripts; undo; errors; search) plus `load_tools`, about 5k tokens instead of 68k for all 261 tools. The AI calls `load_tools` with the groups its task needs, and the client gets `notifications/tools/list_changed`; `unload` turns groups or tools off again. `load_tools` with no arguments shows what is on.
   - This saves the most in clients that load every tool schema up front: in tests, a 2D player cost $0.14 instead of $0.59. Claude Code's own tool search already hides MCP tools until the AI looks for them, so there both starts cost about the same (four tasks: $0.35 small start, $0.38 every tool).
   - **Task groups** hold just what one job needs, across areas, so they cost less than whole areas. A tool can be in several; it stays on while any loaded group has it: `player_2d`, `player_3d`, `enemies`, `tilemap_level`, `gameplay` (pickups, signals, groups, score HUD, sounds), `art` (import or make art), `procgen_2d`, `procgen_3d`, `water`, `paths` (splines and followers), `world_3d`, `rigging`, `lighting`, `vfx`, `release`, `refactor`, `inspect` (read-only tools).
   - **Feature groups** hold every tool for one area: `scene`, `scripting`, `project`, `testing`, `2d`, `3d`, `animation`, `audio`, `navigation`, `physics`, `ui`, `assets`, `levelgen`, `effects`, `space`, `xr`, `multiplayer`. The largest is about 7.3k tokens.
@@ -355,10 +356,12 @@ Script paths must stay inside the project: anything that resolves outside `res:/
   - `GODOT_MCP_TOOLSETS` picks the groups that are on at start, for example `player_2d,tilemap_level`. Set it to `all` for every tool at start, which you need for clients that ignore `tools/list_changed`.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - Resource properties take a new built-in resource inline, so no file is needed: `"mesh": "BoxMesh"` or `"shape": {"type": "CapsuleShape3D", "radius": 0.4}`, nested too (`"material": {"type": "StandardMaterial3D", "albedo_color": "#ff0000"}`).
-- `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
+- `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults), and a list of nodes in `node_path` to read them all in one call. `set_node_script` also takes a list, to put one script on many nodes.
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`. `batch_create_nodes` also places many copies of a scene at once (`scene_path` instead of `node_type`), e.g. 30 trees in one call.
 - Node paths start at `/root`, the open scene's root. The running-game form with the root's name (`/root/Level/Player`) works too.
-- `update_node_property` reaches into sub-resources with Godot's property paths: `"environment:sky:sky_material:sky_horizon_color"`.
+- A call with missing or wrong parameters gets the tool's parameter list back in the error, so the AI can retry without loading the schema. Short names AIs often use are read as the one parameter they fit: `path` for `script_path`, `type` and `name` for `node_type` and `node_name`, `group` for `group_name`, `property_name` for `property`, `search` for `find`. A `null` for a parameter the AI means to leave out is dropped.
+- Property values also take Godot text (`"Vector3(1, 2, 3)"`, even quoted twice), `"null"` to clear a resource or script, a resource as its properties alone when the property's type can be made (`"sky": {"sky_material": {...}}`), and polygons as a flat number list (`[x1, y1, x2, y2, ...]`).
+- `update_node_property`, `batch_update_nodes` and `bulk_update_node_properties` reach into sub-resources with Godot's property paths: `"environment:sky:sky_material:sky_horizon_color"`.
 - `list_input_actions` lists the project's own actions, one line each; input events take key names (`"keycode": "Space"`).
 - `list_signal_connections` without `node_path` lists every connection saved in the scene.
 - `get_godot_errors` reads Godot's recent errors and warnings (Godot 4.5+). `create_script` and `edit_script` report compile errors with line numbers.
@@ -429,7 +432,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ### Tests
 
 - `cd server && npm test` builds the server and runs the unit tests, including the real server over stdio for tool groups and `load_tools`.
-- `cd server && npm run eval:agents` has a real Claude (the `claude` CLI) do plain-language Godot tasks (a 2D player, an enemy, a tile level, lighting, an island, a moving platform, effects, coins, inspecting signals) in headless Godot editors. It reports which tool groups the AI loaded, errors, turns, peak context and cost, and checks each scene. It costs real API money, about $0.05–0.60 per run on Sonnet. Pick runs with `task:mode`, for example `player2d:default player2d:all` to compare the small start with every tool; the tasks are in `server/eval/tasks.mjs`. These modes turn Claude Code's tool search off, like clients that load every tool up front. Add `+ts` (`player2d:default+ts player2d:all+ts`) to keep it on, as Claude Code users have it.
+- `cd server && npm run eval:agents` has a real Claude (the `claude` CLI) do plain-language Godot tasks (a 2D player, an enemy, a tile level, lighting, an island, a moving platform, effects, coins, inspecting signals, and four held-out tasks added after tuning to catch over-fitting: a 3D player, a main menu, a 2D water pool, an IK arm) in headless Godot editors. It reports which tool groups the AI loaded, errors, turns, peak context and cost, and checks each scene. It costs real API money, about $0.05–0.60 per run on Sonnet. Pick runs with `task:mode`, for example `player2d:default player2d:all` to compare the small start with every tool; the tasks are in `server/eval/tasks.mjs`. These modes turn Claude Code's tool search off, like clients that load every tool up front. Add `+ts` (`player2d:default+ts player2d:all+ts`) to keep it on, as Claude Code users have it. `--repeat 3` runs each task three times and prints averages; one run is too few to compare modes.
 
 ## Documentation
 

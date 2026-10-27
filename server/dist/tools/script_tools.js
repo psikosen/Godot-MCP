@@ -88,34 +88,54 @@ export var scriptTools = [
     },
     {
         name: 'edit_script',
-        description: 'Edit an existing GDScript file',
+        description: 'Edit a GDScript file: content replaces it all, or find + replace changes one piece (cheaper).',
         parameters: z.object({
             script_path: z.string()
                 .describe('Path to the script file to edit (e.g. "res://scripts/player.gd")'),
-            content: z.string()
-                .describe('New content of the script'),
+            content: z.string().optional()
+                .describe('The whole new file'),
+            find: z.string().min(1).optional()
+                .describe('Exact text to change (unique unless replace_all)'),
+            replace: z.string().optional(),
+            replace_all: z.boolean().optional(),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, error_2;
-            var script_path = _b.script_path, content = _b.content;
+            var godot, r, error_2, error_3;
+            var script_path = _b.script_path, content = _b.content, find = _b.find, replace = _b.replace, replace_all = _b.replace_all;
             return __generator(this, function (_c) {
                 switch (_c.label) {
                     case 0:
                         godot = getGodotConnection();
+                        if (!(find !== undefined)) return [3 /*break*/, 4];
+                        if (replace === undefined)
+                            throw new Error('Failed to edit script: find needs replace');
                         _c.label = 1;
                     case 1:
                         _c.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, godot.sendCommand('replace_in_script', { script_path: script_path, find: find, replace: replace, replace_all: replace_all })];
+                    case 2:
+                        r = _c.sent();
+                        return [2 /*return*/, "Replaced ".concat(r.replacements, " occurrence(s) in ").concat(r.script_path)];
+                    case 3:
+                        error_2 = _c.sent();
+                        throw new Error("Failed to edit script: ".concat(error_2.message));
+                    case 4:
+                        if (content === undefined)
+                            throw new Error('Failed to edit script: pass content (the whole file) or find + replace (one exact piece)');
+                        _c.label = 5;
+                    case 5:
+                        _c.trys.push([5, 7, , 8]);
                         return [4 /*yield*/, godot.sendCommand('edit_script', {
                                 script_path: script_path,
                                 content: content,
                             })];
-                    case 2:
+                    case 6:
                         _c.sent();
                         return [2 /*return*/, "Updated script at ".concat(script_path)];
-                    case 3:
-                        error_2 = _c.sent();
-                        throw new Error("Failed to edit script: ".concat(error_2.message));
-                    case 4: return [2 /*return*/];
+                    case 7:
+                        error_3 = _c.sent();
+                        throw new Error("Failed to edit script: ".concat(error_3.message));
+                    case 8: return [2 /*return*/];
                 }
             });
         }); },
@@ -135,7 +155,7 @@ export var scriptTools = [
             message: "Either script_path or node_path must be provided",
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-            var godot, result, error_3;
+            var godot, result, error_4;
             var script_path = _b.script_path, node_path = _b.node_path;
             return __generator(this, function (_c) {
                 switch (_c.label) {
@@ -152,8 +172,8 @@ export var scriptTools = [
                         result = _c.sent();
                         return [2 /*return*/, "Script at ".concat(result.script_path, ":\n\n```gdscript\n").concat(result.content, "\n```")];
                     case 3:
-                        error_3 = _c.sent();
-                        throw new Error("Failed to get script: ".concat(error_3.message));
+                        error_4 = _c.sent();
+                        throw new Error("Failed to get script: ".concat(error_4.message));
                     case 4: return [2 /*return*/];
                 }
             });

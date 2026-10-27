@@ -4,7 +4,8 @@
 // every tool. Add "+ts" (default+ts, all+ts) to keep Claude Code's own tool search on, as real users have it.
 // Costs real API money (about $0.05-0.50 per run on Sonnet).
 //
-// Usage: npm run build && node eval/agent_eval.mjs [--model sonnet] [--lanes 3] [--out eval/out] [task:mode ...]
+// Usage: npm run build && node eval/agent_eval.mjs [--model sonnet] [--lanes 3] [--repeat 1] [--out eval/out] [task:mode ...]
+//   --repeat N runs each task N times and prints averages: one run per task is too few to compare modes.
 //   No runs given: every task in eval/tasks.mjs in default mode.
 // Needs: the `claude` CLI, and Godot (GODOT_EXECUTABLE, default the macOS app path).
 import { spawn, execFileSync } from 'child_process';
@@ -25,8 +26,10 @@ const option = (name, fallback) => {
 };
 const model = option('model', 'sonnet');
 const laneCount = Number(option('lanes', 3));
+const repeat = Number(option('repeat', 1));
 const outDir = resolve(option('out', join(SERVER, 'eval', 'out')));
-const runs = (argv.length > 0 ? argv : Object.keys(TASKS).map(task => `${task}:default`)).map(run => run.split(':'));
+const runs = (argv.length > 0 ? argv : Object.keys(TASKS).map(task => `${task}:default`)).map(run => run.split(':'))
+  .flatMap(([task, mode]) => Array.from({ length: repeat }, (_, index) => [task, mode, repeat > 1 ? `${mode}-${index + 1}` : mode]));
 mkdirSync(outDir, { recursive: true });
 // The server keeps admin approval requests in the repo, not the lane; put the file back after the runs.
 const escalationStore = join(REPO, 'project-manager', 'permission_escalations.json');
@@ -50,7 +53,8 @@ async function startLane(port) {
     const timer = setTimeout(() => fail(new Error(`Godot on port ${port} did not load the addon:\n${log.slice(-2000)}`)), 180000);
     const watch = chunk => {
       log += chunk;
-      if (/Loaded \d+\/\d+ processor/.test(log)) { clearTimeout(timer); done(); }
+      // The editor reopens the project's last scene when its layout loads, after the addon is up; wait for both.
+      if (/Loaded \d+\/\d+ processor/.test(log) && /DONE[^\n]*loading_editor_layout|loading_editor_layout: end/.test(log)) { clearTimeout(timer); done(); }
     };
     godot.stdout.on('data', watch);
     godot.stderr.on('data', watch);
@@ -128,28 +132,28 @@ function readTranscript(jsonl) {
   return { messages, calls, errors, peakContext, result: messages.find(message => message.type === 'result') ?? {} };
 }
 
-async function runOne(lane, taskName, mode) {
+async function runOne(lane, taskName, mode, tag) {
   const task = TASKS[taskName];
-  const dir = `res://eval/${taskName}_${mode}`;
+  const dir = `res://eval/${taskName}_${tag}`;
   const setup = await client(lane);
   const setupErrors = [];
   for (const [tool, args] of task.setup(dir)) {
     const result = await setup.call(tool, args);
     if (result.failed) setupErrors.push(`${tool}: ${result.text.slice(0, 200)}`);
   }
-  await setup.call('create_scene', { path: `res://eval/blank_${taskName}_${mode}.tscn`, root_node_type: 'Node' }); // start on a blank scene
+  await setup.call('create_scene', { path: `res://eval/blank_${taskName}_${tag}.tscn`, root_node_type: 'Node' }); // start on a blank scene
   setup.close();
 
   const env = { GODOT_WS_PORT: String(lane.port), GODOT_PROJECT_PATH: lane.dir, GODOT_EXECUTABLE: '/nonexistent',
     GODOT_MCP_APPROVAL_KEY_PATH: `${lane.dir}/approval.key` };
   if (mode.startsWith('all')) env.GODOT_MCP_TOOLSETS = 'all';
-  const config = `${outDir}/mcp_${taskName}_${mode}.json`;
+  const config = `${outDir}/mcp_${taskName}_${tag}.json`;
   writeFileSync(config, JSON.stringify({ mcpServers: { godot: { command: 'node', args: [`${SERVER}/dist/index.js`], env } } }));
   const prompt = 'You are working on a game in a Godot project through the godot MCP tools; the Godot editor is open with this project. ' +
     'Do the whole task, then save. Do not ask questions; choose sensible defaults.\nTask: ' + task.prompt(dir);
   const started = Date.now();
   const jsonl = await runClaude(lane, config, prompt, mode.endsWith('+ts'));
-  writeFileSync(`${outDir}/${taskName}_${mode}.jsonl`, jsonl);
+  writeFileSync(`${outDir}/${taskName}_${tag}.jsonl`, jsonl);
   const { calls, errors, peakContext, result, messages } = readTranscript(jsonl);
   const init = messages.find(message => message.type === 'system' && message.subtype === 'init') ?? {};
 
@@ -168,7 +172,7 @@ async function runOne(lane, taskName, mode) {
   const checks = task.check(tree, props, dir, result.result ?? '').map(([ok, what]) => ({ ok, what }));
   const writes = calls.filter(call => !/^(ToolSearch|load_tools|get_|list_|describe_|query_|inspect_|search_|find_|check_|validate_|analyze_|open_scene|capture_scene_image)/.test(call.name));
   const report = {
-    task: taskName, mode, model, setupErrors,
+    task: taskName, mode, tag, model, setupErrors,
     pass: checks.every(item => item.ok) && (!task.readOnly || writes.length === 0),
     checks, readOnlyBroken: task.readOnly ? writes.map(call => call.name) : undefined,
     toolsAtStart: (init.tools ?? []).length,
@@ -178,7 +182,7 @@ async function runOne(lane, taskName, mode) {
     errors, turns: result.num_turns, seconds: Math.round((Date.now() - started) / 1000),
     cost: result.total_cost_usd, peakContext, stop: result.subtype, answer: (result.result ?? '').slice(0, 600),
   };
-  writeFileSync(`${outDir}/${taskName}_${mode}.json`, JSON.stringify(report, null, 2));
+  writeFileSync(`${outDir}/${taskName}_${tag}.json`, JSON.stringify(report, null, 2));
   return report;
 }
 
@@ -189,11 +193,11 @@ await Promise.all(Array.from({ length: Math.min(laneCount, queue.length) }, asyn
   try {
     for (let next = queue.shift(); next; next = queue.shift()) {
       try {
-        const report = await runOne(lane, next[0], next[1]);
+        const report = await runOne(lane, next[0], next[1], next[2]);
         reports.push(report);
-        console.log(`${report.pass ? 'PASS' : 'FAIL'} ${next.join(':')}`);
+        console.log(`${report.pass ? 'PASS' : 'FAIL'} ${next[0]}:${next[2]}`);
       } catch (error) {
-        console.log(`ERROR ${next.join(':')}: ${error.stack}`);
+        console.log(`ERROR ${next[0]}:${next[2]}: ${error.stack}`);
       }
     }
   } finally {
@@ -203,11 +207,22 @@ await Promise.all(Array.from({ length: Math.min(laneCount, queue.length) }, asyn
 writeFileSync(escalationStore, escalationsBefore);
 
 const pad = (value, width) => String(value ?? '').padEnd(width);
-console.log(`\n${pad('task:mode', 18)}${pad('pass', 6)}${pad('turns', 7)}${pad('cost', 8)}${pad('peak ctx', 10)}${pad('errors', 8)}loaded`);
-for (const report of reports.sort((a, b) => `${a.task}:${a.mode}`.localeCompare(`${b.task}:${b.mode}`))) {
+console.log(`\n${pad('task:mode', 22)}${pad('pass', 6)}${pad('turns', 7)}${pad('cost', 8)}${pad('peak ctx', 10)}${pad('errors', 8)}loaded`);
+for (const report of reports.sort((a, b) => `${a.task}:${a.tag}`.localeCompare(`${b.task}:${b.tag}`))) {
   const loaded = report.loads.flatMap(load => [...(load.groups ?? []), ...(load.tools ?? []), ...(load.find ? [`find:${load.find}`] : [])]);
   const expected = report.mode.startsWith('all') || loaded.some(group => report.expectedAny.includes(group)) ? '' : `  (expected one of ${report.expectedAny.join(', ')})`;
-  console.log(`${pad(`${report.task}:${report.mode}`, 18)}${pad(report.pass ? 'yes' : 'NO', 6)}${pad(report.turns, 7)}` +
+  console.log(`${pad(`${report.task}:${report.tag}`, 22)}${pad(report.pass ? 'yes' : 'NO', 6)}${pad(report.turns, 7)}` +
     `${pad(`$${(report.cost ?? 0).toFixed(2)}`, 8)}${pad(report.peakContext, 10)}${pad(report.errors.length, 8)}${loaded.join(', ') || '-'}${expected}`);
   for (const item of report.checks.filter(item => !item.ok)) console.log(`    failed check: ${item.what}`);
+}
+
+if (repeat > 1) {
+  console.log(`\nAverages over ${repeat} runs\n${pad('task:mode', 22)}${pad('pass', 7)}${pad('turns', 7)}${pad('cost', 8)}${pad('peak ctx', 10)}errors`);
+  const byRun = new Map();
+  for (const report of reports) byRun.set(`${report.task}:${report.mode}`, [...(byRun.get(`${report.task}:${report.mode}`) ?? []), report]);
+  const mean = (list, key) => list.reduce((sum, report) => sum + (report[key] ?? 0), 0) / list.length;
+  for (const [name, list] of [...byRun].sort()) {
+    console.log(`${pad(name, 22)}${pad(`${list.filter(report => report.pass).length}/${list.length}`, 7)}${pad(mean(list, 'turns').toFixed(1), 7)}` +
+      `${pad(`$${mean(list, 'cost').toFixed(3)}`, 8)}${pad(Math.round(mean(list, 'peakContext')), 10)}${list.reduce((sum, report) => sum + report.errors.length, 0)}`);
+  }
 }

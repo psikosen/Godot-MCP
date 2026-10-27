@@ -7,23 +7,28 @@ const statusEnum = z.enum(['pending', 'approved', 'denied']);
 export const permissionTools: MCPTool[] = [
   {
     name: 'list_permission_escalations',
-    description: 'List recorded permission escalation requests optionally filtered by status.',
+    description: 'List permission escalation requests, newest first, optionally filtered by status.',
     parameters: z.object({
       status: statusEnum
         .optional()
         .describe('Filter results to a specific status (pending, approved, denied).'),
+      limit: z.number().int().min(1).max(500).default(20).describe('Most requests to show (default 20).'),
     }),
-    execute: async ({ status }: { status?: EscalationStatus }): Promise<string> => {
+    execute: async ({ status, limit = 20 }: { status?: EscalationStatus; limit?: number }): Promise<string> => {
+      // Requests pile up with every admin call; full JSON records ran past 70k characters at 120 of them.
       const records = await escalationManager.listEscalations({ status });
-      return JSON.stringify(
-        {
-          status: status ?? 'all',
-          count: records.length,
-          records,
-        },
-        null,
-        2,
-      );
+      if (records.length === 0) return status ? `No ${status} escalation requests.` : 'No escalation requests.';
+      const shown = records.slice(-limit).reverse();
+      const lines = shown.map(record => {
+        const args = JSON.stringify((record.metadata?.args as unknown) ?? {});
+        return `- ${record.id} ${record.status} ${record.path.replace(/^tool:/, '')} ${record.requestedAt} ${args.length > 80 ? `${args.slice(0, 80)}…` : args}`;
+      });
+      const hidden = records.length - shown.length;
+      return [
+        `Escalation requests (${records.length}, newest first${hidden ? `; ${hidden} older not shown, raise limit` : ''}):`,
+        ...lines,
+        ...(shown.some(record => record.status === 'pending') ? ['A human approves with: cd server && npm run approve -- <id>'] : []),
+      ].join('\n');
     },
     metadata: {
       requiredRole: 'read',

@@ -2275,7 +2275,19 @@ describe('Godot MCP tool command wiring', () => {
     const output = await tool.execute({});
 
     expect(mockListEscalations).toHaveBeenCalledWith({});
-    expect(JSON.parse(output).count).toBeGreaterThanOrEqual(0);
+    expect(output).toContain(`- ${sampleRecord.id} pending`);
+    expect(output).toContain('npm run approve');
+  });
+
+  it('lists only the newest escalations up to the limit', async () => {
+    const tool = getTool(permissionTools, 'list_permission_escalations');
+    mockListEscalations.mockResolvedValueOnce(Array.from({ length: 30 }, (_, i) => ({ ...sampleRecord, id: `esc-${i}` })));
+    const output = await tool.execute(tool.parameters.parse({ limit: 5 }));
+
+    expect(output.split('\n').filter(line => line.startsWith('- '))).toHaveLength(5);
+    expect(output).toMatch(/^Escalation requests \(30, newest first; 25 older not shown/);
+    expect(output.indexOf('esc-29')).toBeLessThan(output.indexOf('esc-25'));
+    expect(output).not.toContain('esc-24 ');
   });
 
   it('denies permission escalations (approval is human-only)', async () => {
@@ -2289,6 +2301,43 @@ describe('Godot MCP tool command wiring', () => {
       notes: 'Not needed',
     });
     expect(output).toContain('denied');
+  });
+
+  it('reads several nodes in one get_node_properties call; one bad path does not sink the rest', async () => {
+    const tool = getTool(nodeTools, 'get_node_properties');
+    mockSendCommand.mockImplementation(async (_command, payload: any) => {
+      if (payload.node_path === '/root/Missing') throw new Error('Node not found: /root/Missing');
+      return { properties: { name: payload.node_path.split('/').pop() } };
+    });
+    const output = await tool.execute({ node_path: ['/root/A', '/root/Missing', '/root/B'] });
+
+    expect(output).toContain('Properties of node at /root/A:\nname: "A"');
+    expect(output).toContain('/root/Missing: Node not found');
+    expect(output).toContain('Properties of node at /root/B:\nname: "B"');
+    mockSendCommand.mockImplementation(async () => ({}));
+  });
+
+  it('assigns one script to several nodes, creating the file only once', async () => {
+    const tool = getTool(nodeTools, 'set_node_script');
+    mockSendCommand.mockClear();
+    mockSendCommand.mockImplementation(async (_command, payload: any) => ({ status: payload.node_path === '/root/C2' ? 'no_change' : 'committed' }));
+    const output = await tool.execute({ node_path: ['/root/C1', '/root/C2', '/root/C3'], script_path: 'res://coin.gd', create_script: true });
+
+    expect(output).toBe('Assigned script res://coin.gd to /root/C1, /root/C3 [committed]; /root/C2 already had it');
+    expect(mockSendCommand.mock.calls.map(([, payload]: any) => payload.create_script)).toEqual([true, false, false]);
+    mockSendCommand.mockImplementation(async () => ({}));
+  });
+
+  it('edit_script with find + replace changes one piece instead of the whole file', async () => {
+    const tool = getTool(scriptTools, 'edit_script');
+    mockSendCommand.mockClear();
+    mockSendCommand.mockImplementation(async () => ({ replacements: 1, script_path: 'res://p.gd' }));
+    const output = await tool.execute({ script_path: 'res://p.gd', find: 'speed = 100', replace: 'speed = 200' });
+
+    expect(mockSendCommand).toHaveBeenCalledWith('replace_in_script', { script_path: 'res://p.gd', find: 'speed = 100', replace: 'speed = 200', replace_all: undefined });
+    expect(output).toBe('Replaced 1 occurrence(s) in res://p.gd');
+    await expect(tool.execute({ script_path: 'res://p.gd' })).rejects.toThrow('pass content (the whole file) or find + replace');
+    mockSendCommand.mockImplementation(async () => ({}));
   });
 
   it('sends overwrite=false for create_script unless asked to overwrite', async () => {

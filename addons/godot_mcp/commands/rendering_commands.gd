@@ -2513,7 +2513,9 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 				var wrapped := Sky.new()
 				wrapped.sky_material = sky_resource
 				sky_resource = wrapped
-			if not sky_resource is Sky:
+			if sky_path.begins_with("res://") and not ResourceLoader.exists(sky_path):
+				_refused_values.append("sky.path %s does not exist; pass a sky material class like ProceduralSkyMaterial instead" % sky_path)
+			elif not sky_resource is Sky:
 				_refused_values.append("sky.path must be a Sky or sky material file, or a sky material class like ProceduralSkyMaterial (got %s)" % sky_path)
 			elif environment.sky != sky_resource:
 				changes.append({
@@ -2550,8 +2552,9 @@ func _append_environment_change(environment: Environment, property_name: String,
 			_refused_values.append("%s is set twice in this call (e.g. fog.color and sun.color both map to it)" % property_name)
 			return
 	var previous = environment.get(property_name)
-	# Coerce JSON input ("#hex", {"r":..}) to the property's type; != between mismatched types errors.
-	var parsed: Variant = _coerce_value_to_match(previous, _parse_property_value(raw_value))
+	# Coerce JSON input ("#hex", {"r":..}, {"sky_material": {...}}) to the property's declared type, not the
+	# current value's: an empty sky is null, so a new Sky was refused. != between mismatched types errors.
+	var parsed: Variant = _convert_property_value(environment, property_name, raw_value)
 	var value_error := _property_value_error(environment, property_name, parsed)
 	if not value_error.is_empty():
 		_refused_values.append(value_error)

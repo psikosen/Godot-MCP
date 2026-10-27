@@ -14,7 +14,10 @@ interface CreateScriptParams {
 
 interface EditScriptParams {
   script_path: string;
-  content: string;
+  content?: string;
+  find?: string;
+  replace?: string;
+  replace_all?: boolean;
 }
 
 interface GetScriptParams {
@@ -75,16 +78,32 @@ export const scriptTools: MCPTool[] = [
 
   {
     name: 'edit_script',
-    description: 'Edit an existing GDScript file',
+    description: 'Edit a GDScript file: content replaces it all, or find + replace changes one piece (cheaper).',
     parameters: z.object({
       script_path: z.string()
         .describe('Path to the script file to edit (e.g. "res://scripts/player.gd")'),
-      content: z.string()
-        .describe('New content of the script'),
+      content: z.string().optional()
+        .describe('The whole new file'),
+      find: z.string().min(1).optional()
+        .describe('Exact text to change (unique unless replace_all)'),
+      replace: z.string().optional(),
+      replace_all: z.boolean().optional(),
     }),
-    execute: async ({ script_path, content }: EditScriptParams): Promise<string> => {
+    execute: async ({ script_path, content, find, replace, replace_all }: EditScriptParams): Promise<string> => {
       const godot = getGodotConnection();
-      
+
+      // AIs reach for this core tool with a search and replace; rewriting the whole file costs far more.
+      if (find !== undefined) {
+        if (replace === undefined) throw new Error('Failed to edit script: find needs replace');
+        try {
+          const r = await godot.sendCommand<CommandResult>('replace_in_script', { script_path, find, replace, replace_all });
+          return `Replaced ${r.replacements} occurrence(s) in ${r.script_path}`;
+        } catch (error) {
+          throw new Error(`Failed to edit script: ${(error as Error).message}`);
+        }
+      }
+      if (content === undefined) throw new Error('Failed to edit script: pass content (the whole file) or find + replace (one exact piece)');
+
       try {
         await godot.sendCommand('edit_script', {
           script_path,
