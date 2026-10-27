@@ -2075,7 +2075,7 @@ export const nodeTools: MCPTool[] = [
       include_internal: z.boolean().optional()
         .describe('Include internal children in traversal (default false)'),
       max_results: z.number().int().min(1).max(5000).optional()
-        .describe('Maximum number of matched nodes to return (default 500)'),
+        .describe('Maximum number of matched nodes to return (default 200)'),
     }),
     execute: async ({
       root_path,
@@ -2110,7 +2110,7 @@ export const nodeTools: MCPTool[] = [
           .map(node => `${node.name} (${node.type}) - ${node.path}`)
           .join('\n');
         const truncated = Boolean(result.truncated);
-        return `Query matched ${count} node(s) under ${target}${truncated ? ' (truncated)' : ''}:\n${lines}`;
+        return `Query matched ${count} node(s) under ${target}${truncated ? ' (more not shown; raise max_results or filter by name_contains, node_type or group_name)' : ''}:\n${lines}`;
       } catch (error) {
         throw new Error(`Failed to query nodes: ${(error as Error).message}`);
       }

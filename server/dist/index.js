@@ -110,8 +110,15 @@ function main() {
                     server = new FastMCP({
                         name: 'GodotMCP',
                         version: '1.0.0',
-                        instructions: 'Controls a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
-                            'Read the godot/* resources or list/get tools before editing. ' +
+                        // With client tool search (Claude Code), these words and the tool names are all the AI sees until it
+                        // searches, so they name the areas the tools cover.
+                        instructions: 'Builds and edits Godot 4 games in a live Godot editor over WebSocket. The editor must be open with the Godot MCP addon enabled. ' +
+                            'Tools cover: scenes, nodes and GDScript; 2D players, sprites, tilemaps, tilesets, parallax and cameras; ' +
+                            '3D players, terrain, GridMaps and CSG; water (2D and 3D); paths and path followers; procedural levels, dungeons, caves, ' +
+                            'scattering and planets; enemy AI and navigation; physics, joints and ragdolls; animation, AnimationTree, skeletons and IK rigs; ' +
+                            'lights, sky and environment; particles, smoke and screen effects; materials, shaders and asset imports; UI, menus and HUD; ' +
+                            'audio and music; input actions; multiplayer; XR; tests and export. Search for tools with these words (e.g. "water", "tilemap", "ik"). ' +
+                            'Node paths start at /root, the open scene root. Read the godot/* resources or list/get tools before editing. ' +
                             'Admin tools (scripts, headless runs, patches, project settings) return an escalation id that a human must approve. ' +
                             'Prefer get_scene_tree for an overview, get_node_properties with properties/changed_only, and batch_update_nodes for many edits.' +
                             (toolsets ? ' Only some tool groups are on: call load_tools first to turn on the groups your task needs.' : ''),

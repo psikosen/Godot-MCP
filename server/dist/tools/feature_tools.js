@@ -76,6 +76,37 @@ export var featureTools = [
         metadata: { requiredRole: 'read' },
     },
     {
+        name: 'add_skeleton_bones',
+        description: 'Add bones to a Skeleton3D to build a rig from scratch (arm, tail, tentacle). Each bone\'s parent defaults to the bone before it, so a list makes a chain; position is its rest offset from the parent. Undo-aware.',
+        parameters: z.object({
+            skeleton_path: z.string().describe('The Skeleton3D (create_node it first)'),
+            bones: z.array(z.object({
+                name: z.string().min(1),
+                parent: z.string().optional().describe('Parent bone name; default the bone before it, "" for a root bone'),
+                position: vector3.optional().describe('Rest offset from the parent; default {x:0,y:1,z:0}, or the origin for a root bone'),
+            }).strict()).min(1).max(256),
+            transaction_id: z.string().optional(),
+        }),
+        execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
+            var r, error_2;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, send('add_skeleton_bones', args)];
+                    case 1:
+                        r = _a.sent();
+                        return [2 /*return*/, "".concat(r.skeleton_path, ": ").concat(r.bone_count, " bones ").concat(status(r), "\n").concat(r.outline)];
+                    case 2:
+                        error_2 = _a.sent();
+                        return [2 /*return*/, fail('add skeleton bones', error_2)];
+                    case 3: return [2 /*return*/];
+                }
+            });
+        }); },
+        metadata: { requiredRole: 'edit' },
+    },
+    {
         name: 'setup_ik_chain',
         description: 'Add inverse kinematics (Godot 4.6+) so bone chains reach for targets: two_bone for arms and legs (only end_bone needed), fabrik/ccdik/jacobian for longer chains, spline to follow a Path3D. Creates a Marker3D target per chain unless target_path is given, and for two_bone a pole marker the knee or elbow bends toward; move the markers to pose the limb. Undo-aware.',
         parameters: z.object({
@@ -95,7 +126,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, chains, error_2;
+            var r, chains, error_3;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -106,8 +137,8 @@ export var featureTools = [
                         chains = r.chains.map(function (c) { var _a; return "".concat([c.root, c.middle, c.end].filter(Boolean).join(' > '), " -> ").concat((_a = c.target) !== null && _a !== void 0 ? _a : c.path_3d).concat(c.pole ? " (pole ".concat(c.pole, ")") : ''); });
                         return [2 /*return*/, "".concat(r.solver, " ").concat(r.node_path, " ").concat(status(r), ":\n").concat(chains.join('\n'))];
                     case 2:
-                        error_2 = _a.sent();
-                        return [2 /*return*/, fail('set up IK chain', error_2)];
+                        error_3 = _a.sent();
+                        return [2 /*return*/, fail('set up IK chain', error_3)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -132,7 +163,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, error_3;
+            var r, error_4;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -142,8 +173,8 @@ export var featureTools = [
                         r = _a.sent();
                         return [2 /*return*/, "".concat(r.type, " ").concat(r.node_path, " ").concat(status(r), ": bone ").concat(r.bone, " follows ").concat(r.target)];
                     case 2:
-                        error_3 = _a.sent();
-                        return [2 /*return*/, fail('add bone constraint', error_3)];
+                        error_4 = _a.sent();
+                        return [2 /*return*/, fail('add bone constraint', error_4)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -174,7 +205,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, colliders, error_4;
+            var r, colliders, error_5;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -186,8 +217,8 @@ export var featureTools = [
                         return [2 /*return*/, "".concat(r.node_path, " ").concat(status(r), ":\n").concat(r.chains.join('\n'))
                                 + (colliders.length ? "\nColliders: ".concat(colliders.join(', ')) : '')];
                     case 2:
-                        error_4 = _a.sent();
-                        return [2 /*return*/, fail('set up spring bones', error_4)];
+                        error_5 = _a.sent();
+                        return [2 /*return*/, fail('set up spring bones', error_5)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -205,7 +236,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, skipped, error_5;
+            var r, skipped, error_6;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -218,8 +249,8 @@ export var featureTools = [
                                 + (skipped.length ? "; skipped: ".concat(skipped.join(', ')) : '')
                                 + editableNote(r)];
                     case 2:
-                        error_5 = _a.sent();
-                        return [2 /*return*/, fail('set stencil effect', error_5)];
+                        error_6 = _a.sent();
+                        return [2 /*return*/, fail('set stencil effect', error_6)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -237,7 +268,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, error_6;
+            var r, error_7;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -247,8 +278,8 @@ export var featureTools = [
                         r = _a.sent();
                         return [2 /*return*/, "".concat(r.effect, " on ").concat(r.node_path, " ").concat(status(r), " using ").concat(r.shader_path, "; uniforms: ").concat(r.uniforms.join(', '), ". Animate one with update_node_property \"material_override:shader_parameter/<name>\".").concat(editableNote(r))];
                     case 2:
-                        error_6 = _a.sent();
-                        return [2 /*return*/, fail('create spatial shader', error_6)];
+                        error_7 = _a.sent();
+                        return [2 /*return*/, fail('create spatial shader', error_7)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -276,7 +307,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, undefinedActions, error_7;
+            var r, undefinedActions, error_8;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -288,8 +319,8 @@ export var featureTools = [
                         return [2 /*return*/, "".concat(r.node_path, " ").concat(status(r), ": ").concat(r.joystick ? 'joystick, ' : '', "buttons ").concat(r.buttons.join(', ') || 'none')
                                 + (undefinedActions.length ? "\nNot defined yet (add with add_input_action): ".concat(undefinedActions.join(', ')) : '')];
                     case 2:
-                        error_7 = _a.sent();
-                        return [2 /*return*/, fail('add touch controls', error_7)];
+                        error_8 = _a.sent();
+                        return [2 /*return*/, fail('add touch controls', error_8)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -309,7 +340,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, applied, error_8;
+            var r, applied, error_9;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -320,8 +351,8 @@ export var featureTools = [
                         applied = r.applied;
                         return [2 /*return*/, applied.length ? "Set ".concat(applied.length, " ").concat(status(r), ":\n").concat(applied.join('\n')).concat(editableNote(r)) : 'Nothing to set: every interactive control already has text or a name.'];
                     case 2:
-                        error_8 = _a.sent();
-                        return [2 /*return*/, fail('set accessibility info', error_8)];
+                        error_9 = _a.sent();
+                        return [2 /*return*/, fail('set accessibility info', error_9)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -340,7 +371,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, error_9;
+            var r, error_10;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -350,8 +381,8 @@ export var featureTools = [
                         r = _a.sent();
                         return [2 /*return*/, "".concat(r.type, " ").concat(r.node_path, " ").concat(status(r), ": ").concat(r.points, " points, length ").concat(r.length)];
                     case 2:
-                        error_9 = _a.sent();
-                        return [2 /*return*/, fail('create path', error_9)];
+                        error_10 = _a.sent();
+                        return [2 /*return*/, fail('create path', error_10)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -371,7 +402,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, error_10;
+            var r, error_11;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -381,8 +412,8 @@ export var featureTools = [
                         r = _a.sent();
                         return [2 /*return*/, "Placed ".concat(r.count, " under ").concat(r.node_path, " ").concat(status(r), " (path length ").concat(r.path_length, ")")];
                     case 2:
-                        error_10 = _a.sent();
-                        return [2 /*return*/, fail('place along path', error_10)];
+                        error_11 = _a.sent();
+                        return [2 /*return*/, fail('place along path', error_11)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -404,7 +435,7 @@ export var featureTools = [
             transaction_id: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, missed, error_11;
+            var r, missed, error_12;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -417,8 +448,8 @@ export var featureTools = [
                                 + (r.removed ? "\nRemoved ".concat(r.removed, " outside the height range") : '')
                                 + (missed.length ? "\nNo ground under: ".concat(missed.join(', ')) : '') + editableNote(r)];
                     case 2:
-                        error_11 = _a.sent();
-                        return [2 /*return*/, fail('snap to ground', error_11)];
+                        error_12 = _a.sent();
+                        return [2 /*return*/, fail('snap to ground', error_12)];
                     case 3: return [2 /*return*/];
                 }
             });
@@ -434,7 +465,7 @@ export var featureTools = [
             gridmap_path: z.string().optional(),
         }),
         execute: function (args) { return __awaiter(void 0, void 0, void 0, function () {
-            var r, error_12;
+            var r, error_13;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -445,8 +476,8 @@ export var featureTools = [
                         return [2 /*return*/, "Saved ".concat(r.save_path, " with ").concat(r.items.length, " item(s): ").concat(r.items.join(', '))
                                 + (r.gridmap_path ? "\nAssigned to ".concat(r.gridmap_path, " ").concat(status(r)) : '')];
                     case 2:
-                        error_12 = _a.sent();
-                        return [2 /*return*/, fail('build mesh library', error_12)];
+                        error_13 = _a.sent();
+                        return [2 /*return*/, fail('build mesh library', error_13)];
                     case 3: return [2 /*return*/];
                 }
             });

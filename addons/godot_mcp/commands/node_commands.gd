@@ -795,7 +795,7 @@ func _query_nodes(client_id: int, params: Dictionary, command_id: String) -> voi
 	var group_name: String = str(params.get("group_name", "")).strip_edges()
 	var include_root: bool = params.get("include_root", true)
 	var include_internal: bool = params.get("include_internal", false)
-	var max_results: int = int(params.get("max_results", 500))
+	var max_results: int = int(params.get("max_results", 200))
 
 	if max_results <= 0:
 		max_results = 1

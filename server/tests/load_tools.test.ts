@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 const { groupsOf, toolsetOf, TASK_GROUPS, TOOLSETS } = await import('../dist/utils/toolsets.js');
 
@@ -37,7 +38,8 @@ async function startServer(toolsets?: string) {
   child.stdin!.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
   const listTools = async () => (await rpc('tools/list')).result.tools as Array<{ name: string }>;
   const loadTools = (args: object) => rpc('tools/call', { name: 'load_tools', arguments: args });
-  return { listTools, loadTools, notifications };
+  const callTool = (name: string, args: object) => rpc('tools/call', { name, arguments: args });
+  return { listTools, loadTools, callTool, notifications };
 }
 
 afterEach(() => {
@@ -155,5 +157,26 @@ describe('listed schemas', () => {
     const listed = JSON.stringify(tools);
     expect(listed).not.toMatch(/"items":\[/);
     expect(listed).not.toContain('$schema');
+  });
+
+  it('lists the parameters when a call has wrong or missing ones', async () => {
+    const server = await startServer();
+    const empty = await server.callTool('get_node_properties', {});
+    expect(empty.error.message).toMatch(/node_path: Required.*this tool takes node_path\* string/);
+    const unknown = await server.callTool('load_tools', { group: 'water' });
+    expect(unknown.error.message).toContain('this tool takes groups string[], tools string[], find string, unload string[]');
+    const { parameterList, withShortNames } = await import('../dist/utils/listed_schema.js');
+    expect(withShortNames({ path: 'res://a.gd', content: '' }, ['script_path', 'content'])).toEqual({ script_path: 'res://a.gd', content: '' });
+    expect(withShortNames({ type: 'Node', name: 'A' }, ['node_type', 'node_name'])).toEqual({ node_type: 'Node', node_name: 'A' });
+    expect(withShortNames({ property_name: 'x' }, ['property'])).toEqual({ property: 'x' });
+    expect(withShortNames({ path: 'x' }, ['script_path', 'scene_path'])).toEqual({ path: 'x' }); // two fit: left alone
+    expect(withShortNames({ path: 'x' }, ['script_path', 'node_path'], ['script_path'])).toEqual({ script_path: 'x' }); // the required one
+    expect(withShortNames({ node_path: 'x' }, ['path'])).toEqual({ node_path: 'x' }); // longer names are not shortened
+    const { listedSchema } = await import('../dist/utils/listed_schema.js');
+    const schema = listedSchema(z.object({ script_path: z.string(), content: z.string(), node_path: z.string().optional() }).strict());
+    expect(await schema['~standard'].validate({ path: 'res://a.gd', content: '' })).toEqual({ value: { script_path: 'res://a.gd', content: '' } });
+    const vector = { anyOf: [{ type: 'object', properties: { x: {}, y: {} } }, { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' } }] };
+    expect(parameterList({ required: ['size'], properties: { size: vector, points: { type: 'array', items: { $ref: '#/properties/size' } }, mode: { enum: ['a', 'b'] } } }))
+      .toBe('size* {x,y}|number[2], points ({x,y}|number[2])[], mode a|b');
   });
 });

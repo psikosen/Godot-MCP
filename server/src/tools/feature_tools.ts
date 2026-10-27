@@ -33,6 +33,28 @@ export const featureTools: MCPTool[] = [
     metadata: { requiredRole: 'read' },
   },
   {
+    name: 'add_skeleton_bones',
+    description: 'Add bones to a Skeleton3D to build a rig from scratch (arm, tail, tentacle). Each bone\'s parent defaults to the bone before it, so a list makes a chain; position is its rest offset from the parent. Undo-aware.',
+    parameters: z.object({
+      skeleton_path: z.string().describe('The Skeleton3D (create_node it first)'),
+      bones: z.array(z.object({
+        name: z.string().min(1),
+        parent: z.string().optional().describe('Parent bone name; default the bone before it, "" for a root bone'),
+        position: vector3.optional().describe('Rest offset from the parent; default {x:0,y:1,z:0}, or the origin for a root bone'),
+      }).strict()).min(1).max(256),
+      transaction_id: z.string().optional(),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('add_skeleton_bones', args);
+        return `${r.skeleton_path}: ${r.bone_count} bones ${status(r)}\n${r.outline}`;
+      } catch (error) {
+        return fail('add skeleton bones', error);
+      }
+    },
+    metadata: { requiredRole: 'edit' },
+  },
+  {
     name: 'setup_ik_chain',
     description: 'Add inverse kinematics (Godot 4.6+) so bone chains reach for targets: two_bone for arms and legs (only end_bone needed), fabrik/ccdik/jacobian for longer chains, spline to follow a Path3D. Creates a Marker3D target per chain unless target_path is given, and for two_bone a pole marker the knee or elbow bends toward; move the markers to pose the limb. Undo-aware.',
     parameters: z.object({

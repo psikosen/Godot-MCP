@@ -2275,7 +2275,19 @@ describe('Godot MCP tool command wiring', () => {
     const output = await tool.execute({});
 
     expect(mockListEscalations).toHaveBeenCalledWith({});
-    expect(JSON.parse(output).count).toBeGreaterThanOrEqual(0);
+    expect(output).toContain(`- ${sampleRecord.id} pending`);
+    expect(output).toContain('npm run approve');
+  });
+
+  it('lists only the newest escalations up to the limit', async () => {
+    const tool = getTool(permissionTools, 'list_permission_escalations');
+    mockListEscalations.mockResolvedValueOnce(Array.from({ length: 30 }, (_, i) => ({ ...sampleRecord, id: `esc-${i}` })));
+    const output = await tool.execute(tool.parameters.parse({ limit: 5 }));
+
+    expect(output.split('\n').filter(line => line.startsWith('- '))).toHaveLength(5);
+    expect(output).toMatch(/^Escalation requests \(30, newest first; 25 older not shown/);
+    expect(output.indexOf('esc-29')).toBeLessThan(output.indexOf('esc-25'));
+    expect(output).not.toContain('esc-24 ');
   });
 
   it('denies permission escalations (approval is human-only)', async () => {

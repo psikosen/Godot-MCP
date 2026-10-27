@@ -559,7 +559,7 @@ export var nodeTools = [
             include_internal: z.boolean().optional()
                 .describe('Include internal children in traversal (default false)'),
             max_results: z.number().int().min(1).max(5000).optional()
-                .describe('Maximum number of matched nodes to return (default 500)'),
+                .describe('Maximum number of matched nodes to return (default 200)'),
         }),
         execute: function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
             var godot, result, nodes, count, target, lines, truncated, error_11;
@@ -593,7 +593,7 @@ export var nodeTools = [
                             .map(function (node) { return "".concat(node.name, " (").concat(node.type, ") - ").concat(node.path); })
                             .join('\n');
                         truncated = Boolean(result.truncated);
-                        return [2 /*return*/, "Query matched ".concat(count, " node(s) under ").concat(target).concat(truncated ? ' (truncated)' : '', ":\n").concat(lines)];
+                        return [2 /*return*/, "Query matched ".concat(count, " node(s) under ").concat(target).concat(truncated ? ' (more not shown; raise max_results or filter by name_contains, node_type or group_name)' : '', ":\n").concat(lines)];
                     case 3:
                         error_11 = _g.sent();
                         throw new Error("Failed to query nodes: ".concat(error_11.message));

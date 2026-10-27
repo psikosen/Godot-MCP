@@ -131,6 +131,56 @@ export const TASKS = {
       [/script=/.test(tree), 'a script'],
     ],
   },
+  // Held out: added after the groups and tools were tuned, to catch tuning that only fits the tasks above.
+  player3d: {
+    expect: ['player_3d', '3d'],
+    setup: () => [],
+    prompt: dir => `Create a new 3D scene ${dir}/world.tscn with a floor and a player that walks with WASD and jumps with space, with a third-person camera that follows behind the player. Save the scene.`,
+    scene: dir => `${dir}/world.tscn`,
+    check: tree => [
+      [/\(CharacterBody3D\)[^\n]*script=/.test(tree), 'CharacterBody3D with a script'],
+      [/\(Camera3D\)/.test(tree), 'Camera3D'],
+      [/\((StaticBody3D|CSGBox3D|CSGCombiner3D|GridMap)\)/.test(tree), 'a floor'],
+    ],
+  },
+  menu: {
+    expect: ['ui'],
+    setup: () => [],
+    prompt: dir => `Create a main menu scene ${dir}/menu.tscn with the game's title and Start and Quit buttons. Quit closes the game. Save the scene.`,
+    scene: dir => `${dir}/menu.tscn`,
+    check: tree => [
+      [(tree.match(/\((Button|TextureButton)\)/g) ?? []).length >= 2, 'two buttons'],
+      [/\((Label|RichTextLabel)\)/.test(tree), 'a title'],
+      [/script=/.test(tree), 'a script'],
+    ],
+  },
+  pool2d: {
+    expect: ['water', 'physics', 'gameplay', '2d'],
+    setup: dir => [
+      ['create_scene', { path: `${dir}/level.tscn`, root_node_type: 'Node2D' }],
+      ['batch_create_nodes', { parent_path: '/root', nodes: [{ node_type: 'CharacterBody2D', node_name: 'Player', properties: { position: v2(200, 200) } }] }],
+      ['batch_create_nodes', { parent_path: '/root/Player', nodes: [
+        { node_type: 'CollisionShape2D', node_name: 'Shape', properties: { shape: { type: 'CapsuleShape2D', radius: 12, height: 40 } } }] }],
+      ['save_scene', { path: `${dir}/level.tscn` }],
+    ],
+    prompt: dir => `Open ${dir}/level.tscn. Add a pool of water 400 pixels wide below the Player. While the Player is in the water, gravity is weaker and it moves slower. Save the scene.`,
+    scene: dir => `${dir}/level.tscn`,
+    check: tree => [
+      [/water|pool/i.test(tree), 'water'],
+      [/\(Area2D\)/.test(tree), 'an area that detects the Player'],
+      [/script=/.test(tree), 'a script'],
+    ],
+  },
+  arm_ik: {
+    expect: ['rigging', 'animation', '3d'],
+    setup: () => [],
+    prompt: dir => `Create a new 3D scene ${dir}/arm.tscn with a simple arm: a Skeleton3D with three bones (shoulder, elbow, hand), and IK so the hand reaches toward a target node. Save the scene.`,
+    scene: dir => `${dir}/arm.tscn`,
+    check: tree => [
+      [/\(Skeleton3D\)/.test(tree), 'Skeleton3D'],
+      [/\([A-Za-z]*IK[A-Za-z0-9]*\)/.test(tree), 'an IK node'],
+    ],
+  },
   inspect: {
     expect: ['inspect', 'scripting', 'gameplay', 'refactor'],
     readOnly: true,

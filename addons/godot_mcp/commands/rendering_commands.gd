@@ -2513,7 +2513,9 @@ func _collect_environment_changes(environment: Environment, params: Dictionary) 
 				var wrapped := Sky.new()
 				wrapped.sky_material = sky_resource
 				sky_resource = wrapped
-			if not sky_resource is Sky:
+			if sky_path.begins_with("res://") and not ResourceLoader.exists(sky_path):
+				_refused_values.append("sky.path %s does not exist; pass a sky material class like ProceduralSkyMaterial instead" % sky_path)
+			elif not sky_resource is Sky:
 				_refused_values.append("sky.path must be a Sky or sky material file, or a sky material class like ProceduralSkyMaterial (got %s)" % sky_path)
 			elif environment.sky != sky_resource:
 				changes.append({

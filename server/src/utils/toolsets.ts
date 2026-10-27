@@ -93,7 +93,7 @@ export const TASK_GROUPS: Array<[string, Set<string> | RegExp, string]> = [
   ['paths', tools('create_path', 'place_along_path', 'configure_path2d_followers', 'configure_path3d_followers',
     'advance_pathfollow2d', 'advance_pathfollow3d', 'generate_tween_sequence'),
   'splines: Path2D/3D curves, followers (moving platforms, rails), placing along paths'],
-  ['rigging', tools('inspect_model', 'configure_model_import', 'add_animation_library', 'describe_skeleton', 'setup_ik_chain',
+  ['rigging', tools('inspect_model', 'configure_model_import', 'add_animation_library', 'describe_skeleton', 'add_skeleton_bones', 'setup_ik_chain',
     'add_bone_constraint', 'setup_spring_bones', 'create_ragdoll', 'bake_skeleton_pose', 'describe_animation_tracks',
     'edit_animation', 'configure_animation_tree', 'set_animation_tree_state', 'set_animation_tree_parameters'),
   'rigged 3D models: import, shared animations, IK, spring bones, ragdolls'],

@@ -484,6 +484,13 @@ func _assign_converted(target: Object, property_name: String, value) -> void:
 
 
 func _coerce_value_to_type(value, value_type: int, property_class_name: String = ""):
+	# AIs sometimes quote a value twice ("\"Vector3(1, 2, 3)\"") or write "null" for nothing.
+	if typeof(value) == TYPE_STRING and not (value_type in [TYPE_NIL, TYPE_STRING, TYPE_STRING_NAME]):
+		var text: String = value.strip_edges()
+		if text.length() >= 2 and text.begins_with("\"") and text.ends_with("\""):
+			value = text.substr(1, text.length() - 2)
+		if value_type == TYPE_OBJECT and text == "null":
+			return null
 	match value_type:
 		TYPE_NIL:
 			return value
@@ -704,9 +711,16 @@ func _coerce_to_color(value):
 
 
 # [[x, y], {x, y}, ...] -> PackedVector2Array (or 3D), or null when any element is not a point.
+# A flat number list [x1, y1, x2, y2, ...] works too.
 func _points_to_packed(value, three_d: bool):
 	if not (value is Array):
 		return null
+	var width := 3 if three_d else 2
+	if not value.is_empty() and value.size() % width == 0 and value.all(func(n): return n is float or n is int):
+		var grouped: Array = []
+		for start in range(0, value.size(), width):
+			grouped.append(value.slice(start, start + width))
+		value = grouped
 	var points: Array = []
 	for item in value:
 		var point = _coerce_to_vector3(item) if three_d else _coerce_to_vector2(item)
