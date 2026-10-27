@@ -143,7 +143,7 @@ Create an enemy AI that patrols between waypoints and attacks the player when in
 - `create_node` - Create a new node under a specified parent path
 - `delete_node` - Delete a node from the edited scene
 - `update_node_property` - Change a node property with undo support
-- `get_node_properties` - Inspect every exposed property on a node
+- `get_node_properties` - Inspect the properties of a node, or of several nodes in one call
 - `list_nodes` - Enumerate the children of a node in the scene tree
 - `rename_node` - Rename a node while preserving undo history
 - `add_node_to_group` - Add a node to a named group (optionally persisting to the scene file)
@@ -356,7 +356,7 @@ Script paths must stay inside the project: anything that resolves outside `res:/
   - `GODOT_MCP_TOOLSETS` picks the groups that are on at start, for example `player_2d,tilemap_level`. Set it to `all` for every tool at start, which you need for clients that ignore `tools/list_changed`.
 - `get_scene_tree` outlines a whole scene at about ten tokens per node.
 - Resource properties take a new built-in resource inline, so no file is needed: `"mesh": "BoxMesh"` or `"shape": {"type": "CapsuleShape3D", "radius": 0.4}`, nested too (`"material": {"type": "StandardMaterial3D", "albedo_color": "#ff0000"}`).
-- `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults).
+- `get_node_properties` takes `properties` (only these names) or `changed_only` (only values that differ from the defaults), and a list of nodes in `node_path` to read them all in one call. `set_node_script` also takes a list, to put one script on many nodes.
 - `batch_update_nodes` sets properties on many nodes in one call, and `instantiate_scene` takes starting `properties`. `batch_create_nodes` also places many copies of a scene at once (`scene_path` instead of `node_type`), e.g. 30 trees in one call.
 - Node paths start at `/root`, the open scene's root. The running-game form with the root's name (`/root/Level/Player`) works too.
 - A call with missing or wrong parameters gets the tool's parameter list back in the error, so the AI can retry without loading the schema. Short names AIs often use are read as the one parameter they fit: `path` for `script_path`, `type` and `name` for `node_type` and `node_name`, `property_name` for `property`.

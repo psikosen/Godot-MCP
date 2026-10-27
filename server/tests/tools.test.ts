@@ -2303,6 +2303,31 @@ describe('Godot MCP tool command wiring', () => {
     expect(output).toContain('denied');
   });
 
+  it('reads several nodes in one get_node_properties call; one bad path does not sink the rest', async () => {
+    const tool = getTool(nodeTools, 'get_node_properties');
+    mockSendCommand.mockImplementation(async (_command, payload: any) => {
+      if (payload.node_path === '/root/Missing') throw new Error('Node not found: /root/Missing');
+      return { properties: { name: payload.node_path.split('/').pop() } };
+    });
+    const output = await tool.execute({ node_path: ['/root/A', '/root/Missing', '/root/B'] });
+
+    expect(output).toContain('Properties of node at /root/A:\nname: "A"');
+    expect(output).toContain('/root/Missing: Node not found');
+    expect(output).toContain('Properties of node at /root/B:\nname: "B"');
+    mockSendCommand.mockImplementation(async () => ({}));
+  });
+
+  it('assigns one script to several nodes, creating the file only once', async () => {
+    const tool = getTool(nodeTools, 'set_node_script');
+    mockSendCommand.mockClear();
+    mockSendCommand.mockImplementation(async (_command, payload: any) => ({ status: payload.node_path === '/root/C2' ? 'no_change' : 'committed' }));
+    const output = await tool.execute({ node_path: ['/root/C1', '/root/C2', '/root/C3'], script_path: 'res://coin.gd', create_script: true });
+
+    expect(output).toBe('Assigned script res://coin.gd to /root/C1, /root/C3 [committed]; /root/C2 already had it');
+    expect(mockSendCommand.mock.calls.map(([, payload]: any) => payload.create_script)).toEqual([true, false, false]);
+    mockSendCommand.mockImplementation(async () => ({}));
+  });
+
   it('sends overwrite=false for create_script unless asked to overwrite', async () => {
     const tool = getTool(scriptTools, 'create_script');
     const base = { script_path: 'res://scripts/example.gd', content: 'extends Node' };

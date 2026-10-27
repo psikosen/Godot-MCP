@@ -327,7 +327,7 @@ func _is_protected_path(path: String) -> bool:
 	return false
 
 
-# The recent-errors buffer (utils/error_log.gd), or null before Godot 4.5.
+# The recent-errors buffer (utils/godot45/error_log.gd), or null before Godot 4.5.
 func _error_log():
 	return Engine.get_meta("GodotMCPErrorLog") if Engine.has_meta("GodotMCPErrorLog") else null
 

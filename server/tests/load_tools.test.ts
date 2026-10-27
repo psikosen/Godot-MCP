@@ -162,7 +162,7 @@ describe('listed schemas', () => {
   it('lists the parameters when a call has wrong or missing ones', async () => {
     const server = await startServer();
     const empty = await server.callTool('get_node_properties', {});
-    expect(empty.error.message).toMatch(/node_path: Required.*this tool takes node_path\* string/);
+    expect(empty.error.message).toMatch(/node_path: (Required|Invalid input).*this tool takes node_path\* string/);
     const unknown = await server.callTool('load_tools', { group: 'water' });
     expect(unknown.error.message).toContain('this tool takes groups string[], tools string[], find string, unload string[]');
     const { parameterList, withShortNames } = await import('../dist/utils/listed_schema.js');
