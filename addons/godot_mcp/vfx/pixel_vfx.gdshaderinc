@@ -424,3 +424,127 @@ float px_bolt(vec2 p, vec2 canvas, float k, int frame, uint s, int count, vec2 a
 	}
 	return best;
 }
+
+// ---------- more shapes ----------
+
+// A sword arc: its head sweeps from a0 to a1 (radians, either way round), its tail chases it, and the
+// crescent is thickest in the middle and sharp at both ends.
+float px_arc(vec2 p, float k, uint s, float R, float th, float a0, float a1, float sweep) {
+	float head = 0.12 + 0.88 * px_ease_out(k / sweep, 3.0);
+	float tail = smoothstep(sweep * 0.4, 1.0, k) * 0.98;
+	float rad = length(p);
+	if (head <= tail + 0.01 || rad > R + 0.04 || rad < R - th * 2.0) {
+		return 0.0;
+	}
+	float span = a1 - a0;
+	float a = atan(p.y, p.x) - a0;
+	float q = mod(span < 0.0 ? -a : a, TAU) / abs(span);
+	if (q < tail || q > head) {
+		return 0.0;
+	}
+	float u = (q - tail) / (head - tail);
+	float w = th * pow(sin(PI * pow(u, 0.85)), 0.7) * (0.35 + 0.65 * (1.0 - smoothstep(0.45, 1.0, k)));
+	float dr = R - rad;
+	if (dr < -0.02 || dr > w) {
+		return 0.0;
+	}
+	if (px_fbm(vec3(p * 5.0, k * 2.0), s, 2, ivec3(0)) < smoothstep(0.5, 1.0, k) * (1.0 - u) * 0.9) {
+		return 0.0;
+	}
+	return (0.45 + 0.9 * (1.0 - dr / max(w, 0.001))) * (0.55 + 0.45 * u);
+}
+
+// A hit star: uneven spikes pop out fast, then the middle hollows out.
+float px_star(vec2 p, float k, uint s, float points, float r, float inner, float sharp) {
+	float R = r * px_ease_out(k / 0.25, 3.0) * (1.0 + 0.15 * k);
+	float a = atan(p.y, p.x) / TAU * points;
+	float f = abs(a - round(a)) * 2.0;
+	float reach = R * mix(0.65, 1.1, px_rand(px_mod(int(round(a)), int(points)), 0, s));
+	float d = length(p) / (reach * (inner + (1.0 - inner) * pow(1.0 - f, sharp)));
+	if (d >= 1.0) {
+		return 0.0;
+	}
+	float hollow = smoothstep(0.25, 1.0, k) * 1.6 * pow(max(0.0, 1.0 - length(p) / (R * 0.9)), 0.6);
+	return ((1.0 - d) * 1.5 + 0.2 - hollow) * (1.0 - 0.4 * k);
+}
+
+// A projectile head flying toward +x with a streaming, flickering tail; loops (ph 0..1).
+float px_comet(vec2 p, float ph, uint s, float r, float len) {
+	float n = px_fbm(vec3(p.x * 3.0 + ph * 16.0, p.y * 3.0, 0.3), s, 2, ivec3(8, 0, 0));
+	float heat = 0.0;
+	float d = length(p) / r;
+	if (d < 1.0) {
+		heat = (1.0 - d * d) * 1.4 + 0.25 + (n - 0.5) * 0.3;
+	}
+	if (p.x < 0.0 && p.x > -len) {
+		float along = -p.x / len;
+		float w = r * pow(1.0 - along, 0.8) * (0.8 + 0.5 * n);
+		float q = abs(p.y + sin(TAU * (along * 1.5 + ph * 2.0)) * 0.06 * along) / max(w, 0.001);
+		if (q < 1.0) {
+			heat = max(heat, (1.0 - q * q) * (1.1 - along * 0.9) + (n - 0.5) * 0.8);
+		}
+	}
+	return heat;
+}
+
+// A beam from the anchor toward +x with a flaring, pulsing origin; its edges churn as it fires. Loops.
+float px_beam(vec2 p, float ph, uint s, float len, float th, float cap) {
+	float heat = 0.0;
+	if (p.x >= -0.05 && p.x <= len) {
+		float n = px_fbm(vec3(p.x * 2.5 - ph * 16.0, p.y * 2.0, 0.3), s, 2, ivec3(8, 0, 0));
+		float T = th * (0.75 + 0.6 * n) * (1.0 - 0.2 * p.x / len) * (1.0 + 0.1 * sin(TAU * ph * 4.0));
+		float q = abs(p.y) / max(T * sqrt(clamp((len - p.x) / 0.15, 0.0, 1.0)), 0.001);
+		if (q < 1.0) {
+			// A white-hot core line inside a coloured body.
+			heat = (1.0 - q * q) * 0.82 + pow(1.0 - q, 4.0) * 0.45 + (n - 0.5) * 0.45;
+		}
+	}
+	float d = length(p) / (cap * (1.0 + 0.12 * sin(TAU * ph * 3.0)));
+	return max(heat, d < 1.0 ? (1.0 - d) * 1.3 : 0.0);
+}
+
+// 0 in the middle of a hexagonal cell, 1 on its border (cells `size` across).
+float px_hex_edge(vec2 p, float size) {
+	vec2 r = vec2(1.0, 1.7320508);
+	vec2 a = mod(p / size, r) - r * 0.5;
+	vec2 b = mod(p / size - r * 0.5, r) - r * 0.5;
+	vec2 g = abs(dot(a, a) < dot(b, b) ? a : b);
+	return max(dot(g, vec2(0.5, 0.8660254)), g.x) * 2.0;
+}
+
+// A shield bubble: a wavering rim, a fixed glint, and rings of light running out through its hex
+// cells once per loop. The faint fill is meant to be dithered.
+float px_bubble(vec2 p, float ph, float R, float rim, float cell, float fill) {
+	float d = length(p) / R;
+	if (d > 1.0 + rim) {
+		return 0.0;
+	}
+	if (d > 1.0 - rim) {
+		return 0.75 + 0.12 * sin(TAU * (atan(p.y, p.x) / TAU * 3.0 + ph));
+	}
+	if (length((p / R - vec2(-0.35, -0.42)) * vec2(1.0, 1.7)) < 0.17) {
+		return 1.1;
+	}
+	float wave = 0.5 + 0.5 * cos(TAU * (d * 1.5 - ph));
+	if (px_hex_edge(p, cell) > 0.8) {
+		return 0.22 + 0.5 * wave * d;
+	}
+	return fill * (0.5 + d * d);
+}
+
+// A flame standing on its base (y = 0, up is -y): a tapering tongue that sways and flickers, licked
+// upward by scrolling noise. Loops (ph 0..1).
+float px_flame(vec2 p, float ph, uint s, float W, float H) {
+	float y = -p.y / H;
+	if (y < -0.15 || y > 1.1) {
+		return 0.0;
+	}
+	float x = p.x / W - 0.12 * sin(TAU * (y * 0.8 - ph * 2.0)) * max(y, 0.0);
+	float prof = y < 0.0 ? sqrt(max(0.0, 1.0 - (y / 0.15) * (y / 0.15))) : pow(1.0 - min(y, 1.0), 1.1);
+	float side = 1.0 - abs(x) / max(prof, 0.02);
+	if (side < -0.5) {
+		return 0.0;
+	}
+	float n = px_fbm(vec3(x * W * 4.0, y * H * 3.0 - ph * 16.0, 0.5), s, 3, ivec3(0, 8, 0));
+	return side * 0.9 + (n - 0.5) * 1.4 - max(y, 0.0) * 0.5 + 0.15;
+}
