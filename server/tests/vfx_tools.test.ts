@@ -54,6 +54,30 @@ describe('build_vfx_effect', () => {
   });
 });
 
+describe('build_pixel_vfx', () => {
+  it('sends the preset and element and says where the colours are', async () => {
+    mockSendCommand.mockResolvedValueOnce({
+      node_path: '/root/PixelTornado', preset: 'tornado', element: 'fire', status: 'committed', canvas: [64, 96], pixel_scale: 4,
+      size: [256, 384], fps: 12, frames: 16, loop: true, light: false, camera_shake: false, ramps: ['main', 'debris', 'dust'],
+    });
+    const out = await run('build_pixel_vfx', { preset: 'tornado', element: 'fire', position: [320, 400] });
+    expect(mockSendCommand).toHaveBeenCalledWith('build_pixel_vfx', { preset: 'tornado', element: 'fire', position: [320, 400] });
+    expect(out).toBe('fire tornado at /root/PixelTornado [committed]: 64x96 art pixels at 4x, 16 frames at 12 fps; looping.'
+      + ' Plays when the game runs; play() fires it again. Colours: FX material main_ramp, FX material debris_ramp, FX material dust_ramp.'
+      + ' See it move: capture_scene_image with filmstrip.');
+  });
+
+  it('refuses unknown presets, elements and scales', () => {
+    expect(() => parse('build_pixel_vfx', { preset: 'meteor' })).toThrow();
+    expect(() => parse('build_pixel_vfx', { preset: 'heal', element: 'cheese' })).toThrow();
+    expect(() => parse('build_pixel_vfx', { preset: 'heal', pixel_scale: 0 })).toThrow();
+  });
+
+  it('loads with the effects and vfx groups', () => {
+    expect(groupsOf('build_pixel_vfx')).toEqual(['effects', 'vfx']);
+  });
+});
+
 describe('configure_particles_3d VFX options', () => {
   it('accepts curves, sub-emitter, collision, flipbook and draw options', async () => {
     mockSendCommand.mockResolvedValueOnce({ status: 'committed', amount: 64, lifetime: 1, emitting: true, notes: ['at_collision needs a collider'] });
@@ -80,5 +104,11 @@ describe('capture_scene_image', () => {
   it('takes particles_time to show a burst mid-effect', () => {
     expect(parse('capture_scene_image', { particles_time: 0.3 })).toEqual({ particles_time: 0.3 });
     expect(() => parse('capture_scene_image', { particles_time: 11 })).toThrow();
+  });
+
+  it('takes a filmstrip of 2 to 8 moments', () => {
+    expect(parse('capture_scene_image', { filmstrip: [0.05, 0.2, 0.5] })).toEqual({ filmstrip: [0.05, 0.2, 0.5] });
+    expect(() => parse('capture_scene_image', { filmstrip: [0.1] })).toThrow();
+    expect(() => parse('capture_scene_image', { filmstrip: [0, 1, 2, 3, 4, 5, 6, 7, 8] })).toThrow();
   });
 });

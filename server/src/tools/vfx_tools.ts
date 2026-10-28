@@ -41,4 +41,37 @@ export const vfxTools: MCPTool[] = [
     },
     metadata: { requiredRole: 'edit' },
   },
+  {
+    name: 'build_pixel_vfx',
+    description: 'Pixel-art 2D effect drawn live by a shader: hard colour bands on a real pixel grid, stepped frames. Presets tornado, explosion, lightning, vortex, heal; element or color recolours it. Optional light and camera shake. Plays when the game runs; play() fires it again. Undo-aware.',
+    parameters: z.object({
+      preset: z.enum(['tornado', 'explosion', 'lightning', 'vortex', 'heal']),
+      element: z.enum(['fire', 'ice', 'lightning', 'wind', 'dark', 'holy', 'nature', 'arcane', 'poison', 'water', 'blood', 'earth', 'plasma', 'steel'])
+        .optional().describe('Colours (default per preset: wind tornado, fire explosion, ...); fire + tornado makes a firestorm'),
+      color: z.any().optional().describe('Any colour instead of an element, e.g. "#40a0ff"'),
+      parent_path: z.string().optional(),
+      name: z.string().optional(),
+      position: vector.optional().describe('Ground effects (tornado, lightning, heal) stand on this point'),
+      pixel_scale: z.number().int().min(1).max(16).optional().describe('Screen pixels per art pixel (default 4)'),
+      light: z.boolean().optional().describe('A PointLight2D that pops with the effect (default on, except tornado)'),
+      camera_shake: z.boolean().optional().describe('Default on for explosion and lightning'),
+      autoplay: z.boolean().optional().describe('Default true: plays when it enters the game'),
+      replay_every: z.number().min(0).optional().describe('Seconds between replays of a one-shot (0 plays once)'),
+      seed: z.number().int().optional(),
+      transaction_id: z.string().optional(),
+    }),
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      try {
+        const r = await send('build_pixel_vfx', args);
+        const [w, h] = r.canvas as number[];
+        const extras = [r.light ? 'light' : '', r.camera_shake ? 'camera shake' : '', r.loop ? 'looping' : 'one-shot'].filter(Boolean);
+        return `${r.element} ${r.preset} at ${r.node_path} [${r.status}]: ${w}x${h} art pixels at ${r.pixel_scale}x, ${r.frames} frames at ${r.fps} fps; ${extras.join(', ')}.`
+          + ` Plays when the game runs; play() fires it again. Colours: ${(r.ramps as string[]).map(slot => `FX material ${slot}_ramp`).join(', ')}.`
+          + ' See it move: capture_scene_image with filmstrip.';
+      } catch (error) {
+        return fail('build pixel VFX', error);
+      }
+    },
+    metadata: { requiredRole: 'edit' },
+  },
 ];
