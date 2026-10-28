@@ -67,6 +67,13 @@ describe('build_pixel_vfx', () => {
       + ' See it move: capture_scene_image with filmstrip.');
   });
 
+  it('takes the newer presets and flip', () => {
+    for (const preset of ['slash', 'impact', 'poof', 'slam', 'fireball', 'beam', 'portal', 'shield', 'flame']) {
+      expect(parse('build_pixel_vfx', { preset })).toEqual({ preset });
+    }
+    expect(parse('build_pixel_vfx', { preset: 'beam', flip: true })).toEqual({ preset: 'beam', flip: true });
+  });
+
   it('refuses unknown presets, elements and scales', () => {
     expect(() => parse('build_pixel_vfx', { preset: 'meteor' })).toThrow();
     expect(() => parse('build_pixel_vfx', { preset: 'heal', element: 'cheese' })).toThrow();

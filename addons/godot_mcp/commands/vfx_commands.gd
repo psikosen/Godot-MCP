@@ -486,6 +486,33 @@ const PIXEL_PRESETS := {
 	"heal": {"canvas": Vector2i(48, 64), "fps": 15, "frames": 20, "loop": false, "pivot": Vector2(0.5, 0.95),
 		"element": "nature", "slots": {"main": "main"}, "preview": 0.6,
 		"light": [3.0, 1.3, 0.0], "shake": 0},
+	"slash": {"canvas": Vector2i(64, 64), "fps": 18, "frames": 12, "loop": false, "pivot": Vector2(0.5, 0.5),
+		"element": "steel", "slots": {"main": "main", "spark": "main"}, "preview": 0.17,
+		"light": [0.0, 0.0, 0.0], "shake": 0},
+	"impact": {"canvas": Vector2i(48, 48), "fps": 18, "frames": 10, "loop": false, "pivot": Vector2(0.5, 0.5),
+		"element": "holy", "slots": {"main": "main", "spark": "main"}, "preview": 0.11,
+		"light": [3.0, 0.3, 0.2], "shake": 3},
+	"fireball": {"canvas": Vector2i(64, 32), "fps": 12, "frames": 8, "loop": true, "pivot": Vector2(0.75, 0.5),
+		"element": "fire", "slots": {"main": "main", "spark": "main"}, "preview": 0.25,
+		"light": [2.5, 0.0, 0.3], "shake": 0},
+	"beam": {"canvas": Vector2i(128, 32), "fps": 12, "frames": 12, "loop": true, "pivot": Vector2(0.125, 0.5),
+		"element": "arcane", "slots": {"main": "main", "spark": "main"}, "preview": 0.25,
+		"light": [3.0, 0.0, 0.25], "shake": 0},
+	"portal": {"canvas": Vector2i(64, 64), "fps": 12, "frames": 16, "loop": true, "pivot": Vector2(0.5, 0.5),
+		"element": "arcane", "slots": {"main": "main", "spark": "main"}, "preview": 0.5,
+		"light": [2.0, 0.0, 0.15], "shake": 0},
+	"shield": {"canvas": Vector2i(64, 64), "fps": 12, "frames": 16, "loop": true, "pivot": Vector2(0.5, 0.5),
+		"element": "ice", "slots": {"main": "main", "spark": "main"}, "preview": 0.3,
+		"light": [1.6, 0.0, 0.1], "shake": 0},
+	"flame": {"canvas": Vector2i(32, 48), "fps": 12, "frames": 12, "loop": true, "pivot": Vector2(0.5, 0.92),
+		"element": "fire", "slots": {"main": "main", "smoke": "smoke", "spark": "main"}, "preview": 0.5,
+		"light": [2.5, 0.0, 0.45], "shake": 0},
+	"poof": {"canvas": Vector2i(48, 48), "fps": 15, "frames": 14, "loop": false, "pivot": Vector2(0.5, 0.5),
+		"element": "holy", "slots": {"main": "smoke", "spark": "main"}, "preview": 0.25,
+		"light": [0.0, 0.0, 0.0], "shake": 0},
+	"slam": {"canvas": Vector2i(96, 64), "fps": 15, "frames": 18, "loop": false, "pivot": Vector2(0.5, 0.8),
+		"element": "earth", "slots": {"main": "main", "dust": "dust", "debris": "debris"}, "preview": 0.2,
+		"light": [0.0, 0.0, 0.0], "shake": 8},
 }
 # Element colours: OK HSL hue, saturation, and how far highlights swing toward yellow (fire burns
 # from crimson to yellow-white); the ramps are built from them (see _pixel_ramp).
@@ -660,7 +687,7 @@ func _build_pixel_vfx(client_id: int, params: Dictionary, command_id: String) ->
 				steps = 5
 				ramp = _pixel_ramp(hue, sat * 0.4, steps, 0.02, 0.3)
 			_:
-				steps = 7 if preset in ["explosion", "vortex"] else 6
+				steps = 7 if preset in ["explosion", "vortex", "fireball", "portal", "flame"] else 6
 				ramp = _pixel_ramp(hue, sat, steps, 0.1, 0.98, warm)
 		material.set_shader_parameter(slot + "_ramp", ramp)
 		material.set_shader_parameter(slot + "_bands", steps)
@@ -669,6 +696,9 @@ func _build_pixel_vfx(client_id: int, params: Dictionary, command_id: String) ->
 	var wanted_name := str(params.get("name", "")).strip_edges()
 	root.name = _unique_child_name(parent, wanted_name if not wanted_name.is_empty() else "Pixel" + preset.to_pascal_case())
 	root.position = position
+	# Facing left: a whole-pixel mirror keeps the pixel grid (any other turn would not).
+	if bool(params.get("flip", false)):
+		root.scale = Vector2(-1, 1)
 	var fx := ColorRect.new()
 	fx.name = "FX"
 	fx.material = material
